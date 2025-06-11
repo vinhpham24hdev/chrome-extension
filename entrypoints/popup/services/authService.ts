@@ -1,4 +1,4 @@
-import { User, LoginCredentials } from "../../../types/auth";
+import { User, LoginCredentials } from "../types/auth";
 
 // services/authService.ts
 export class AuthService {
