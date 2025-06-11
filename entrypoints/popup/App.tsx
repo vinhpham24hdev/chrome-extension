@@ -1,8 +1,8 @@
 // App.tsx
 import React from 'react';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import LoginComponent from './components/LoginComponent';
-import Dashboard from './components/Dashboard';
+import { AuthProvider, useAuth } from '../contexts/AuthContext';
+import LoginComponent from '../components/LoginComponent';
+import Dashboard from '../components/Dashboard';
 
 // Main app content component
 function AppContent() {
