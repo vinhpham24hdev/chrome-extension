@@ -6,7 +6,7 @@ import React, {
   ReactNode,
 } from "react";
 import { authService } from "../services/authService";
-import { User, LoginCredentials, AuthState } from "../types/auth";
+import { User, LoginCredentials, AuthState } from "../../../types/auth";
 
 // Action types
 type AuthAction =
