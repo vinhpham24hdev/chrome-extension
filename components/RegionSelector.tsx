@@ -147,7 +147,7 @@ export default function RegionSelector({ imageUrl, onRegionSelect, onCancel }: R
         </div>
 
         {/* Controls */}
-        <div className="flex items-center justify-between p-4 border-t bg-gray-50">
+        <div className="p-4 border-t bg-gray-50">
           <div className="text-sm text-gray-600">
             {currentRegion ? (
               <span>
@@ -158,7 +158,7 @@ export default function RegionSelector({ imageUrl, onRegionSelect, onCancel }: R
             )}
           </div>
           
-          <div className="flex space-x-3">
+          <div className="flex space-x-3 overflow-x-auto">
             <button
               onClick={handleReset}
               disabled={!currentRegion}
