@@ -1,6 +1,5 @@
-import { User, LoginCredentials } from "../components/types/auth";
+import { User, LoginCredentials } from "../types/auth";
 
-// services/authService.ts
 export class AuthService {
   private static instance: AuthService;
   private currentUser: User | null = null;

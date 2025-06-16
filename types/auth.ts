@@ -1,4 +1,3 @@
-// types/auth.ts
 export interface User {
   id: string;
   username: string;
@@ -18,15 +17,30 @@ export interface AuthState {
   error: string | null;
 }
 
-// Additional types for future features
+export interface AuthContextType {
+  state: AuthState;
+  login: (credentials: LoginCredentials) => Promise<void>;
+  logout: () => Promise<void>;
+  clearError: () => void;
+}
+
+// Case management types (moved from types/auth.ts for better organization)
 export interface CaseItem {
   id: string;
   title: string;
   description?: string;
-  status: "active" | "pending" | "closed";
+  status: "active" | "pending" | "closed" | "archived";
+  priority: "low" | "medium" | "high" | "critical";
   createdAt: string;
   updatedAt?: string;
   assignedTo?: string;
+  tags?: string[];
+  metadata?: {
+    totalScreenshots?: number;
+    totalVideos?: number;
+    lastActivity?: string;
+    totalFileSize?: number;
+  };
 }
 
 export interface CaptureItem {
@@ -37,11 +51,4 @@ export interface CaptureItem {
   url?: string;
   timestamp: string;
   fileSize?: number;
-}
-
-export interface AuthContextType {
-  state: AuthState;
-  login: (credentials: LoginCredentials) => Promise<void>;
-  logout: () => Promise<void>;
-  clearError: () => void;
 }
