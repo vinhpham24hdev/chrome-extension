@@ -4,7 +4,7 @@ export interface UploadConfig {
   region: string;
   apiBaseUrl: string;
   maxFileSize?: number;
-  allowedTypes?: string[];
+  allowedTypes?: readonly string[]; // Changed to readonly to match AWSConfig
   enableMockMode?: boolean;
 }
 
@@ -727,7 +727,7 @@ export class S3Service {
     }
 
     // Check file type
-    if (!this.config.allowedTypes!.includes(file.type)) {
+    if (this.config.allowedTypes && !this.config.allowedTypes.includes(file.type)) {
       errors.push(`File type ${file.type} is not allowed`);
     }
 
