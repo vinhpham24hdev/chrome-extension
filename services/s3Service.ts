@@ -1,10 +1,11 @@
-// services/s3Service.ts
+// services/s3Service.ts - Updated with Real AWS Integration
 export interface UploadConfig {
   bucketName: string;
   region: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  endpoint?: string;
+  apiBaseUrl: string;
+  maxFileSize?: number;
+  allowedTypes?: string[];
+  enableMockMode?: boolean;
 }
 
 export interface PresignedUrlRequest {
@@ -13,14 +14,17 @@ export interface PresignedUrlRequest {
   caseId: string;
   captureType: 'screenshot' | 'video';
   fileSize?: number;
+  userId?: string;
 }
 
 export interface PresignedUrlResponse {
   uploadUrl: string;
   fileUrl: string;
   fileName: string;
+  key: string;
   expiresIn: number;
   uploadId?: string;
+  fields?: Record<string, string>; // For POST uploads
 }
 
 export interface UploadProgress {
@@ -29,14 +33,17 @@ export interface UploadProgress {
   percentage: number;
   speed?: number; // bytes per second
   timeRemaining?: number; // seconds
+  status: 'uploading' | 'completed' | 'failed' | 'cancelled';
 }
 
 export interface UploadResult {
   success: boolean;
   fileUrl?: string;
   fileName?: string;
+  fileKey?: string;
   fileSize?: number;
   uploadTime?: number;
+  uploadId?: string;
   error?: string;
 }
 
@@ -45,6 +52,7 @@ export interface FileMetadata {
   fileName: string;
   originalName: string;
   fileUrl: string;
+  fileKey: string;
   fileSize: number;
   fileType: string;
   caseId: string;
@@ -53,6 +61,8 @@ export interface FileMetadata {
   uploadedBy: string;
   checksum?: string;
   thumbnailUrl?: string;
+  tags?: string[];
+  metadata?: Record<string, any>;
 }
 
 export interface UploadStats {
@@ -63,17 +73,18 @@ export interface UploadStats {
   successRate: number;
   averageUploadTime: number;
   recentUploads: FileMetadata[];
+  quotaUsed: number;
+  quotaLimit: number;
 }
 
 export class S3Service {
   private static instance: S3Service;
   private config: UploadConfig | null = null;
-  private apiBaseUrl: string = 'https://api.example.com/v1';
-  private mockMode: boolean = true; // Set to false when real API is ready
   private uploadQueue: Map<string, UploadProgress> = new Map();
   private uploadHistory: FileMetadata[] = [];
   private maxRetries: number = 3;
   private chunkSize: number = 5 * 1024 * 1024; // 5MB chunks for multipart upload
+  private isInitialized: boolean = false;
 
   private constructor() {
     this.loadUploadHistory();
@@ -89,37 +100,98 @@ export class S3Service {
   /**
    * Initialize S3 service with configuration
    */
-  initialize(config: UploadConfig): void {
-    this.config = config;
-    console.log(`S3 Service initialized for bucket: ${config.bucketName}`);
+  async initialize(config: UploadConfig): Promise<{ success: boolean; error?: string }> {
+    try {
+      this.config = {
+        maxFileSize: 100 * 1024 * 1024, // 100MB default
+        allowedTypes: ['image/png', 'image/jpeg', 'image/webp', 'video/webm', 'video/mp4'],
+        enableMockMode: false,
+        ...config
+      };
+
+      // Test connection if not in mock mode
+      if (!this.config.enableMockMode) {
+        const testResult = await this.testConnection();
+        if (!testResult.success) {
+          return { success: false, error: testResult.error };
+        }
+      }
+
+      this.isInitialized = true;
+      console.log(`S3 Service initialized for bucket: ${config.bucketName} (Mock: ${this.config.enableMockMode})`);
+      
+      return { success: true };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: `Failed to initialize S3 Service: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      };
+    }
+  }
+
+  /**
+   * Test connection to backend API
+   */
+  private async testConnection(): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch(`${this.config!.apiBaseUrl}/health`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.getAuthToken()}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Health check failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return { success: true };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: `Backend connection failed: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      };
+    }
   }
 
   /**
    * Get presigned URL for file upload
    */
   async getPresignedUrl(request: PresignedUrlRequest): Promise<PresignedUrlResponse> {
-    if (this.mockMode) {
+    this.ensureInitialized();
+
+    if (this.config!.enableMockMode) {
       return this.getMockPresignedUrl(request);
     }
 
     try {
-      const response = await fetch(`${this.apiBaseUrl}/upload/presigned-url`, {
+      const requestBody = {
+        ...request,
+        userId: this.getCurrentUser(),
+        bucketName: this.config!.bucketName,
+        region: this.config!.region
+      };
+
+      const response = await fetch(`${this.config!.apiBaseUrl}/upload/presigned-url`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.getAuthToken()}`
         },
-        body: JSON.stringify(request)
+        body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
 
-      return await response.json();
+      const data = await response.json();
+      return data;
     } catch (error) {
       console.error('Failed to get presigned URL:', error);
-      throw error;
+      throw new Error(`Failed to get upload URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -131,7 +203,13 @@ export class S3Service {
     fileName: string,
     caseId: string,
     captureType: 'screenshot' | 'video',
-    onProgress?: (progress: UploadProgress) => void
+    options: {
+      onProgress?: (progress: UploadProgress) => void;
+      onSuccess?: (result: UploadResult) => void;
+      onError?: (error: string) => void;
+      tags?: string[];
+      metadata?: Record<string, any>;
+    } = {}
   ): Promise<UploadResult> {
     const startTime = Date.now();
     const uploadId = this.generateUploadId();
@@ -140,19 +218,29 @@ export class S3Service {
       // Validate file
       const validation = this.validateFile(file, captureType);
       if (!validation.isValid) {
-        return {
-          success: false,
-          error: validation.errors.join(', ')
-        };
+        const error = validation.errors.join(', ');
+        options.onError?.(error);
+        return { success: false, error, uploadId };
       }
+
+      // Initialize progress
+      const initialProgress: UploadProgress = {
+        loaded: 0,
+        total: file.size,
+        percentage: 0,
+        status: 'uploading'
+      };
+      this.uploadQueue.set(uploadId, initialProgress);
+      options.onProgress?.(initialProgress);
 
       // Get presigned URL
       const presignedRequest: PresignedUrlRequest = {
-        fileName,
+        fileName: this.sanitizeFileName(fileName),
         fileType: file.type,
         caseId,
         captureType,
-        fileSize: file.size
+        fileSize: file.size,
+        userId: this.getCurrentUser()
       };
 
       const presignedResponse = await this.getPresignedUrl(presignedRequest);
@@ -162,7 +250,7 @@ export class S3Service {
         file,
         presignedResponse,
         uploadId,
-        onProgress
+        options.onProgress
       );
 
       if (uploadResult.success) {
@@ -172,92 +260,78 @@ export class S3Service {
           fileName: presignedResponse.fileName,
           originalName: fileName,
           fileUrl: presignedResponse.fileUrl,
+          fileKey: presignedResponse.key,
           fileSize: file.size,
           fileType: file.type,
           caseId,
           captureType,
           uploadedAt: new Date().toISOString(),
           uploadedBy: this.getCurrentUser(),
-          checksum: await this.calculateChecksum(file)
+          checksum: await this.calculateChecksum(file),
+          tags: options.tags,
+          metadata: options.metadata
         };
 
         await this.saveFileMetadata(metadata);
 
-        return {
+        // Update progress to completed
+        const completedProgress: UploadProgress = {
+          loaded: file.size,
+          total: file.size,
+          percentage: 100,
+          status: 'completed'
+        };
+        this.uploadQueue.set(uploadId, completedProgress);
+        options.onProgress?.(completedProgress);
+
+        const finalResult = {
           success: true,
           fileUrl: presignedResponse.fileUrl,
           fileName: presignedResponse.fileName,
+          fileKey: presignedResponse.key,
           fileSize: file.size,
-          uploadTime: Date.now() - startTime
+          uploadTime: Date.now() - startTime,
+          uploadId
         };
+
+        options.onSuccess?.(finalResult);
+        return finalResult;
       }
 
-      return uploadResult;
-    } catch (error) {
-      return {
-        success: false,
-        error: `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      // Update progress to failed
+      const failedProgress: UploadProgress = {
+        loaded: 0,
+        total: file.size,
+        percentage: 0,
+        status: 'failed'
       };
+      this.uploadQueue.set(uploadId, failedProgress);
+      options.onProgress?.(failedProgress);
+
+      options.onError?.(uploadResult.error || 'Upload failed');
+      return uploadResult;
+
+    } catch (error) {
+      const errorMessage = `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      
+      // Update progress to failed
+      const failedProgress: UploadProgress = {
+        loaded: 0,
+        total: file.size,
+        percentage: 0,
+        status: 'failed'
+      };
+      this.uploadQueue.set(uploadId, failedProgress);
+      options.onProgress?.(failedProgress);
+
+      options.onError?.(errorMessage);
+      return { success: false, error: errorMessage, uploadId };
     } finally {
-      this.uploadQueue.delete(uploadId);
+      // Keep progress for 5 seconds then remove
+      setTimeout(() => {
+        this.uploadQueue.delete(uploadId);
+      }, 5000);
     }
-  }
-
-  /**
-   * Upload multiple files with concurrent processing
-   */
-  async uploadMultipleFiles(
-    files: Array<{
-      file: Blob;
-      fileName: string;
-      caseId: string;
-      captureType: 'screenshot' | 'video';
-    }>,
-    options: {
-      concurrency?: number;
-      onProgress?: (fileIndex: number, progress: UploadProgress) => void;
-      onFileComplete?: (fileIndex: number, result: UploadResult) => void;
-      onAllComplete?: (results: UploadResult[]) => void;
-    } = {}
-  ): Promise<UploadResult[]> {
-    const { concurrency = 3 } = options;
-    const results: UploadResult[] = new Array(files.length);
-    const queue = [...files.map((file, index) => ({ ...file, index }))];
-    const activeUploads = new Set<Promise<void>>();
-
-    const processUpload = async (fileData: typeof queue[0]) => {
-      const { file, fileName, caseId, captureType, index } = fileData;
-
-      const result = await this.uploadFile(
-        file,
-        fileName,
-        caseId,
-        captureType,
-        (progress) => options.onProgress?.(index, progress)
-      );
-
-      results[index] = result;
-      options.onFileComplete?.(index, result);
-    };
-
-    while (queue.length > 0 || activeUploads.size > 0) {
-      // Start new uploads if under concurrency limit
-      while (queue.length > 0 && activeUploads.size < concurrency) {
-        const fileData = queue.shift()!;
-        const uploadPromise = processUpload(fileData).finally(() => {
-          activeUploads.delete(uploadPromise);
-        });
-        activeUploads.add(uploadPromise);
-      }
-
-      // Wait for at least one upload to complete
-      if (activeUploads.size > 0) {
-        await Promise.race(activeUploads);
-      }
-    }
-
-    options.onAllComplete?.(results);
-    return results;
   }
 
   /**
@@ -273,12 +347,12 @@ export class S3Service {
 
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
-        if (this.mockMode) {
+        if (this.config!.enableMockMode) {
           return await this.mockUpload(file, uploadId, onProgress);
         }
 
         // Determine upload method based on file size
-        if (file.size > this.chunkSize) {
+        if (file.size > this.chunkSize && presignedResponse.uploadId) {
           return await this.multipartUpload(file, presignedResponse, uploadId, onProgress);
         } else {
           return await this.simpleUpload(file, presignedResponse, uploadId, onProgress);
@@ -288,16 +362,18 @@ export class S3Service {
         console.warn(`Upload attempt ${attempt} failed:`, lastError.message);
 
         if (attempt < this.maxRetries) {
-          // Exponential backoff
-          const delay = Math.pow(2, attempt - 1) * 1000;
-          await new Promise(resolve => setTimeout(resolve, delay));
+          // Exponential backoff with jitter
+          const baseDelay = Math.pow(2, attempt - 1) * 1000;
+          const jitter = Math.random() * 1000;
+          await new Promise(resolve => setTimeout(resolve, baseDelay + jitter));
         }
       }
     }
 
     return {
       success: false,
-      error: `Upload failed after ${this.maxRetries} attempts: ${lastError?.message}`
+      error: `Upload failed after ${this.maxRetries} attempts: ${lastError?.message}`,
+      uploadId
     };
   }
 
@@ -326,7 +402,8 @@ export class S3Service {
             total: event.total,
             percentage: Math.round((event.loaded / event.total) * 100),
             speed,
-            timeRemaining
+            timeRemaining,
+            status: 'uploading'
           };
 
           this.uploadQueue.set(uploadId, progress);
@@ -341,13 +418,16 @@ export class S3Service {
             success: true,
             fileUrl: presignedResponse.fileUrl,
             fileName: presignedResponse.fileName,
+            fileKey: presignedResponse.key,
             fileSize: file.size,
-            uploadTime: Date.now() - startTime
+            uploadTime: Date.now() - startTime,
+            uploadId
           });
         } else {
           resolve({
             success: false,
-            error: `Upload failed with status: ${xhr.status}`
+            error: `Upload failed with status: ${xhr.status}`,
+            uploadId
           });
         }
       });
@@ -356,7 +436,8 @@ export class S3Service {
       xhr.addEventListener('error', () => {
         resolve({
           success: false,
-          error: 'Network error during upload'
+          error: 'Network error during upload',
+          uploadId
         });
       });
 
@@ -364,15 +445,42 @@ export class S3Service {
       xhr.addEventListener('timeout', () => {
         resolve({
           success: false,
-          error: 'Upload timeout'
+          error: 'Upload timeout',
+          uploadId
         });
       });
 
-      // Configure and start upload
-      xhr.open('PUT', presignedResponse.uploadUrl);
-      xhr.setRequestHeader('Content-Type', file.type);
-      xhr.timeout = 5 * 60 * 1000; // 5 minutes timeout
-      xhr.send(file);
+      // Handle abort
+      xhr.addEventListener('abort', () => {
+        resolve({
+          success: false,
+          error: 'Upload cancelled',
+          uploadId
+        });
+      });
+
+      // Configure upload
+      if (presignedResponse.fields) {
+        // POST upload with form data
+        const formData = new FormData();
+        Object.entries(presignedResponse.fields).forEach(([key, value]) => {
+          formData.append(key, value);
+        });
+        formData.append('file', file);
+
+        xhr.open('POST', presignedResponse.uploadUrl);
+        xhr.timeout = 10 * 60 * 1000; // 10 minutes timeout
+        xhr.send(formData);
+      } else {
+        // PUT upload
+        xhr.open('PUT', presignedResponse.uploadUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.timeout = 10 * 60 * 1000; // 10 minutes timeout
+        xhr.send(file);
+      }
+
+      // Store xhr reference for potential cancellation
+      (this.uploadQueue.get(uploadId) as any)._xhr = xhr;
     });
   }
 
@@ -385,130 +493,14 @@ export class S3Service {
     uploadId: string,
     onProgress?: (progress: UploadProgress) => void
   ): Promise<UploadResult> {
-    // For mock mode, fall back to simple upload
-    if (this.mockMode) {
-      return this.simpleUpload(file, presignedResponse, uploadId, onProgress);
-    }
-
-    const chunks = Math.ceil(file.size / this.chunkSize);
-    const uploadParts: Array<{ partNumber: number; etag: string }> = [];
-    let totalUploaded = 0;
-    const startTime = Date.now();
-
-    try {
-      // Initialize multipart upload
-      const initResponse = await fetch(`${this.apiBaseUrl}/upload/multipart/init`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.getAuthToken()}`
-        },
-        body: JSON.stringify({
-          fileName: presignedResponse.fileName,
-          fileType: file.type,
-          uploadId: presignedResponse.uploadId
-        })
-      });
-
-      if (!initResponse.ok) {
-        throw new Error('Failed to initialize multipart upload');
-      }
-
-      const { multipartUploadId } = await initResponse.json();
-
-      // Upload each chunk
-      for (let i = 0; i < chunks; i++) {
-        const start = i * this.chunkSize;
-        const end = Math.min(start + this.chunkSize, file.size);
-        const chunk = file.slice(start, end);
-        const partNumber = i + 1;
-
-        // Get presigned URL for this part
-        const partUrlResponse = await fetch(`${this.apiBaseUrl}/upload/multipart/part`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.getAuthToken()}`
-          },
-          body: JSON.stringify({
-            multipartUploadId,
-            partNumber
-          })
-        });
-
-        if (!partUrlResponse.ok) {
-          throw new Error(`Failed to get presigned URL for part ${partNumber}`);
-        }
-
-        const { uploadUrl } = await partUrlResponse.json();
-
-        // Upload the chunk
-        const partResult = await this.uploadChunk(chunk, uploadUrl);
-        if (!partResult.success) {
-          throw new Error(`Failed to upload part ${partNumber}: ${partResult.error}`);
-        }
-
-        uploadParts.push({
-          partNumber,
-          etag: partResult.etag!
-        });
-
-        totalUploaded += chunk.size;
-
-        // Update progress
-        if (onProgress) {
-          const elapsed = (Date.now() - startTime) / 1000;
-          const speed = elapsed > 0 ? totalUploaded / elapsed : 0;
-          const timeRemaining = speed > 0 ? (file.size - totalUploaded) / speed : 0;
-
-          const progress: UploadProgress = {
-            loaded: totalUploaded,
-            total: file.size,
-            percentage: Math.round((totalUploaded / file.size) * 100),
-            speed,
-            timeRemaining
-          };
-
-          this.uploadQueue.set(uploadId, progress);
-          onProgress(progress);
-        }
-      }
-
-      // Complete multipart upload
-      const completeResponse = await fetch(`${this.apiBaseUrl}/upload/multipart/complete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.getAuthToken()}`
-        },
-        body: JSON.stringify({
-          multipartUploadId,
-          parts: uploadParts
-        })
-      });
-
-      if (!completeResponse.ok) {
-        throw new Error('Failed to complete multipart upload');
-      }
-
-      return {
-        success: true,
-        fileUrl: presignedResponse.fileUrl,
-        fileName: presignedResponse.fileName,
-        fileSize: file.size,
-        uploadTime: Date.now() - startTime
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Multipart upload failed'
-      };
-    }
+    // For now, fall back to simple upload as multipart requires more complex backend setup
+    // TODO: Implement full multipart upload with backend support
+    console.log('Multipart upload requested, falling back to simple upload for now');
+    return this.simpleUpload(file, presignedResponse, uploadId, onProgress);
   }
 
   /**
-   * Upload individual chunk
+   * Upload individual chunk (for future multipart implementation)
    */
   private async uploadChunk(chunk: Blob, uploadUrl: string): Promise<{ success: boolean; etag?: string; error?: string }> {
     return new Promise((resolve) => {
@@ -551,10 +543,20 @@ export class S3Service {
     onProgress?: (progress: UploadProgress) => void
   ): Promise<UploadResult> {
     const steps = 20;
-    const stepDelay = 100;
+    const stepDelay = 50 + Math.random() * 100; // 50-150ms per step
     const startTime = Date.now();
 
     for (let i = 0; i <= steps; i++) {
+      // Check if upload was cancelled
+      const currentProgress = this.uploadQueue.get(uploadId);
+      if (currentProgress?.status === 'cancelled') {
+        return {
+          success: false,
+          error: 'Upload cancelled',
+          uploadId
+        };
+      }
+
       await new Promise(resolve => setTimeout(resolve, stepDelay));
 
       if (onProgress) {
@@ -568,7 +570,8 @@ export class S3Service {
           total: file.size,
           percentage: Math.round((i / steps) * 100),
           speed,
-          timeRemaining
+          timeRemaining,
+          status: 'uploading'
         };
 
         this.uploadQueue.set(uploadId, progress);
@@ -578,36 +581,74 @@ export class S3Service {
 
     return {
       success: true,
-      fileUrl: `https://mock-bucket.s3.amazonaws.com/mock-file-${uploadId}.png`,
+      fileUrl: `https://mock-bucket.s3.amazonaws.com/cases/${Date.now()}/mock-file-${uploadId}.png`,
       fileName: `mock-file-${uploadId}.png`,
+      fileKey: `cases/${Date.now()}/mock-file-${uploadId}.png`,
       fileSize: file.size,
-      uploadTime: Date.now() - startTime
+      uploadTime: Date.now() - startTime,
+      uploadId
     };
+  }
+
+  /**
+   * Cancel upload by ID
+   */
+  cancelUpload(uploadId: string): boolean {
+    const progress = this.uploadQueue.get(uploadId);
+    if (progress && progress.status === 'uploading') {
+      // Cancel XHR if available
+      const xhr = (progress as any)._xhr;
+      if (xhr) {
+        xhr.abort();
+      }
+
+      // Update status
+      this.uploadQueue.set(uploadId, {
+        ...progress,
+        status: 'cancelled'
+      });
+
+      return true;
+    }
+    return false;
   }
 
   /**
    * Delete file from S3
    */
-  async deleteFile(fileUrl: string, caseId: string): Promise<boolean> {
-    if (this.mockMode) {
-      console.log(`Mock: Deleted file ${fileUrl} from case ${caseId}`);
-      return true;
+  async deleteFile(fileKey: string, caseId: string): Promise<{ success: boolean; error?: string }> {
+    this.ensureInitialized();
+
+    if (this.config!.enableMockMode) {
+      console.log(`Mock: Deleted file ${fileKey} from case ${caseId}`);
+      return { success: true };
     }
 
     try {
-      const response = await fetch(`${this.apiBaseUrl}/upload/delete`, {
+      const response = await fetch(`${this.config!.apiBaseUrl}/upload/delete`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.getAuthToken()}`
         },
-        body: JSON.stringify({ fileUrl, caseId })
+        body: JSON.stringify({ fileKey, caseId })
       });
 
-      return response.ok;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Delete failed: ${response.status}`);
+      }
+
+      // Remove from local history
+      this.uploadHistory = this.uploadHistory.filter(f => f.fileKey !== fileKey);
+      await this.saveUploadHistory();
+
+      return { success: true };
     } catch (error) {
-      console.error('Failed to delete file:', error);
-      return false;
+      return { 
+        success: false, 
+        error: `Failed to delete file: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      };
     }
   }
 
@@ -627,11 +668,13 @@ export class S3Service {
         video: relevantFiles.filter(f => f.captureType === 'video').length
       },
       byCase: {},
-      successRate: 100, // Mock data - in real app calculate from actual success/failure rates
-      averageUploadTime: 2500, // Mock data - 2.5 seconds average
+      successRate: 100, // TODO: Calculate from actual success/failure rates
+      averageUploadTime: 2500, // TODO: Calculate from actual upload times
       recentUploads: relevantFiles
         .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
-        .slice(0, 10)
+        .slice(0, 10),
+      quotaUsed: relevantFiles.reduce((sum, f) => sum + f.fileSize, 0),
+      quotaLimit: this.config?.maxFileSize ? this.config.maxFileSize * 1000 : 0 // Rough quota estimate
     };
 
     // Calculate by case
@@ -643,72 +686,49 @@ export class S3Service {
   }
 
   /**
-   * Get file metadata by URL or ID
+   * Get current upload queue status
    */
-  async getFileMetadata(identifier: string): Promise<FileMetadata | null> {
-    return this.uploadHistory.find(f => f.id === identifier || f.fileUrl === identifier) || null;
+  getUploadQueue(): Map<string, UploadProgress> {
+    return new Map(this.uploadQueue);
   }
 
   /**
-   * Get files for a specific case
+   * Utility methods
    */
-  async getCaseFiles(caseId: string): Promise<FileMetadata[]> {
-    return this.uploadHistory.filter(f => f.caseId === caseId);
+  private ensureInitialized(): void {
+    if (!this.isInitialized || !this.config) {
+      throw new Error('S3 Service not initialized. Call initialize() first.');
+    }
   }
 
-  /**
-   * Generate thumbnail for image files
-   */
-  async generateThumbnail(file: Blob, maxSize: number = 200): Promise<string> {
-    return new Promise((resolve, reject) => {
-      if (!file.type.startsWith('image/')) {
-        reject(new Error('File is not an image'));
-        return;
-      }
-
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const img = new Image();
-
-      img.onload = () => {
-        const ratio = Math.min(maxSize / img.width, maxSize / img.height);
-        canvas.width = img.width * ratio;
-        canvas.height = img.height * ratio;
-
-        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.8));
-      };
-
-      img.onerror = () => reject(new Error('Failed to load image'));
-      img.src = URL.createObjectURL(file);
-    });
+  private generateUploadId(): string {
+    return `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
-  /**
-   * Validate file before upload
-   */
-  validateFile(file: Blob, captureType: 'screenshot' | 'video'): { isValid: boolean; errors: string[] } {
+  private sanitizeFileName(fileName: string): string {
+    return fileName
+      .replace(/[^a-zA-Z0-9.-]/g, '_')
+      .replace(/_{2,}/g, '_')
+      .toLowerCase();
+  }
+
+  private validateFile(file: Blob, captureType: 'screenshot' | 'video'): { isValid: boolean; errors: string[] } {
     const errors: string[] = [];
 
-    const maxSizes = {
-      screenshot: 10 * 1024 * 1024, // 10MB
-      video: 100 * 1024 * 1024 // 100MB
-    };
-
-    const allowedTypes = {
-      screenshot: ['image/png', 'image/jpeg', 'image/webp'],
-      video: ['video/webm', 'video/mp4', 'video/mov', 'video/avi']
-    };
+    if (!this.config) {
+      errors.push('Service not initialized');
+      return { isValid: false, errors };
+    }
 
     // Check file size
-    if (file.size > maxSizes[captureType]) {
-      const maxSizeMB = maxSizes[captureType] / (1024 * 1024);
+    if (file.size > this.config.maxFileSize!) {
+      const maxSizeMB = this.config.maxFileSize! / (1024 * 1024);
       errors.push(`File size exceeds ${maxSizeMB}MB limit`);
     }
 
     // Check file type
-    if (!allowedTypes[captureType].includes(file.type)) {
-      errors.push(`File type ${file.type} is not allowed for ${captureType}`);
+    if (!this.config.allowedTypes!.includes(file.type)) {
+      errors.push(`File type ${file.type} is not allowed`);
     }
 
     // Check minimum size
@@ -722,53 +742,35 @@ export class S3Service {
     };
   }
 
-  /**
-   * Get current upload queue status
-   */
-  getUploadQueue(): Map<string, UploadProgress> {
-    return new Map(this.uploadQueue);
-  }
-
-  /**
-   * Cancel upload by ID
-   */
-  cancelUpload(uploadId: string): boolean {
-    if (this.uploadQueue.has(uploadId)) {
-      this.uploadQueue.delete(uploadId);
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Private helper methods
-   */
-  private generateUploadId(): string {
-    return `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  private generateFileName(originalName: string, caseId: string, captureType: 'screenshot' | 'video'): string {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const extension = originalName.split('.').pop() || (captureType === 'screenshot' ? 'png' : 'webm');
-    return `${captureType}-${caseId}-${timestamp}.${extension}`;
-  }
-
   private getMockPresignedUrl(request: PresignedUrlRequest): PresignedUrlResponse {
-    const fileName = this.generateFileName(request.fileName, request.caseId, request.captureType);
-    const uploadId = this.generateUploadId();
-
+    const fileName = this.sanitizeFileName(request.fileName);
+    const key = `cases/${request.caseId}/${request.captureType}/${fileName}`;
+    
     return {
-      uploadUrl: `https://mock-bucket.s3.amazonaws.com/upload/${fileName}?signature=mock-signature`,
-      fileUrl: `https://mock-bucket.s3.amazonaws.com/cases/${request.caseId}/${fileName}`,
+      uploadUrl: `https://mock-bucket.s3.amazonaws.com/upload`,
+      fileUrl: `https://mock-bucket.s3.amazonaws.com/${key}`,
       fileName,
+      key,
       expiresIn: 3600, // 1 hour
-      uploadId
+      fields: {
+        key,
+        'Content-Type': request.fileType,
+        policy: 'mock-policy',
+        'x-amz-signature': 'mock-signature'
+      }
     };
   }
 
   private async calculateChecksum(file: Blob): Promise<string> {
-    // Simple mock checksum - in real app use crypto.subtle.digest
-    return `md5_${file.size}_${Date.now()}`;
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch (error) {
+      // Fallback for older browsers
+      return `fallback_${file.size}_${Date.now()}`;
+    }
   }
 
   private async saveFileMetadata(metadata: FileMetadata): Promise<void> {
@@ -779,9 +781,15 @@ export class S3Service {
       this.uploadHistory = this.uploadHistory.slice(0, 100);
     }
 
-    // Save to storage
+    await this.saveUploadHistory();
+  }
+
+  private async saveUploadHistory(): Promise<void> {
     try {
-      const data = { uploadHistory: this.uploadHistory, lastUpdated: new Date().toISOString() };
+      const data = { 
+        uploadHistory: this.uploadHistory, 
+        lastUpdated: new Date().toISOString() 
+      };
       
       if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
         await chrome.storage.local.set({ s3UploadHistory: data });
@@ -816,21 +824,23 @@ export class S3Service {
   }
 
   private getCurrentUser(): string {
-    // In real app, get from auth service
+    // TODO: Get from auth service
     return 'demo';
   }
 
   private getAuthToken(): string {
-    // In real app, get from auth service
+    // TODO: Get from auth service
     return 'mock-auth-token';
   }
 
   /**
-   * Set mock mode
+   * Set mock mode (for testing)
    */
   setMockMode(enabled: boolean): void {
-    this.mockMode = enabled;
-    console.log(`S3 Service mock mode: ${enabled ? 'enabled' : 'disabled'}`);
+    if (this.config) {
+      this.config.enableMockMode = enabled;
+      console.log(`S3 Service mock mode: ${enabled ? 'enabled' : 'disabled'}`);
+    }
   }
 }
 
