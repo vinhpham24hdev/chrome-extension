@@ -23,15 +23,13 @@ export class ServiceManager {
   }
 
   /**
-   * Initialize all services
+   * Initialize all services with real backend
    */
   public async initialize(): Promise<ServiceInitializationResult> {
-    // Return existing promise if already initializing
     if (this.initializationPromise) {
       return this.initializationPromise;
     }
 
-    // Return success if already initialized
     if (this.isInitialized) {
       return { success: true, errors: [], warnings: [] };
     }
@@ -45,7 +43,21 @@ export class ServiceManager {
     const warnings: string[] = [];
 
     try {
-      console.log('🚀 Initializing services...');
+      console.log('🚀 Initializing services with real backend...');
+
+      // Get configuration from environment
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+      const enableMockMode = import.meta.env.VITE_ENABLE_MOCK_MODE === 'true';
+      const awsRegion = import.meta.env.VITE_AWS_REGION || 'us-east-1';
+      const bucketName = import.meta.env.VITE_AWS_S3_BUCKET_NAME;
+
+      if (!apiBaseUrl) {
+        errors.push('VITE_API_BASE_URL not configured');
+      }
+
+      if (!bucketName) {
+        warnings.push('VITE_AWS_S3_BUCKET_NAME not configured');
+      }
 
       // Initialize AWS configuration
       try {
@@ -53,51 +65,69 @@ export class ServiceManager {
         console.log('✅ AWS configuration initialized');
       } catch (error) {
         const errorMsg = `AWS configuration failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        warnings.push(errorMsg);
+        console.warn('⚠️', errorMsg);
+      }
+
+      // Initialize S3 service
+      try {
+        const s3Result = await s3Service.initialize({
+          bucketName: bucketName || 'screen-capture-tool-dev',
+          region: awsRegion,
+          apiBaseUrl: apiBaseUrl || 'http://localhost:3001/api',
+          maxFileSize: 100 * 1024 * 1024, // 100MB
+          allowedTypes: ['image/png', 'image/jpeg', 'image/webp', 'video/webm', 'video/mp4'],
+          enableMockMode: enableMockMode
+        });
+
+        if (s3Result.success) {
+          console.log('✅ S3 service initialized');
+          if (enableMockMode) {
+            warnings.push('S3 service running in mock mode');
+          }
+        } else {
+          errors.push(`S3 service initialization failed: ${s3Result.error}`);
+        }
+      } catch (error) {
+        const errorMsg = `S3 service error: ${error instanceof Error ? error.message : 'Unknown error'}`;
         errors.push(errorMsg);
         console.error('❌', errorMsg);
       }
 
-      // Initialize S3 service
-      if (awsConfigManager.isInitialized()) {
-        try {
-          const awsConfig = awsConfigManager.getConfig();
-          const s3Result = await s3Service.initialize({
-            bucketName: awsConfig.bucketName,
-            region: awsConfig.region,
-            apiBaseUrl: awsConfig.apiBaseUrl,
-            maxFileSize: awsConfig.maxFileSize,
-            allowedTypes: awsConfig.allowedFileTypes,
-            enableMockMode: awsConfig.enableMockMode
-          });
-
-          if (s3Result.success) {
-            console.log('✅ S3 service initialized');
-            if (awsConfig.enableMockMode) {
-              warnings.push('S3 service running in mock mode');
-            }
-          } else {
-            errors.push(`S3 service initialization failed: ${s3Result.error}`);
-            console.error('❌ S3 service failed:', s3Result.error);
-          }
-        } catch (error) {
-          const errorMsg = `S3 service initialization error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-          errors.push(errorMsg);
-          console.error('❌', errorMsg);
-        }
-      }
-
       // Initialize Case service
       try {
+        // Set case service to use real backend
+        caseService.setMockMode(enableMockMode);
         await caseService.initialize();
         console.log('✅ Case service initialized');
+        if (enableMockMode) {
+          warnings.push('Case service running in mock mode');
+        }
       } catch (error) {
         const errorMsg = `Case service initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
         errors.push(errorMsg);
         console.error('❌', errorMsg);
       }
 
+      // Test backend connectivity
+      if (!enableMockMode && apiBaseUrl) {
+        try {
+          const response = await fetch(`${apiBaseUrl}/health`);
+          if (response.ok) {
+            const healthData = await response.json();
+            console.log('✅ Backend connectivity verified');
+            console.log(`   Backend status: ${healthData.status}`);
+            console.log(`   SDK version: ${healthData.sdkVersion || 'unknown'}`);
+          } else {
+            warnings.push(`Backend health check failed: ${response.status}`);
+          }
+        } catch (error) {
+          warnings.push(`Backend not reachable: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+
       const success = errors.length === 0;
-      this.isInitialized = success;
+      this.isInitialized = success || warnings.length > 0; // Initialize even with warnings
 
       if (success) {
         console.log('🎉 All services initialized successfully');
@@ -105,7 +135,7 @@ export class ServiceManager {
           console.warn('⚠️ Warnings:', warnings);
         }
       } else {
-        console.error('💥 Service initialization failed with errors:', errors);
+        console.error('💥 Service initialization failed:', errors);
       }
 
       return { success, errors, warnings };
@@ -129,15 +159,6 @@ export class ServiceManager {
   }
 
   /**
-   * Reinitialize services (useful for config changes)
-   */
-  public async reinitialize(): Promise<ServiceInitializationResult> {
-    this.isInitialized = false;
-    this.initializationPromise = null;
-    return this.initialize();
-  }
-
-  /**
    * Get service health status
    */
   public getServiceStatus(): {
@@ -145,15 +166,25 @@ export class ServiceManager {
     s3Service: boolean;
     caseService: boolean;
     overall: boolean;
+    backendConnected: boolean;
   } {
     return {
       awsConfig: awsConfigManager.isInitialized(),
-      s3Service: this.isInitialized, // TODO: Add specific S3 health check
-      caseService: this.isInitialized, // TODO: Add specific case service health check
-      overall: this.isInitialized
+      s3Service: this.isInitialized,
+      caseService: this.isInitialized,
+      overall: this.isInitialized,
+      backendConnected: !import.meta.env.VITE_ENABLE_MOCK_MODE
     };
+  }
+
+  /**
+   * Reinitialize services (useful for config changes)
+   */
+  public async reinitialize(): Promise<ServiceInitializationResult> {
+    this.isInitialized = false;
+    this.initializationPromise = null;
+    return this.initialize();
   }
 }
 
-// Export singleton instance
 export const serviceManager = ServiceManager.getInstance();
