@@ -1,4 +1,6 @@
-// services/caseService.ts
+// services/caseService.ts - Real API with Authentication
+import { authService } from './authService';
+
 export interface CaseItem {
   id: string;
   title: string;
@@ -38,6 +40,8 @@ export interface CaseFilters {
   tags?: string[];
   search?: string;
   assignedTo?: string;
+  page?: number;
+  limit?: number;
   dateRange?: {
     start: string;
     end: string;
@@ -61,16 +65,27 @@ export interface CaseStats {
   totalFileSize: number;
 }
 
+export interface CaseResponse {
+  cases?: CaseItem[];
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+}
+
 export class CaseService {
   private static instance: CaseService;
-  private apiBaseUrl: string = "https://api.example.com/v1";
-  private mockMode: boolean = true; // Set to false when real API is ready
+  private apiBaseUrl: string;
+  private mockMode: boolean = false;
   private mockCases: CaseItem[] = [
     {
       id: "CASE-001",
       title: "Website Bug Investigation",
-      description:
-        "Investigating critical layout issues on the homepage that affect user experience",
+      description: "Investigating critical layout issues on the homepage that affect user experience",
       status: "active",
       priority: "high",
       createdAt: "2024-06-10T09:00:00Z",
@@ -81,14 +96,13 @@ export class CaseService {
         totalScreenshots: 8,
         totalVideos: 2,
         lastActivity: "2024-06-11T14:30:00Z",
-        totalFileSize: 15728640, // 15MB
+        totalFileSize: 15728640,
       },
     },
     {
       id: "CASE-002",
       title: "Performance Issue Analysis",
-      description:
-        "Page loading times are significantly slower than expected, affecting conversion rates",
+      description: "Page loading times are significantly slower than expected, affecting conversion rates",
       status: "pending",
       priority: "medium",
       createdAt: "2024-06-09T10:15:00Z",
@@ -99,81 +113,15 @@ export class CaseService {
         totalScreenshots: 12,
         totalVideos: 1,
         lastActivity: "2024-06-09T16:45:00Z",
-        totalFileSize: 28311552, // 27MB
+        totalFileSize: 28311552,
       },
     },
-    {
-      id: "CASE-003",
-      title: "User Experience Review",
-      description:
-        "Comprehensive review of user onboarding flow based on customer feedback",
-      status: "active",
-      priority: "medium",
-      createdAt: "2024-06-08T11:20:00Z",
-      updatedAt: "2024-06-10T09:15:00Z",
-      assignedTo: "demo",
-      tags: ["ux", "onboarding", "review", "feedback"],
-      metadata: {
-        totalScreenshots: 25,
-        totalVideos: 5,
-        lastActivity: "2024-06-10T09:15:00Z",
-        totalFileSize: 52428800, // 50MB
-      },
-    },
-    {
-      id: "CASE-004",
-      title: "Security Audit Report",
-      description:
-        "Annual security audit findings and recommendations implementation",
-      status: "closed",
-      priority: "critical",
-      createdAt: "2024-06-07T08:00:00Z",
-      updatedAt: "2024-06-08T17:00:00Z",
-      assignedTo: "admin",
-      tags: ["security", "audit", "compliance", "annual"],
-      metadata: {
-        totalScreenshots: 35,
-        totalVideos: 8,
-        lastActivity: "2024-06-08T17:00:00Z",
-        totalFileSize: 104857600, // 100MB
-      },
-    },
-    {
-      id: "CASE-005",
-      title: "Mobile Responsiveness Issues",
-      description:
-        "Various UI elements not displaying correctly on mobile devices across different screen sizes",
-      status: "active",
-      priority: "high",
-      createdAt: "2024-06-11T13:45:00Z",
-      assignedTo: "demo",
-      tags: ["mobile", "responsive", "css", "urgent"],
-      metadata: {
-        totalScreenshots: 6,
-        totalVideos: 0,
-        lastActivity: "2024-06-11T13:45:00Z",
-        totalFileSize: 8388608, // 8MB
-      },
-    },
-    {
-      id: "CASE-006",
-      title: "Database Optimization",
-      description: "Query performance optimization for large datasets",
-      status: "pending",
-      priority: "low",
-      createdAt: "2024-06-06T14:20:00Z",
-      assignedTo: "admin",
-      tags: ["database", "performance", "backend"],
-      metadata: {
-        totalScreenshots: 4,
-        totalVideos: 1,
-        lastActivity: "2024-06-06T16:30:00Z",
-        totalFileSize: 5242880, // 5MB
-      },
-    },
+    // ... other mock cases
   ];
 
-  private constructor() {}
+  private constructor() {
+    this.apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+  }
 
   public static getInstance(): CaseService {
     if (!CaseService.instance) {
@@ -183,17 +131,19 @@ export class CaseService {
   }
 
   /**
-   * Initialize service and load data
+   * Initialize service
    */
   async initialize(): Promise<void> {
     if (this.mockMode) {
       await this.loadMockCases();
+      console.log('📋 Case Service initialized (Mock Mode)');
+    } else {
+      console.log('📋 Case Service initialized (Real API Mode)');
     }
-    console.log("Case Service initialized");
   }
 
   /**
-   * Get all cases with optional filtering
+   * Get all cases with optional filtering (Real API)
    */
   async getCases(filters?: CaseFilters): Promise<CaseItem[]> {
     if (this.mockMode) {
@@ -203,6 +153,7 @@ export class CaseService {
     try {
       const queryParams = new URLSearchParams();
 
+      // Add filters to query params
       if (filters?.status?.length) {
         queryParams.append("status", filters.status.join(","));
       }
@@ -218,27 +169,39 @@ export class CaseService {
       if (filters?.tags?.length) {
         queryParams.append("tags", filters.tags.join(","));
       }
+      if (filters?.page) {
+        queryParams.append("page", filters.page.toString());
+      }
+      if (filters?.limit) {
+        queryParams.append("limit", filters.limit.toString());
+      }
       if (filters?.dateRange) {
         queryParams.append("startDate", filters.dateRange.start);
         queryParams.append("endDate", filters.dateRange.end);
       }
 
-      const response = await fetch(`${this.apiBaseUrl}/cases?${queryParams}`);
+      const queryString = queryParams.toString();
+      const endpoint = `/cases${queryString ? `?${queryString}` : ''}`;
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      const response = await authService.authenticatedRequest<CaseResponse>(endpoint);
+
+      if (!response.success) {
+        console.error('❌ Failed to fetch cases:', response.error);
+        // Fallback to mock data on API failure
+        return this.getMockCases(filters);
       }
 
-      const data = await response.json();
-      return data.cases || [];
+      return response.data?.cases || [];
+
     } catch (error) {
-      console.error("Failed to fetch cases:", error);
+      console.error('💥 Exception fetching cases:', error);
+      // Fallback to mock data on exception
       return this.getMockCases(filters);
     }
   }
 
   /**
-   * Get a specific case by ID
+   * Get a specific case by ID (Real API)
    */
   async getCaseById(caseId: string): Promise<CaseItem | null> {
     if (this.mockMode) {
@@ -246,24 +209,23 @@ export class CaseService {
     }
 
     try {
-      const response = await fetch(`${this.apiBaseUrl}/cases/${caseId}`);
+      const response = await authService.authenticatedRequest<CaseItem>(`/cases/${caseId}`);
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          return null;
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.success) {
+        console.error('❌ Failed to fetch case:', response.error);
+        return this.mockCases.find((c) => c.id === caseId) || null;
       }
 
-      return await response.json();
+      return response.data || null;
+
     } catch (error) {
-      console.error("Failed to fetch case:", error);
+      console.error('💥 Exception fetching case:', error);
       return this.mockCases.find((c) => c.id === caseId) || null;
     }
   }
 
   /**
-   * Create a new case
+   * Create a new case (Real API)
    */
   async createCase(caseData: CreateCaseRequest): Promise<CaseItem> {
     if (this.mockMode) {
@@ -274,7 +236,7 @@ export class CaseService {
         status: "active",
         priority: caseData.priority || "medium",
         createdAt: new Date().toISOString(),
-        assignedTo: "demo", // In real app, get from current user
+        assignedTo: authService.getCurrentUser()?.username || "demo",
         tags: caseData.tags || [],
         metadata: {
           totalScreenshots: 0,
@@ -290,33 +252,35 @@ export class CaseService {
     }
 
     try {
-      const response = await fetch(`${this.apiBaseUrl}/cases`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.getAuthToken()}`,
-        },
-        body: JSON.stringify(caseData),
-      });
+      const response = await authService.authenticatedRequest<{ case: CaseItem }>(
+        '/cases',
+        {
+          method: 'POST',
+          body: JSON.stringify(caseData),
+        }
+      );
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to create case');
       }
 
-      return await response.json();
+      if (!response.data?.case) {
+        throw new Error('Invalid response format');
+      }
+
+      console.log('✅ Case created successfully:', response.data.case.id);
+      return response.data.case;
+
     } catch (error) {
-      console.error("Failed to create case:", error);
+      console.error('❌ Failed to create case:', error);
       throw error;
     }
   }
 
   /**
-   * Update an existing case
+   * Update an existing case (Real API)
    */
-  async updateCase(
-    caseId: string,
-    updates: UpdateCaseRequest
-  ): Promise<CaseItem> {
+  async updateCase(caseId: string, updates: UpdateCaseRequest): Promise<CaseItem> {
     if (this.mockMode) {
       const caseIndex = this.mockCases.findIndex((c) => c.id === caseId);
       if (caseIndex === -1) {
@@ -338,28 +302,33 @@ export class CaseService {
     }
 
     try {
-      const response = await fetch(`${this.apiBaseUrl}/cases/${caseId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.getAuthToken()}`,
-        },
-        body: JSON.stringify(updates),
-      });
+      const response = await authService.authenticatedRequest<{ case: CaseItem }>(
+        `/cases/${caseId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(updates),
+        }
+      );
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to update case');
       }
 
-      return await response.json();
+      if (!response.data?.case) {
+        throw new Error('Invalid response format');
+      }
+
+      console.log('✅ Case updated successfully:', caseId);
+      return response.data.case;
+
     } catch (error) {
-      console.error("Failed to update case:", error);
+      console.error('❌ Failed to update case:', error);
       throw error;
     }
   }
 
   /**
-   * Delete a case
+   * Delete a case (Real API)
    */
   async deleteCase(caseId: string): Promise<boolean> {
     if (this.mockMode) {
@@ -375,148 +344,131 @@ export class CaseService {
     }
 
     try {
-      const response = await fetch(`${this.apiBaseUrl}/cases/${caseId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${this.getAuthToken()}`,
-        },
-      });
+      const response = await authService.authenticatedRequest(
+        `/cases/${caseId}`,
+        { method: 'DELETE' }
+      );
 
-      return response.ok;
+      if (response.success) {
+        console.log('✅ Case deleted successfully:', caseId);
+        return true;
+      } else {
+        console.error('❌ Failed to delete case:', response.error);
+        return false;
+      }
+
     } catch (error) {
-      console.error("Failed to delete case:", error);
+      console.error('💥 Exception deleting case:', error);
       return false;
     }
   }
 
   /**
-   * Get cases assigned to current user
-   */
-  async getMyCases(): Promise<CaseItem[]> {
-    const currentUser = this.getCurrentUser();
-    return this.getCases({ assignedTo: currentUser });
-  }
-
-  /**
-   * Update case metadata (screenshots/videos count)
+   * Update case metadata (Real API)
    */
   async updateCaseMetadata(
     caseId: string,
     metadata: Partial<CaseItem["metadata"]>
   ): Promise<boolean> {
+    if (this.mockMode) {
+      const caseIndex = this.mockCases.findIndex((c) => c.id === caseId);
+      if (caseIndex !== -1) {
+        this.mockCases[caseIndex].metadata = {
+          ...this.mockCases[caseIndex].metadata,
+          ...metadata,
+          lastActivity: new Date().toISOString(),
+        };
+        this.mockCases[caseIndex].updatedAt = new Date().toISOString();
+        await this.saveMockCases();
+        return true;
+      }
+      return false;
+    }
+
     try {
-      const existingCase = await this.getCaseById(caseId);
-      if (!existingCase) {
-        return false;
-      }
-
-      const updatedMetadata = {
-        ...existingCase.metadata,
-        ...metadata,
-        lastActivity: new Date().toISOString(),
-      };
-
-      if (this.mockMode) {
-        const caseIndex = this.mockCases.findIndex((c) => c.id === caseId);
-        if (caseIndex !== -1) {
-          this.mockCases[caseIndex].metadata = updatedMetadata;
-          this.mockCases[caseIndex].updatedAt = new Date().toISOString();
-          await this.saveMockCases();
-          return true;
-        }
-        return false;
-      }
-
-      // Real API call for metadata update
-      const response = await fetch(
-        `${this.apiBaseUrl}/cases/${caseId}/metadata`,
+      const response = await authService.authenticatedRequest(
+        `/cases/${caseId}/metadata`,
         {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${this.getAuthToken()}`,
-          },
-          body: JSON.stringify(updatedMetadata),
+          method: 'PATCH',
+          body: JSON.stringify({ metadata }),
         }
       );
 
-      return response.ok;
+      if (response.success) {
+        console.log('✅ Case metadata updated:', caseId);
+        return true;
+      } else {
+        console.error('❌ Failed to update case metadata:', response.error);
+        return false;
+      }
+
     } catch (error) {
-      console.error("Failed to update case metadata:", error);
+      console.error('💥 Exception updating case metadata:', error);
       return false;
     }
   }
 
   /**
-   * Search cases by title or description
-   */
-  async searchCases(query: string): Promise<CaseItem[]> {
-    return this.getCases({ search: query });
-  }
-
-  /**
-   * Get case statistics
+   * Get case statistics (Real API)
    */
   async getCaseStats(): Promise<CaseStats> {
-    const cases = await this.getCases();
+    if (this.mockMode) {
+      const cases = this.mockCases;
+      return this.calculateStatsFromCases(cases);
+    }
 
-    const stats: CaseStats = {
-      total: cases.length,
-      active: cases.filter((c) => c.status === "active").length,
-      pending: cases.filter((c) => c.status === "pending").length,
-      closed: cases.filter((c) => c.status === "closed").length,
-      archived: cases.filter((c) => c.status === "archived").length,
-      byPriority: {
-        low: cases.filter((c) => c.priority === "low").length,
-        medium: cases.filter((c) => c.priority === "medium").length,
-        high: cases.filter((c) => c.priority === "high").length,
-        critical: cases.filter((c) => c.priority === "critical").length,
-      },
-      recentActivity: cases
-        .filter((c) => c.metadata?.lastActivity)
-        .sort(
-          (a, b) =>
-            new Date(b.metadata!.lastActivity!).getTime() -
-            new Date(a.metadata!.lastActivity!).getTime()
-        )
-        .slice(0, 5),
-      totalFiles: cases.reduce(
-        (sum, c) =>
-          sum +
-          (c.metadata?.totalScreenshots || 0) +
-          (c.metadata?.totalVideos || 0),
-        0
-      ),
-      totalFileSize: cases.reduce(
-        (sum, c) => sum + (c.metadata?.totalFileSize || 0),
-        0
-      ),
-    };
+    try {
+      const response = await authService.authenticatedRequest<CaseStats>('/cases/stats');
 
-    return stats;
+      if (response.success && response.data) {
+        return response.data;
+      } else {
+        console.warn('⚠️ Failed to get stats from API, calculating from mock data');
+        return this.calculateStatsFromCases(this.mockCases);
+      }
+
+    } catch (error) {
+      console.error('💥 Exception getting case stats:', error);
+      return this.calculateStatsFromCases(this.mockCases);
+    }
   }
 
   /**
-   * Get available tags across all cases
+   * Get available tags (Real API)
    */
   async getAvailableTags(): Promise<string[]> {
-    const cases = await this.getCases();
-    const tagSet = new Set<string>();
+    if (this.mockMode) {
+      const tagSet = new Set<string>();
+      this.mockCases.forEach((case_) => {
+        case_.tags?.forEach((tag) => tagSet.add(tag));
+      });
+      return Array.from(tagSet).sort();
+    }
 
-    cases.forEach((case_) => {
-      case_.tags?.forEach((tag) => tagSet.add(tag));
-    });
+    try {
+      const response = await authService.authenticatedRequest<{ tags: string[] }>('/cases/tags');
 
-    return Array.from(tagSet).sort();
+      if (response.success && response.data?.tags) {
+        return response.data.tags;
+      } else {
+        console.warn('⚠️ Failed to get tags from API, using mock data');
+        const tagSet = new Set<string>();
+        this.mockCases.forEach((case_) => {
+          case_.tags?.forEach((tag) => tagSet.add(tag));
+        });
+        return Array.from(tagSet).sort();
+      }
+
+    } catch (error) {
+      console.error('💥 Exception getting available tags:', error);
+      return [];
+    }
   }
 
   /**
-   * Bulk update cases
+   * Bulk update cases (Real API)
    */
-  async bulkUpdateCases(
-    caseIds: string[],
-    updates: UpdateCaseRequest
-  ): Promise<boolean> {
+  async bulkUpdateCases(caseIds: string[], updates: UpdateCaseRequest): Promise<boolean> {
     if (this.mockMode) {
       let updated = 0;
       for (const caseId of caseIds) {
@@ -531,55 +483,81 @@ export class CaseService {
     }
 
     try {
-      const response = await fetch(`${this.apiBaseUrl}/cases/bulk-update`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.getAuthToken()}`,
-        },
-        body: JSON.stringify({ caseIds, updates }),
-      });
+      const response = await authService.authenticatedRequest(
+        '/cases/bulk-update',
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ caseIds, updates }),
+        }
+      );
 
-      return response.ok;
+      if (response.success) {
+        console.log('✅ Bulk update successful');
+        return true;
+      } else {
+        console.error('❌ Bulk update failed:', response.error);
+        return false;
+      }
+
     } catch (error) {
-      console.error("Failed to bulk update cases:", error);
+      console.error('💥 Exception during bulk update:', error);
       return false;
     }
   }
 
   /**
-   * Export cases to CSV
+   * Export cases to CSV (Real API)
    */
   async exportCases(filters?: CaseFilters): Promise<string> {
-    const cases = await this.getCases(filters);
+    if (this.mockMode) {
+      const cases = this.getMockCases(filters);
+      return this.generateCSV(cases);
+    }
 
-    const headers = [
-      "ID",
-      "Title",
-      "Status",
-      "Priority",
-      "Created",
-      "Assigned To",
-      "Screenshots",
-      "Videos",
-    ];
-    const csvRows = [headers.join(",")];
+    try {
+      const queryParams = new URLSearchParams();
+      
+      // Add filters for export
+      if (filters?.status?.length) {
+        queryParams.append("status", filters.status.join(","));
+      }
+      if (filters?.priority?.length) {
+        queryParams.append("priority", filters.priority.join(","));
+      }
+      if (filters?.search) {
+        queryParams.append("search", filters.search);
+      }
+      if (filters?.assignedTo) {
+        queryParams.append("assignedTo", filters.assignedTo);
+      }
+      if (filters?.tags?.length) {
+        queryParams.append("tags", filters.tags.join(","));
+      }
 
-    cases.forEach((case_) => {
-      const row = [
-        case_.id,
-        `"${case_.title.replace(/"/g, '""')}"`,
-        case_.status,
-        case_.priority,
-        case_.createdAt.split("T")[0],
-        case_.assignedTo || "",
-        case_.metadata?.totalScreenshots || 0,
-        case_.metadata?.totalVideos || 0,
-      ];
-      csvRows.push(row.join(","));
-    });
+      const queryString = queryParams.toString();
+      const endpoint = `/cases/export${queryString ? `?${queryString}` : ''}`;
 
-    return csvRows.join("\n");
+      const response = await fetch(`${this.apiBaseUrl}${endpoint}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${authService.getAuthToken()}`,
+          'Accept': 'text/csv',
+        },
+      });
+
+      if (response.ok) {
+        return await response.text();
+      } else {
+        console.warn('⚠️ Export API failed, generating CSV from current data');
+        const cases = await this.getCases(filters);
+        return this.generateCSV(cases);
+      }
+
+    } catch (error) {
+      console.error('💥 Exception during export:', error);
+      const cases = await this.getCases(filters);
+      return this.generateCSV(cases);
+    }
   }
 
   /**
@@ -638,6 +616,71 @@ export class CaseService {
     );
   }
 
+  private calculateStatsFromCases(cases: CaseItem[]): CaseStats {
+    return {
+      total: cases.length,
+      active: cases.filter((c) => c.status === "active").length,
+      pending: cases.filter((c) => c.status === "pending").length,
+      closed: cases.filter((c) => c.status === "closed").length,
+      archived: cases.filter((c) => c.status === "archived").length,
+      byPriority: {
+        low: cases.filter((c) => c.priority === "low").length,
+        medium: cases.filter((c) => c.priority === "medium").length,
+        high: cases.filter((c) => c.priority === "high").length,
+        critical: cases.filter((c) => c.priority === "critical").length,
+      },
+      recentActivity: cases
+        .filter((c) => c.metadata?.lastActivity)
+        .sort(
+          (a, b) =>
+            new Date(b.metadata!.lastActivity!).getTime() -
+            new Date(a.metadata!.lastActivity!).getTime()
+        )
+        .slice(0, 5),
+      totalFiles: cases.reduce(
+        (sum, c) =>
+          sum +
+          (c.metadata?.totalScreenshots || 0) +
+          (c.metadata?.totalVideos || 0),
+        0
+      ),
+      totalFileSize: cases.reduce(
+        (sum, c) => sum + (c.metadata?.totalFileSize || 0),
+        0
+      ),
+    };
+  }
+
+  private generateCSV(cases: CaseItem[]): string {
+    const headers = [
+      "ID",
+      "Title",
+      "Status",
+      "Priority",
+      "Created",
+      "Assigned To",
+      "Screenshots",
+      "Videos",
+    ];
+    const csvRows = [headers.join(",")];
+
+    cases.forEach((case_) => {
+      const row = [
+        case_.id,
+        `"${case_.title.replace(/"/g, '""')}"`,
+        case_.status,
+        case_.priority,
+        case_.createdAt.split("T")[0],
+        case_.assignedTo || "",
+        case_.metadata?.totalScreenshots || 0,
+        case_.metadata?.totalVideos || 0,
+      ];
+      csvRows.push(row.join(","));
+    });
+
+    return csvRows.join("\n");
+  }
+
   private async saveMockCases(): Promise<void> {
     try {
       const casesData = {
@@ -677,22 +720,19 @@ export class CaseService {
     }
   }
 
-  private getCurrentUser(): string {
-    // In real app, get from auth service
-    return "demo";
-  }
-
-  private getAuthToken(): string {
-    // In real app, get from auth service
-    return "mock-token";
-  }
-
   /**
    * Set mock mode
    */
   setMockMode(enabled: boolean): void {
     this.mockMode = enabled;
-    console.log(`Case Service mock mode: ${enabled ? "enabled" : "disabled"}`);
+    console.log(`📋 Case Service mock mode: ${enabled ? "enabled" : "disabled"}`);
+  }
+
+  /**
+   * Check if running in mock mode
+   */
+  isMockMode(): boolean {
+    return this.mockMode;
   }
 }
 

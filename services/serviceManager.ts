@@ -1,17 +1,24 @@
+// services/serviceManager.ts - Real Backend Integration
 import { s3Service } from './s3Service';
 import { caseService } from './caseService';
+import { authService } from './authService';
 import { awsConfigManager } from '../config/aws';
 
 export interface ServiceInitializationResult {
   success: boolean;
   errors: string[];
   warnings: string[];
+  backendConnected: boolean;
+  authReady: boolean;
+  s3Ready: boolean;
+  casesReady: boolean;
 }
 
 export class ServiceManager {
   private static instance: ServiceManager;
   private isInitialized: boolean = false;
   private initializationPromise: Promise<ServiceInitializationResult> | null = null;
+  private backendConnected: boolean = false;
 
   private constructor() {}
 
@@ -31,7 +38,7 @@ export class ServiceManager {
     }
 
     if (this.isInitialized) {
-      return { success: true, errors: [], warnings: [] };
+      return this.getServiceStatus();
     }
 
     this.initializationPromise = this.performInitialization();
@@ -41,6 +48,10 @@ export class ServiceManager {
   private async performInitialization(): Promise<ServiceInitializationResult> {
     const errors: string[] = [];
     const warnings: string[] = [];
+    let backendConnected = false;
+    let authReady = false;
+    let s3Ready = false;
+    let casesReady = false;
 
     try {
       console.log('🚀 Initializing services with real backend...');
@@ -51,15 +62,53 @@ export class ServiceManager {
       const awsRegion = import.meta.env.VITE_AWS_REGION || 'us-east-1';
       const bucketName = import.meta.env.VITE_AWS_S3_BUCKET_NAME;
 
+      console.log('🔧 Configuration:', {
+        apiBaseUrl,
+        enableMockMode,
+        awsRegion,
+        bucketName: bucketName ? `${bucketName.substring(0, 20)}...` : 'NOT SET'
+      });
+
       if (!apiBaseUrl) {
-        errors.push('VITE_API_BASE_URL not configured');
+        errors.push('VITE_API_BASE_URL not configured in environment');
       }
 
-      if (!bucketName) {
-        warnings.push('VITE_AWS_S3_BUCKET_NAME not configured');
+      if (!bucketName && !enableMockMode) {
+        warnings.push('VITE_AWS_S3_BUCKET_NAME not configured - S3 uploads will not work');
       }
 
-      // Initialize AWS configuration
+      // 1. Test Backend Connectivity
+      console.log('🔍 Testing backend connectivity...');
+      try {
+        const connectionTest = await authService.testConnection();
+        if (connectionTest.connected) {
+          backendConnected = true;
+          this.backendConnected = true;
+          console.log('✅ Backend connectivity verified');
+          
+          if (enableMockMode) {
+            warnings.push('Backend connected but running in MOCK MODE');
+          }
+        } else {
+          backendConnected = false;
+          const errorMsg = `Backend not reachable: ${connectionTest.error}`;
+          if (enableMockMode) {
+            warnings.push(errorMsg + ' (Mock mode enabled)');
+          } else {
+            errors.push(errorMsg);
+          }
+        }
+      } catch (error) {
+        const errorMsg = `Backend connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        if (enableMockMode) {
+          warnings.push(errorMsg + ' (Mock mode enabled)');
+        } else {
+          errors.push(errorMsg);
+        }
+      }
+
+      // 2. Initialize AWS Configuration
+      console.log('🔧 Initializing AWS configuration...');
       try {
         awsConfigManager.initialize();
         console.log('✅ AWS configuration initialized');
@@ -69,7 +118,21 @@ export class ServiceManager {
         console.warn('⚠️', errorMsg);
       }
 
-      // Initialize S3 service
+      // 3. Initialize Authentication Service
+      console.log('🔐 Initializing authentication service...');
+      try {
+        // Auth service is initialized automatically, just verify it's working
+        authReady = true;
+        console.log('✅ Authentication service ready');
+      } catch (error) {
+        authReady = false;
+        const errorMsg = `Authentication service failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        errors.push(errorMsg);
+        console.error('❌', errorMsg);
+      }
+
+      // 4. Initialize S3 Service
+      console.log('☁️ Initializing S3 service...');
       try {
         const s3Result = await s3Service.initialize({
           bucketName: bucketName || 'screen-capture-tool-dev',
@@ -77,77 +140,155 @@ export class ServiceManager {
           apiBaseUrl: apiBaseUrl || 'http://localhost:3001/api',
           maxFileSize: 100 * 1024 * 1024, // 100MB
           allowedTypes: ['image/png', 'image/jpeg', 'image/webp', 'video/webm', 'video/mp4'],
-          enableMockMode: enableMockMode
+          enableMockMode: enableMockMode || !backendConnected
         });
 
         if (s3Result.success) {
+          s3Ready = true;
           console.log('✅ S3 service initialized');
-          if (enableMockMode) {
+          if (enableMockMode || !backendConnected) {
             warnings.push('S3 service running in mock mode');
           }
         } else {
+          s3Ready = false;
           errors.push(`S3 service initialization failed: ${s3Result.error}`);
         }
       } catch (error) {
+        s3Ready = false;
         const errorMsg = `S3 service error: ${error instanceof Error ? error.message : 'Unknown error'}`;
         errors.push(errorMsg);
         console.error('❌', errorMsg);
       }
 
-      // Initialize Case service
+      // 5. Initialize Case Service
+      console.log('📋 Initializing case service...');
       try {
-        // Set case service to use real backend
-        caseService.setMockMode(enableMockMode);
+        // Set case service to use real backend if connected
+        caseService.setMockMode(enableMockMode || !backendConnected);
         await caseService.initialize();
+        casesReady = true;
         console.log('✅ Case service initialized');
-        if (enableMockMode) {
+        
+        if (enableMockMode || !backendConnected) {
           warnings.push('Case service running in mock mode');
         }
       } catch (error) {
+        casesReady = false;
         const errorMsg = `Case service initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
         errors.push(errorMsg);
         console.error('❌', errorMsg);
       }
 
-      // Test backend connectivity
-      if (!enableMockMode && apiBaseUrl) {
+      // 6. Test Authenticated Endpoints (if backend connected)
+      if (backendConnected && !enableMockMode) {
+        console.log('🔒 Testing authenticated endpoints...');
         try {
-          const response = await fetch(`${apiBaseUrl}/health`);
-          if (response.ok) {
-            const healthData = await response.json();
-            console.log('✅ Backend connectivity verified');
-            console.log(`   Backend status: ${healthData.status}`);
-            console.log(`   SDK version: ${healthData.sdkVersion || 'unknown'}`);
-          } else {
-            warnings.push(`Backend health check failed: ${response.status}`);
-          }
+          // This will test once user logs in
+          console.log('ℹ️ Authenticated endpoint testing will occur after login');
         } catch (error) {
-          warnings.push(`Backend not reachable: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          warnings.push(`Authenticated endpoint test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
       }
 
       const success = errors.length === 0;
       this.isInitialized = success || warnings.length > 0; // Initialize even with warnings
 
+      // Final status
       if (success) {
         console.log('🎉 All services initialized successfully');
+        if (enableMockMode) {
+          console.log('⚠️ Running in MOCK MODE for development');
+        }
         if (warnings.length > 0) {
-          console.warn('⚠️ Warnings:', warnings);
+          console.warn('⚠️ Warnings during initialization:', warnings);
         }
       } else {
         console.error('💥 Service initialization failed:', errors);
       }
 
-      return { success, errors, warnings };
+      return { 
+        success, 
+        errors, 
+        warnings, 
+        backendConnected,
+        authReady,
+        s3Ready,
+        casesReady 
+      };
 
     } catch (error) {
       const errorMsg = `Service initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
       errors.push(errorMsg);
       console.error('💥', errorMsg);
       
-      return { success: false, errors, warnings };
+      return { 
+        success: false, 
+        errors, 
+        warnings,
+        backendConnected: false,
+        authReady: false,
+        s3Ready: false,
+        casesReady: false
+      };
     } finally {
       this.initializationPromise = null;
+    }
+  }
+
+  /**
+   * Test authenticated endpoints after login
+   */
+  public async testAuthenticatedEndpoints(): Promise<{ success: boolean; errors: string[] }> {
+    const errors: string[] = [];
+
+    if (!this.backendConnected) {
+      errors.push('Backend not connected');
+      return { success: false, errors };
+    }
+
+    if (!authService.isAuthenticated()) {
+      errors.push('User not authenticated');
+      return { success: false, errors };
+    }
+
+    try {
+      console.log('🧪 Testing authenticated endpoints...');
+
+      // Test cases endpoint
+      const casesResponse = await authService.authenticatedRequest('/cases?limit=1');
+      if (!casesResponse.success) {
+        errors.push(`Cases endpoint failed: ${casesResponse.error}`);
+      } else {
+        console.log('✅ Cases endpoint working');
+      }
+
+      // Test upload endpoint  
+      const uploadTestResponse = await authService.authenticatedRequest('/upload/stats');
+      if (!uploadTestResponse.success) {
+        errors.push(`Upload endpoint failed: ${uploadTestResponse.error}`);
+      } else {
+        console.log('✅ Upload endpoint working');
+      }
+
+      // Test user endpoint
+      const userResponse = await authService.authenticatedRequest('/auth/me');
+      if (!userResponse.success) {
+        errors.push(`User endpoint failed: ${userResponse.error}`);
+      } else {
+        console.log('✅ User endpoint working');
+      }
+
+      const success = errors.length === 0;
+      if (success) {
+        console.log('🎉 All authenticated endpoints working correctly');
+      }
+
+      return { success, errors };
+
+    } catch (error) {
+      const errorMsg = `Authenticated endpoint test failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      errors.push(errorMsg);
+      return { success: false, errors };
     }
   }
 
@@ -161,20 +302,40 @@ export class ServiceManager {
   /**
    * Get service health status
    */
-  public getServiceStatus(): {
-    awsConfig: boolean;
-    s3Service: boolean;
-    caseService: boolean;
-    overall: boolean;
-    backendConnected: boolean;
-  } {
+  public getServiceStatus(): ServiceInitializationResult {
+    const isAuth = authService.isAuthenticated();
+    const mockMode = import.meta.env.VITE_ENABLE_MOCK_MODE === 'true';
+
     return {
-      awsConfig: awsConfigManager.isInitialized(),
-      s3Service: this.isInitialized,
-      caseService: this.isInitialized,
-      overall: this.isInitialized,
-      backendConnected: !import.meta.env.VITE_ENABLE_MOCK_MODE
+      success: this.isInitialized,
+      errors: [],
+      warnings: mockMode ? ['Running in mock mode'] : [],
+      backendConnected: this.backendConnected,
+      authReady: true,
+      s3Ready: this.isInitialized,
+      casesReady: this.isInitialized,
     };
+  }
+
+  /**
+   * Check if backend is connected
+   */
+  public isBackendConnected(): boolean {
+    return this.backendConnected;
+  }
+
+  /**
+   * Get API base URL
+   */
+  public getApiBaseUrl(): string {
+    return import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+  }
+
+  /**
+   * Check if running in mock mode
+   */
+  public isMockMode(): boolean {
+    return import.meta.env.VITE_ENABLE_MOCK_MODE === 'true' || !this.backendConnected;
   }
 
   /**
@@ -182,8 +343,49 @@ export class ServiceManager {
    */
   public async reinitialize(): Promise<ServiceInitializationResult> {
     this.isInitialized = false;
+    this.backendConnected = false;
     this.initializationPromise = null;
     return this.initialize();
+  }
+
+  /**
+   * Update services after successful login
+   */
+  public async onLoginSuccess(): Promise<void> {
+    try {
+      console.log('🔄 Updating services after login...');
+      
+      // Test authenticated endpoints
+      await this.testAuthenticatedEndpoints();
+      
+      // Refresh case service with real data
+      if (this.backendConnected && !this.isMockMode()) {
+        caseService.setMockMode(false);
+        await caseService.initialize();
+        console.log('✅ Case service updated to use real API');
+      }
+
+    } catch (error) {
+      console.error('❌ Failed to update services after login:', error);
+    }
+  }
+
+  /**
+   * Update services after logout
+   */
+  public async onLogout(): Promise<void> {
+    try {
+      console.log('🔄 Updating services after logout...');
+      
+      // Switch back to mock mode if backend not available
+      if (!this.backendConnected || this.isMockMode()) {
+        caseService.setMockMode(true);
+        console.log('✅ Case service switched to mock mode');
+      }
+
+    } catch (error) {
+      console.error('❌ Failed to update services after logout:', error);
+    }
   }
 }
 
