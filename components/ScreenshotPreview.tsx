@@ -178,7 +178,7 @@ export default function ScreenshotPreview({
     <>
       {/* Main Preview Modal */}
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] w-full mx-4 flex flex-col">
+        <div className="bg-white overflow-y-auto rounded-lg shadow-xl max-w-4xl max-h-[90vh] w-full mx-4 flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b">
             <div>

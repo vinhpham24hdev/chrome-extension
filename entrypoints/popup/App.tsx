@@ -127,7 +127,7 @@ function App() {
   return (
     <ServiceInitializer>
       <AuthProvider>
-        <div className="min-w-[420px] max-w-full">
+        <div className="min-w-[360px] max-w-full">
           <AppContent />
           
           {/* Development info */}
