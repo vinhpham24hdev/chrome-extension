@@ -44,7 +44,7 @@ export default function LoginComponent({
   // Clear error when component mounts
   useEffect(() => {
     clearError();
-  }, [clearError]);
+  }, []);
 
   // Handle successful login
   useEffect(() => {
@@ -280,7 +280,7 @@ export default function LoginComponent({
                 onChange={handleInputChange}
                 placeholder="Enter username"
                 disabled={state.isLoading}
-                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg transition-all duration-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed ${
+                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg text-gray-700 dark:text-gray-400 transition-all duration-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed ${
                   validationErrors.some((e) => e.includes("Username"))
                     ? "border-red-300 bg-red-50"
                     : "border-gray-200"
@@ -308,7 +308,7 @@ export default function LoginComponent({
                 onChange={handleInputChange}
                 placeholder="Enter password"
                 disabled={state.isLoading}
-                className={`w-full pl-10 pr-12 py-3 border-2 rounded-lg transition-all duration-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed ${
+                className={`w-full pl-10 pr-12 py-3 border-2 rounded-lg text-gray-700 dark:text-gray-400 transition-all duration-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed ${
                   validationErrors.some((e) => e.includes("Password"))
                     ? "border-red-300 bg-red-50"
                     : "border-gray-200"
@@ -321,7 +321,7 @@ export default function LoginComponent({
                 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50 p-1 rounded transition-colors duration-200"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
-                {showPassword ? "🙈" : "👁️"}
+                {showPassword ? "👁️‍🗨️" : "🔒"}
               </button>
             </div>
           </div>
