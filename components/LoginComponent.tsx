@@ -114,9 +114,9 @@ export default function LoginComponent({
             <p className="text-xs text-gray-500">My insights</p>
           </div>
         </div>
-        <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
+        {/* <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
           JD
-        </div>
+        </div> */}
       </div>
 
       {/* Error Messages */}

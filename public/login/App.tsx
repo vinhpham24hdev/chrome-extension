@@ -78,7 +78,8 @@ export default function LoginApp() {
     setIsLoading(true);
     setError(null);
     setSuccess(null);
-
+    console.log("Submitting login with credentials:",);
+    
     try {
       // Basic validation
       if (!credentials.email || !credentials.password) {

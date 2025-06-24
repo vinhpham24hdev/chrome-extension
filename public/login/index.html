@@ -34,31 +34,10 @@
             border-bottom: 1px solid #e5e7eb;
         }
 
-        .logo-dots {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            margin-bottom: 1rem;
+        .logo {
+            width: 50%;
         }
 
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-        }
-
-        .dot-blue {
-            background-color: #3b82f6;
-        }
-
-        .dot-orange {
-            background-color: #f97316;
-        }
-
-        .dot-gray {
-            background-color: #9ca3af;
-        }
 
         .brand-title {
             font-size: 1.875rem;
@@ -73,12 +52,12 @@
         }
 
         .login-form {
-            padding: 2rem;
+            padding: 1.5rem 2rem 2rem 2rem;
         }
 
         .form-title {
             text-align: center;
-            margin-bottom: 2rem;
+            margin-bottom: 2.5rem;
             color: #374151;
             font-size: 1.125rem;
         }
@@ -213,15 +192,7 @@
     <div class="login-container">
         <!-- Header -->
         <div class="login-header">
-            <div class="logo-dots">
-                <div class="dot dot-blue"></div>
-                <div class="dot dot-orange"></div>
-                <div class="dot dot-blue"></div>
-                <div class="dot dot-gray"></div>
-                <div class="dot dot-orange"></div>
-            </div>
-            <h1 class="brand-title">Cellebrite</h1>
-            <p class="brand-subtitle">My insights</p>
+            <img class="logo" src="/assets/logo.png" alt="Cellebrite Logo" />
         </div>
 
         <!-- Status Indicator -->
@@ -231,7 +202,7 @@
 
         <!-- Login Form -->
         <div class="login-form">
-            <h2 class="form-title">Sign in with your email and password</h2>
+            <div class="form-title">Sign in with your email and password</div>
 
             <div id="error-container"></div>
             <div id="success-container"></div>
