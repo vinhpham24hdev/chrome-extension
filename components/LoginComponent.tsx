@@ -14,7 +14,9 @@ interface BackendStatus {
   error?: string;
 }
 
-export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) {
+export default function LoginComponent({
+  onLoginSuccess,
+}: LoginComponentProps) {
   const { state, clearError, checkConnection } = useAuth();
   const [backendStatus, setBackendStatus] = useState<BackendStatus>({
     connected: false,
@@ -22,6 +24,22 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
     mockMode: import.meta.env.VITE_ENABLE_MOCK_MODE === "true",
   });
   const [isCheckingBackend, setIsCheckingBackend] = useState(true);
+  const [logoUrl, setLogoUrl] = useState<string>("");
+
+  // Get logo URL on mount
+  useEffect(() => {
+    const getLogoUrl = () => {
+      if (typeof chrome !== "undefined" && chrome.runtime) {
+        // Chrome extension environment
+        setLogoUrl(chrome.runtime.getURL("assets/logo.png"));
+      } else {
+        // Development environment
+        setLogoUrl("/assets/logo.png");
+      }
+    };
+
+    getLogoUrl();
+  }, []);
 
   // Check backend status on mount
   useEffect(() => {
@@ -54,7 +72,8 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
       setBackendStatus((prev) => ({
         ...prev,
         connected: false,
-        error: error instanceof Error ? error.message : "Connection check failed",
+        error:
+          error instanceof Error ? error.message : "Connection check failed",
       }));
     }
     setIsCheckingBackend(false);
@@ -62,8 +81,28 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
 
   // Open login in new tab
   const handleLoginClick = () => {
-    const loginUrl = `${backendStatus.apiUrl.replace('/api', '')}/login?source=extension`;
-    chrome.tabs.create({ url: loginUrl });
+    try {
+      // Option 1: Use extension-hosted login page (WXT approach)
+      if (typeof chrome !== "undefined" && chrome.runtime) {
+        const loginUrl = chrome.runtime.getURL("login.html/index.html");
+        chrome.tabs.create({ url: loginUrl });
+      } else {
+        // Option 2: Use backend-hosted login page (fallback)
+        const loginUrl = `${backendStatus.apiUrl.replace(
+          "/api",
+          ""
+        )}/login?source=extension`;
+        window.open(loginUrl, "_blank");
+      }
+    } catch (error) {
+      console.error("Failed to open login page:", error);
+      // Fallback to backend URL
+      const loginUrl = `${backendStatus.apiUrl.replace(
+        "/api",
+        ""
+      )}/login?source=extension`;
+      window.open(loginUrl, "_blank");
+    }
   };
 
   // Use mock credentials for development
@@ -73,21 +112,45 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
   };
 
   return (
-    <div className="w-[400px] h-[600px] bg-white flex flex-col">
+    <div className="w-[360px] h-[420px] bg-white flex flex-col rounded-lg shadow-lg">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 p-6 text-center">
-        <div className="flex items-center justify-center mb-4">
-          {/* Cellebrite Logo Dots */}
-          <div className="flex items-center space-x-1 mr-3">
-            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-            <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-            <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+      <div className="bg-white p-4 flex items-start">
+        <div className="flex items-center flex-1">
+          {/* Cellebrite Logo */}
+          {logoUrl && (
+            <img
+              src={logoUrl}
+              alt="Cellebrite Logo"
+              className="w-6 h-6 mr-2"
+              onError={(e) => {
+                // Hide failed logo
+                e.currentTarget.style.display = "none";
+                // Show fallback dots
+                e.currentTarget.nextElementSibling?.classList.remove("hidden");
+              }}
+            />
+          )}
+          {/* Fallback dots */}
+          <div
+            className={`${
+              logoUrl ? "hidden" : "flex"
+            } items-center space-x-1 mr-2`}
+          >
+            <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+            <div className="w-1.5 h-1.5 bg-orange-500 rounded-full"></div>
+            <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+            <div className="w-1.5 h-1.5 bg-gray-400 rounded-full"></div>
+            <div className="w-1.5 h-1.5 bg-orange-500 rounded-full"></div>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Cellebrite</h1>
+          <div>
+            <h1 className="text-lg font-semibold text-gray-900">Cellebrite</h1>
+            <p className="text-xs text-gray-500">My insights</p>
+          </div>
         </div>
-        <p className="text-gray-600">My insights</p>
+        {/* Profile Icon */}
+        <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
+          JD
+        </div>
       </div>
 
       {/* Backend Status */}
@@ -150,9 +213,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
           )}
 
           {backendStatus.mockMode && (
-            <div className="text-xs mt-1">
-              Using mock data for development
-            </div>
+            <div className="text-xs mt-1">Using mock data for development</div>
           )}
         </div>
       </div>
@@ -183,7 +244,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
             state.isLoading ||
             (!backendStatus.connected && !backendStatus.mockMode)
           }
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed mb-4"
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed mb-8"
         >
           {state.isLoading ? (
             <span className="flex items-center justify-center gap-2">
@@ -201,90 +262,94 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
           </div>
         )}
 
-        {/* Capture Tools Preview */}
-        <div className="w-full mt-8">
-          <div className="text-center text-sm text-gray-600 mb-4">
-            Available capture tools:
-          </div>
-          
-          {/* Tools Grid */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="flex flex-col items-center p-3 border border-gray-200 rounded-lg bg-gray-50">
-              <div className="w-8 h-8 bg-gray-300 rounded mb-2 flex items-center justify-center">
+        {/* Tools Grid */}
+        <div className="w-full">
+          <div className="grid grid-cols-6 gap-4">
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-8 bg-gray-200 rounded border flex items-center justify-center mb-1">
                 📱
               </div>
               <span className="text-xs text-gray-600">Screen</span>
             </div>
-            
-            <div className="flex flex-col items-center p-3 border border-gray-200 rounded-lg bg-gray-50">
-              <div className="w-8 h-8 bg-gray-300 rounded mb-2 flex items-center justify-center">
+
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-8 bg-gray-200 rounded border flex items-center justify-center mb-1">
                 🖥️
               </div>
               <span className="text-xs text-gray-600">Full</span>
             </div>
-            
-            <div className="flex flex-col items-center p-3 border border-gray-200 rounded-lg bg-gray-50">
-              <div className="w-8 h-8 bg-gray-300 rounded mb-2 flex items-center justify-center">
+
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-8 bg-gray-200 rounded border flex items-center justify-center mb-1">
                 ✂️
               </div>
               <span className="text-xs text-gray-600">Region</span>
             </div>
-            
-            <div className="flex flex-col items-center p-3 border border-gray-200 rounded-lg bg-gray-50">
-              <div className="w-8 h-8 bg-gray-300 rounded mb-2 flex items-center justify-center">
+
+            {/* Divider */}
+            <div className="flex items-center justify-center">
+              <div className="w-px h-8 bg-gray-300"></div>
+            </div>
+
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-8 bg-gray-200 rounded border flex items-center justify-center mb-1">
                 🎥
               </div>
               <span className="text-xs text-gray-600">Video</span>
             </div>
-            
-            <div className="flex flex-col items-center p-3 border border-gray-200 rounded-lg bg-gray-50">
-              <div className="w-8 h-8 bg-gray-300 rounded mb-2 flex items-center justify-center">
-                📹
+
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-8 bg-gray-200 rounded border flex items-center justify-center mb-1">
+                ⋮
               </div>
-              <span className="text-xs text-gray-600">R. Video</span>
-            </div>
-            
-            <div className="flex flex-col items-center p-3 border border-gray-200 rounded-lg bg-gray-50 opacity-50">
-              <div className="w-8 h-8 bg-gray-200 rounded mb-2 flex items-center justify-center">
-                ➕
-              </div>
-              <span className="text-xs text-gray-400">More</span>
+              <span className="text-xs text-gray-600"></span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="bg-gray-50 px-6 py-4 border-t border-gray-100">
-        <div className="text-center">
-          {/* Development Buttons */}
-          {import.meta.env.VITE_NODE_ENV === 'development' && (
-            <div className="space-y-2">
-              <button
-                onClick={handleMockLogin}
-                disabled={state.isLoading}
-                className="w-full bg-green-500 text-white px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 hover:bg-green-600 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                Use Mock Mode
-              </button>
+      {/* Error Messages */}
+      {state.error && (
+        <div className="px-4 pb-2">
+          <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
+            <div className="flex items-center">
+              <span className="mr-2">❌</span>
+              <span>{state.error}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* Backend Status - Only show if error */}
+      {!backendStatus.connected && !backendStatus.mockMode && (
+        <div className="px-4 pb-2">
+          <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <span className="mr-2">❌</span>
+                <span className="font-medium">Backend Offline</span>
+              </div>
               <button
                 onClick={checkBackendStatus}
                 disabled={isCheckingBackend}
-                className="w-full bg-gray-500 text-white px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 hover:bg-gray-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded transition-colors"
               >
-                {isCheckingBackend ? "⏳" : "🔄"} Check Backend
+                Retry
               </button>
             </div>
-          )}
-
-          {/* Version Info */}
-          <div className="mt-3 text-xs text-gray-500">
-            <div>Mode: {backendStatus.mockMode ? "Mock" : "Real API"}</div>
-            <div>Env: {import.meta.env.VITE_NODE_ENV}</div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Development Mode Indicator */}
+      {import.meta.env.VITE_NODE_ENV === "development" &&
+        backendStatus.mockMode && (
+          <div className="px-4 pb-2">
+            <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-md text-sm text-center">
+              <span className="text-xs">🔧 Development Mode</span>
+            </div>
+          </div>
+        )}
     </div>
   );
 }
