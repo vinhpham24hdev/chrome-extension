@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cellebrite - Login</title>
+    <meta name="manifest.type" content="newtab" />
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 0;
+            width: 100%;
+            max-width: 400px;
+            overflow: hidden;
+        }
+
+        .login-header {
+            background: white;
+            padding: 2rem;
+            text-align: center;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .logo-dots {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            margin-bottom: 1rem;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .dot-blue {
+            background-color: #3b82f6;
+        }
+
+        .dot-orange {
+            background-color: #f97316;
+        }
+
+        .dot-gray {
+            background-color: #9ca3af;
+        }
+
+        .brand-title {
+            font-size: 1.875rem;
+            font-weight: bold;
+            color: #111827;
+            margin: 0 0 0.5rem 0;
+        }
+
+        .brand-subtitle {
+            color: #6b7280;
+            margin: 0;
+        }
+
+        .login-form {
+            padding: 2rem;
+        }
+
+        .form-title {
+            text-align: center;
+            margin-bottom: 2rem;
+            color: #374151;
+            font-size: 1.125rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #374151;
+            font-size: 0.875rem;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 1rem;
+            box-sizing: border-box;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .forgot-password {
+            text-align: left;
+            margin-top: 0.5rem;
+        }
+
+        .forgot-password a {
+            color: #3b82f6;
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+
+        .forgot-password a:hover {
+            text-decoration: underline;
+        }
+
+        .login-button {
+            width: 100%;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 0.875rem;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-top: 1rem;
+        }
+
+        .login-button:hover {
+            background: #2563eb;
+        }
+
+        .login-button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .error-message {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+        }
+
+        .success-message {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #16a34a;
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+            text-align: center;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .status-indicator {
+            padding: 0.75rem;
+            margin: 1rem 2rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            text-align: center;
+        }
+
+        .status-connected {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #16a34a;
+        }
+
+        .status-error {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="login-container">
+        <!-- Header -->
+        <div class="login-header">
+            <div class="logo-dots">
+                <div class="dot dot-blue"></div>
+                <div class="dot dot-orange"></div>
+                <div class="dot dot-blue"></div>
+                <div class="dot dot-gray"></div>
+                <div class="dot dot-orange"></div>
+            </div>
+            <h1 class="brand-title">Cellebrite</h1>
+            <p class="brand-subtitle">My insights</p>
+        </div>
+
+        <!-- Status Indicator -->
+        <div id="status-indicator" class="status-indicator" style="display: none;">
+            <span id="status-text">Checking backend connection...</span>
+        </div>
+
+        <!-- Login Form -->
+        <div class="login-form">
+            <h2 class="form-title">Sign in with your email and password</h2>
+
+            <div id="error-container"></div>
+            <div id="success-container"></div>
+
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="email" id="email" name="email" class="form-input" placeholder="Enter your email"
+                        required />
+                </div>
+
+                <div class="form-group">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" id="password" name="password" class="form-input"
+                        placeholder="Enter your password" required />
+                    <div class="forgot-password">
+                        <a href="#" id="forgot-password-link">Forgot your password?</a>
+                    </div>
+                </div>
+
+                <button type="submit" id="login-button" class="login-button">
+                    Sign in
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script type="module" src="./main.tsx"></script>
+</body>
+
+</html>

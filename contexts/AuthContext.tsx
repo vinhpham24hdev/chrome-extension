@@ -1,4 +1,4 @@
-// contexts/AuthContext.tsx - Real API Integration
+// contexts/AuthContext.tsx - Updated with New Tab Login Support
 import React, {
   createContext,
   useContext,
@@ -9,7 +9,7 @@ import React, {
 import { authService } from "../services/authService";
 import { User, LoginCredentials, AuthState } from "../types/auth";
 
-// Local interface definitions to avoid import issues
+// Local interface definitions
 interface LoginResponse {
   success: boolean;
   token?: string;
@@ -27,17 +27,19 @@ interface ApiResponse<T = any> {
   code?: string;
 }
 
-// Extended action types for real API
+// Extended action types for new tab login
 type AuthAction =
   | { type: "LOGIN_START" }
   | { type: "LOGIN_SUCCESS"; payload: { user: User; token: string } }
   | { type: "LOGIN_FAILURE"; payload: string }
+  | { type: "LOGIN_PAGE_OPENED" }
   | { type: "LOGOUT" }
   | { type: "SET_USER"; payload: User | null }
   | { type: "CLEAR_ERROR" }
   | { type: "TOKEN_REFRESH_SUCCESS"; payload: string }
   | { type: "TOKEN_EXPIRED" }
-  | { type: "CONNECTION_ERROR"; payload: string };
+  | { type: "CONNECTION_ERROR"; payload: string }
+  | { type: "AUTH_STATE_CHANGED"; payload: { isAuthenticated: boolean; user: User | null } };
 
 // Extended initial state
 const initialState: AuthState = {
@@ -47,13 +49,19 @@ const initialState: AuthState = {
   error: null,
 };
 
-// Reducer with real API handling
+// Reducer with new tab login handling
 function authReducer(state: AuthState, action: AuthAction): AuthState {
   switch (action.type) {
     case "LOGIN_START":
       return {
         ...state,
         isLoading: true,
+        error: null,
+      };
+    case "LOGIN_PAGE_OPENED":
+      return {
+        ...state,
+        isLoading: false,
         error: null,
       };
     case "LOGIN_SUCCESS":
@@ -112,6 +120,14 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         error: action.payload,
         isLoading: false,
       };
+    case "AUTH_STATE_CHANGED":
+      return {
+        ...state,
+        isAuthenticated: action.payload.isAuthenticated,
+        user: action.payload.user,
+        isLoading: false,
+        error: action.payload.isAuthenticated ? null : state.error, // Keep error if not authenticated
+      };
     default:
       return state;
   }
@@ -139,6 +155,23 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [state, dispatch] = useReducer(authReducer, initialState);
+
+  // Listen for auth state changes from AuthService
+  useEffect(() => {
+    const handleAuthStateChange = (event: CustomEvent) => {
+      const { isAuthenticated, user } = event.detail;
+      dispatch({
+        type: "AUTH_STATE_CHANGED",
+        payload: { isAuthenticated, user }
+      });
+    };
+
+    window.addEventListener('authStateChanged', handleAuthStateChange as EventListener);
+    
+    return () => {
+      window.removeEventListener('authStateChanged', handleAuthStateChange as EventListener);
+    };
+  }, []);
 
   // Initialize auth state on mount
   useEffect(() => {
@@ -214,12 +247,47 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => clearInterval(refreshInterval);
   }, [state.isAuthenticated]);
 
-  // Login function with real API
+  // Listen for Chrome storage changes (auth updates from login page)
+  useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      const handleStorageChange = (changes: any) => {
+        if (changes.authState) {
+          const newAuthState = changes.authState.newValue;
+          if (newAuthState && newAuthState.isLoggedIn && newAuthState.currentUser) {
+            console.log('🔄 Auth state updated from storage:', newAuthState.currentUser.username);
+            dispatch({
+              type: "AUTH_STATE_CHANGED",
+              payload: {
+                isAuthenticated: newAuthState.isLoggedIn,
+                user: newAuthState.currentUser
+              }
+            });
+          } else if (!newAuthState || !newAuthState.isLoggedIn) {
+            dispatch({
+              type: "AUTH_STATE_CHANGED",
+              payload: {
+                isAuthenticated: false,
+                user: null
+              }
+            });
+          }
+        }
+      };
+
+      chrome.storage.onChanged.addListener(handleStorageChange);
+      
+      return () => {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+      };
+    }
+  }, []);
+
+  // Login function with new tab approach
   const login = async (credentials: LoginCredentials): Promise<LoginResponse> => {
     dispatch({ type: "LOGIN_START" });
 
     try {
-      console.log('🔐 Attempting login...');
+      console.log('🔐 Attempting login with new tab approach...');
 
       // Validate credentials first
       const validation = authService.validateCredentials(credentials);
@@ -237,18 +305,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return { success: false, error: errorMessage, code: 'CONNECTION_ERROR' };
       }
 
-      // Attempt login with API
+      // Open login page in new tab
       const result = await authService.login(credentials);
 
-      if (result.success && result.user && result.token) {
-        dispatch({ 
-          type: "LOGIN_SUCCESS", 
-          payload: { user: result.user, token: result.token } 
-        });
-        console.log('✅ Login successful for:', result.user.username);
-        return result;
+      if (result.success && result.code === 'LOGIN_PAGE_OPENED') {
+        dispatch({ type: "LOGIN_PAGE_OPENED" });
+        console.log('✅ Login page opened in new tab');
+        return {
+          success: true,
+          code: 'LOGIN_PAGE_OPENED'
+        };
       } else {
-        const errorMessage = result.error || "Login failed";
+        const errorMessage = result.error || "Failed to open login page";
         dispatch({ type: "LOGIN_FAILURE", payload: errorMessage });
         console.error('❌ Login failed:', errorMessage);
         return result;
