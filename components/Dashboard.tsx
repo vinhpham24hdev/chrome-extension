@@ -1,5 +1,11 @@
 // components/Dashboard.tsx - Cellebrite Style UI
 import React, { useState } from "react";
+import Box from "@mui/material/Box";
+import InputLabel from "@mui/material/InputLabel";
+import MenuItem from "@mui/material/MenuItem";
+import FormControl from "@mui/material/FormControl";
+import Select, { SelectChangeEvent } from "@mui/material/Select";
+
 import { useAuth } from "../contexts/AuthContext";
 import {
   screenshotService,
@@ -10,6 +16,9 @@ import RegionSelector, { RegionSelection } from "./RegionSelector";
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 import VideoRecorder from "./VideoRecorder";
 import VideoPreview, { VideoData } from "./VideoPreview";
+import ToolsGrid from "./ToolsGrid";
+
+import logo from "@/assets/logo.png";
 
 interface CaseItem {
   id: string;
@@ -48,15 +57,19 @@ const mockCases: CaseItem[] = [
 
 export default function Dashboard() {
   const { state, logout } = useAuth();
-  const [selectedCase, setSelectedCase] = useState<string>("");
-  const [captureMode, setCaptureMode] = useState<"screenshot" | "video" | null>(null);
+  const [selectedCase, setSelectedCase] = useState<string>(mockCases[0].id);
+  const [captureMode, setCaptureMode] = useState<"screenshot" | "video" | null>(
+    null
+  );
   const [isCapturing, setIsCapturing] = useState(false);
   const [showRegionSelector, setShowRegionSelector] = useState(false);
   const [fullScreenImage, setFullScreenImage] = useState<string>("");
-  const [screenshotPreview, setScreenshotPreview] = useState<ScreenshotData | null>(null);
+  const [screenshotPreview, setScreenshotPreview] =
+    useState<ScreenshotData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showVideoRecorder, setShowVideoRecorder] = useState(false);
   const [videoPreview, setVideoPreview] = useState<VideoData | null>(null);
+  const [logoUrl, setLogoUrl] = useState(logo);
 
   const handleLogout = async () => {
     await logout();
@@ -66,7 +79,9 @@ export default function Dashboard() {
     setSelectedCase(caseId);
   };
 
-  const handleScreenshot = async (type: "full" | "visible" | "region" = "visible") => {
+  const handleScreenshot = async (
+    type: "full" | "visible" | "region" = "visible"
+  ) => {
     if (!selectedCase) {
       alert("Please select a case first");
       return;
@@ -250,245 +265,58 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="w-[400px] h-[600px] bg-white flex flex-col">
+    <div className="w-[402px] h-[380px] bg-white flex flex-col p-4">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            {/* Cellebrite Logo */}
-            <div className="flex items-center space-x-1 mr-3">
-              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-              <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-gray-900">Cellebrite</h1>
-              <p className="text-xs text-gray-500">My insights</p>
-            </div>
+      <div className="bg-white p-4 flex items-start">
+        <div className="flex justify-center items-center flex-1">
+          {/* Cellebrite Logo */}
+          <div className="flex flex-col items-center">
+            {logoUrl && (
+              <img src={logoUrl} alt="Cellebrite Logo" className="w-2/3" />
+            )}
+            <p className="text-xl text-gray-500">My insights</p>
           </div>
-          <button
-            onClick={handleLogout}
-            className="text-gray-400 hover:text-gray-600 text-sm"
-          >
-            Logout
-          </button>
+        </div>
+        <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
+          JD
         </div>
       </div>
-
-      {/* User Info */}
-      <div className="px-4 py-2 bg-gray-50 border-b border-gray-200">
-        <p className="text-sm text-gray-600">
-          Welcome back, <span className="font-medium">{state.user?.username}</span>
+      <div className="flex justify-center">
+        <p className="text-sm text-gray-800">
+          Select your case. Captured data will wait for you there
         </p>
       </div>
-
-      {/* Case Selection */}
-      <div className="px-4 py-3 border-b border-gray-200">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Active Case:
-        </label>
-        <select
-          value={selectedCase}
-          onChange={(e) => handleCaseSelect(e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          <option value="">Select a case...</option>
-          {mockCases.map((case_) => (
-            <option key={case_.id} value={case_.id}>
-              {case_.id} - {case_.title}
-            </option>
-          ))}
-        </select>
-
-        {selectedCase && (
-          <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
-            <span className="font-medium text-blue-900">
-              {mockCases.find(c => c.id === selectedCase)?.title}
-            </span>
-          </div>
-        )}
+      {/* Case Selector */}
+      <Box sx={{ marginTop: 2, padding: 2 }}>
+        <FormControl fullWidth>
+          <InputLabel id="case-select-label">Case ID</InputLabel>
+          <Select
+            labelId="case-select-label"
+            id="case-select"
+            value={selectedCase}
+            label="Select Case"
+            onChange={(e: SelectChangeEvent<string>) =>
+              handleCaseSelect(e.target.value)
+            }
+          >
+            {mockCases.map((caseItem) => (
+              <MenuItem key={caseItem.id} value={caseItem.id}>
+                <div className="flex justify-between items-center w-full">
+                  <span>{caseItem.title}</span>
+                </div>
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
+      {/* Capture Mode Selector */}
+      <ToolsGrid />
+      {/* Screenshot Preview */}
+      <div className="flex justify-center mt-4">
+        <button className="w-[176px] bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed">
+          View Report
+        </button>
       </div>
-
-      {/* Capture Tools */}
-      <div className="flex-1 p-4">
-        {!selectedCase ? (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-3">🎯</div>
-            <h3 className="text-sm font-medium text-gray-900 mb-2">
-              Select a Case First
-            </h3>
-            <p className="text-xs text-gray-500">
-              Choose a case to enable capture tools.
-            </p>
-          </div>
-        ) : (
-          <div>
-            {/* Capture Status */}
-            {(isCapturing || captureMode) && !screenshotPreview && !videoPreview && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4">
-                <div className="flex items-center">
-                  <div className="text-yellow-600 mr-3">
-                    {isCapturing ? (
-                      <div className="w-4 h-4 border-2 border-yellow-600 border-t-transparent rounded-full animate-spin"></div>
-                    ) : captureMode === "screenshot" ? (
-                      "📷"
-                    ) : (
-                      "🎥"
-                    )}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-yellow-900">
-                      {isCapturing
-                        ? `${captureMode === "screenshot" ? "Screenshot" : "Video"} capture in progress...`
-                        : `${captureMode === "screenshot" ? "Screenshot" : "Video"} capture initiated`}
-                    </h4>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Main Capture Grid */}
-            <div className="grid grid-cols-3 gap-3">
-              {/* Screen Capture */}
-              <button
-                onClick={() => handleScreenshot("visible")}
-                disabled={isCapturing}
-                className="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <div className="w-10 h-10 bg-gray-100 rounded-lg mb-2 flex items-center justify-center text-lg">
-                  📱
-                </div>
-                <span className="text-xs text-gray-600 font-medium">Screen</span>
-              </button>
-
-              {/* Full Screen */}
-              <button
-                onClick={() => handleScreenshot("full")}
-                disabled={isCapturing}
-                className="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <div className="w-10 h-10 bg-gray-100 rounded-lg mb-2 flex items-center justify-center text-lg">
-                  🖥️
-                </div>
-                <span className="text-xs text-gray-600 font-medium">Full</span>
-              </button>
-
-              {/* Region */}
-              <button
-                onClick={() => handleScreenshot("region")}
-                disabled={isCapturing}
-                className="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <div className="w-10 h-10 bg-gray-100 rounded-lg mb-2 flex items-center justify-center text-lg">
-                  ✂️
-                </div>
-                <span className="text-xs text-gray-600 font-medium">Region</span>
-              </button>
-
-              {/* Video */}
-              <button
-                onClick={handleVideoCapture}
-                disabled={isCapturing || showVideoRecorder}
-                className="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-red-300 hover:bg-red-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <div className="w-10 h-10 bg-gray-100 rounded-lg mb-2 flex items-center justify-center text-lg">
-                  🎥
-                </div>
-                <span className="text-xs text-gray-600 font-medium">Video</span>
-              </button>
-
-              {/* R. Video */}
-              <button
-                onClick={() => alert("Real-time video capture coming soon!")}
-                disabled={isCapturing || showVideoRecorder}
-                className="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <div className="w-10 h-10 bg-gray-100 rounded-lg mb-2 flex items-center justify-center text-lg">
-                  📹
-                </div>
-                <span className="text-xs text-gray-600 font-medium">R. Video</span>
-              </button>
-
-              {/* More Options */}
-              <button
-                disabled
-                className="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg opacity-50 cursor-not-allowed"
-              >
-                <div className="w-10 h-10 bg-gray-100 rounded-lg mb-2 flex items-center justify-center text-lg">
-                  ➕
-                </div>
-                <span className="text-xs text-gray-400 font-medium">More</span>
-              </button>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="mt-6 pt-4 border-t border-gray-200">
-              <h4 className="text-sm font-medium text-gray-700 mb-3">Quick Actions</h4>
-              <div className="space-y-2">
-                <button className="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded-md transition-colors">
-                  📊 View Case Files
-                </button>
-                <button className="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded-md transition-colors">
-                  📈 Generate Report
-                </button>
-                <button className="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded-md transition-colors">
-                  ⚙️ Settings
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Region Selector Modal */}
-      {showRegionSelector && fullScreenImage && (
-        <RegionSelector
-          imageUrl={fullScreenImage}
-          onRegionSelect={handleRegionSelect}
-          onCancel={handleCancelRegionSelection}
-        />
-      )}
-
-      {/* Screenshot Preview Modal */}
-      {screenshotPreview && (
-        <ScreenshotPreview
-          screenshot={screenshotPreview}
-          onSave={handleSaveScreenshot}
-          onDownload={handleDownloadScreenshot}
-          onRetake={handleRetakeScreenshot}
-          onClose={() => setScreenshotPreview(null)}
-          isUploading={isUploading}
-        />
-      )}
-
-      {/* Video Recorder Modal */}
-      {showVideoRecorder && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] w-full mx-4 overflow-y-auto">
-            <div className="p-6">
-              <VideoRecorder
-                caseId={selectedCase}
-                onVideoCapture={handleVideoRecorded}
-                onClose={() => setShowVideoRecorder(false)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Video Preview Modal */}
-      {videoPreview && (
-        <VideoPreview
-          video={videoPreview}
-          onSave={async () => {}}
-          onDownload={() => {}}
-          onRetake={() => setShowVideoRecorder(true)}
-          onClose={() => setVideoPreview(null)}
-          isUploading={isUploading}
-        />
-      )}
     </div>
   );
 }
