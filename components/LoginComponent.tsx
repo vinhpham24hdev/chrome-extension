@@ -1,5 +1,5 @@
-// components/LoginComponent.tsx - Enhanced with Better Login Tab UX
-import React, { useState, useEffect } from "react";
+// components/LoginComponent.tsx - Enhanced with Login Window (No Popup Close)
+import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { serviceManager } from "../services/serviceManager";
 import ToolsGrid from "./ToolsGrid";
@@ -17,9 +17,9 @@ interface BackendStatus {
   error?: string;
 }
 
-interface LoginTabState {
-  isTabOpen: boolean;
-  tabId?: number;
+interface LoginWindowState {
+  isOpen: boolean;
+  window: Window | null;
   openTime?: number;
   checkInterval?: NodeJS.Timeout;
 }
@@ -35,10 +35,38 @@ export default function LoginComponent({
   });
   const [isCheckingBackend, setIsCheckingBackend] = useState(true);
   const [logoUrl, setLogoUrl] = useState(logo);
-  const [loginTabState, setLoginTabState] = useState<LoginTabState>({
-    isTabOpen: false,
+  const [loginWindow, setLoginWindow] = useState<LoginWindowState>({
+    isOpen: false,
+    window: null,
   });
-  const [showTabInstructions, setShowTabInstructions] = useState(false);
+  const [isWaitingForLogin, setIsWaitingForLogin] = useState(false);
+
+  // Handle successful login detection
+  useEffect(() => {
+    if (state.isAuthenticated && isWaitingForLogin) {
+      console.log('✅ Login detected - success!');
+      
+      // Close login window if open
+      if (loginWindow.window && !loginWindow.window.closed) {
+        loginWindow.window.close();
+      }
+      
+      // Clear intervals
+      if (loginWindow.checkInterval) {
+        clearInterval(loginWindow.checkInterval);
+      }
+      
+      // Reset states
+      setLoginWindow({ isOpen: false, window: null });
+      setIsWaitingForLogin(false);
+      
+      // Call success callback
+      if (onLoginSuccess) {
+        serviceManager.onLoginSuccess();
+        onLoginSuccess();
+      }
+    }
+  }, [state.isAuthenticated, isWaitingForLogin, onLoginSuccess, loginWindow]);
 
   // Check backend status on mount
   useEffect(() => {
@@ -49,24 +77,6 @@ export default function LoginComponent({
   useEffect(() => {
     clearError();
   }, []);
-
-  // Handle successful login from new tab
-  useEffect(() => {
-    if (state.isAuthenticated && onLoginSuccess) {
-      console.log('✅ Login detected in LoginComponent');
-      
-      // Clean up login tab state
-      if (loginTabState.checkInterval) {
-        clearInterval(loginTabState.checkInterval);
-      }
-      setLoginTabState({ isTabOpen: false });
-      setShowTabInstructions(false);
-      
-      // Initialize services and call success callback
-      serviceManager.onLoginSuccess();
-      onLoginSuccess();
-    }
-  }, [state.isAuthenticated, onLoginSuccess, loginTabState.checkInterval]);
 
   const checkBackendStatus = async () => {
     setIsCheckingBackend(true);
@@ -90,7 +100,7 @@ export default function LoginComponent({
 
   const handleLoginClick = async () => {
     try {
-      setShowTabInstructions(true);
+      setIsWaitingForLogin(true);
       
       // Determine login URL
       let loginUrl: string;
@@ -108,120 +118,94 @@ export default function LoginComponent({
         loginUrl = `${backendStatus.apiUrl.replace("/api", "")}/login?source=extension`;
       }
 
-      console.log('🔗 Opening login tab:', loginUrl);
+      console.log('🪟 Opening login window:', loginUrl);
 
-      // Open login tab
-      if (typeof chrome !== "undefined" && chrome.tabs) {
-        chrome.tabs.create({ url: loginUrl, active: true }, (tab) => {
-          if (tab?.id) {
-            setLoginTabState({
-              isTabOpen: true,
-              tabId: tab.id,
-              openTime: Date.now(),
-            });
-            
-            // Start monitoring the tab
-            startTabMonitoring(tab.id);
-          }
+      // Open login page in new window (NOT tab)
+      const newWindow = window.open(
+        loginUrl,
+        'cellebrite-login',
+        'width=500,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes'
+      );
+
+      if (newWindow) {
+        setLoginWindow({
+          isOpen: true,
+          window: newWindow,
+          openTime: Date.now(),
         });
+        
+        // Start monitoring the window
+        startWindowMonitoring(newWindow);
       } else {
-        // Fallback for development
-        const newTab = window.open(loginUrl, "_blank");
-        if (newTab) {
-          setLoginTabState({
-            isTabOpen: true,
-            openTime: Date.now(),
-          });
-          
-          // Start monitoring for auth changes
-          startAuthMonitoring();
-        }
+        throw new Error('Failed to open login window. Please check popup blocker settings.');
       }
     } catch (error) {
-      console.error("Failed to open login page:", error);
-      setShowTabInstructions(false);
-      
-      // Fallback to backend URL
-      try {
-        const loginUrl = `${backendStatus.apiUrl.replace("/api", "")}/login?source=extension`;
-        window.open(loginUrl, "_blank");
-      } catch (fallbackError) {
-        console.error("Fallback login failed:", fallbackError);
-        alert("Failed to open login page. Please check your connection.");
-      }
+      console.error("Failed to open login window:", error);
+      setIsWaitingForLogin(false);
+      alert(`Failed to open login window: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
-  const startTabMonitoring = (tabId: number) => {
+  const startWindowMonitoring = (loginWindow: Window) => {
     const checkInterval = setInterval(async () => {
       try {
-        // Check if tab still exists
-        chrome.tabs.get(tabId, (tab) => {
-          if (chrome.runtime.lastError || !tab) {
-            // Tab was closed
-            console.log('Login tab was closed');
-            clearInterval(checkInterval);
-            setLoginTabState({ isTabOpen: false });
-            setShowTabInstructions(false);
-          }
-        });
+        // Check if window is still open
+        if (loginWindow.closed) {
+          console.log('🪟 Login window was closed');
+          clearInterval(checkInterval);
+          setLoginWindow({ isOpen: false, window: null });
+          
+          // Give a moment for auth state to be saved, then check
+          setTimeout(async () => {
+            if (!state.isAuthenticated) {
+              setIsWaitingForLogin(false);
+            }
+          }, 1000);
+          return;
+        }
+
+        // Check auth state - the AuthContext should automatically detect changes
+        // No need to manually check here since we have storage listeners
+        
       } catch (error) {
-        console.error('Tab monitoring error:', error);
+        console.error('Window monitoring error:', error);
         clearInterval(checkInterval);
-        setLoginTabState({ isTabOpen: false });
-        setShowTabInstructions(false);
+        setLoginWindow({ isOpen: false, window: null });
+        setIsWaitingForLogin(false);
       }
-    }, 2000);
+    }, 1000); // Check every second
 
-    setLoginTabState(prev => ({
+    setLoginWindow(prev => ({
       ...prev,
       checkInterval,
     }));
 
-    // Auto-cleanup after 5 minutes
+    // Auto-cleanup after 10 minutes
     setTimeout(() => {
-      clearInterval(checkInterval);
-      setLoginTabState({ isTabOpen: false });
-      setShowTabInstructions(false);
-    }, 5 * 60 * 1000);
-  };
-
-  const startAuthMonitoring = () => {
-    const checkInterval = setInterval(async () => {
-      // This will be handled by the AuthContext's monitor
-      // Just clean up if user is authenticated
-      if (state.isAuthenticated) {
-        clearInterval(checkInterval);
-        setLoginTabState({ isTabOpen: false });
-        setShowTabInstructions(false);
+      if (!loginWindow.closed) {
+        console.log('🕒 Login window timeout, closing...');
+        loginWindow.close();
       }
-    }, 2000);
-
-    setLoginTabState(prev => ({
-      ...prev,
-      checkInterval,
-    }));
-
-    // Auto-cleanup after 5 minutes
-    setTimeout(() => {
       clearInterval(checkInterval);
-      setLoginTabState({ isTabOpen: false });
-      setShowTabInstructions(false);
-    }, 5 * 60 * 1000);
+      setLoginWindow({ isOpen: false, window: null });
+      setIsWaitingForLogin(false);
+    }, 10 * 60 * 1000);
   };
 
   const handleCancelLogin = () => {
-    if (loginTabState.checkInterval) {
-      clearInterval(loginTabState.checkInterval);
+    // Close login window
+    if (loginWindow.window && !loginWindow.window.closed) {
+      loginWindow.window.close();
     }
     
-    // Close the login tab if we have its ID
-    if (loginTabState.tabId && typeof chrome !== 'undefined' && chrome.tabs) {
-      chrome.tabs.remove(loginTabState.tabId);
+    // Clear interval
+    if (loginWindow.checkInterval) {
+      clearInterval(loginWindow.checkInterval);
     }
     
-    setLoginTabState({ isTabOpen: false });
-    setShowTabInstructions(false);
+    // Reset states
+    setLoginWindow({ isOpen: false, window: null });
+    setIsWaitingForLogin(false);
   };
 
   const getStatusColor = (connected: boolean, mockMode: boolean) => {
@@ -237,7 +221,7 @@ export default function LoginComponent({
   };
 
   return (
-    <div className="w-[402px] h-[277px] bg-white flex flex-col">
+    <div className="w-[402px] h-[380px] bg-white flex flex-col">
       {/* Header */}
       <div className="bg-white p-4 flex items-start">
         <div className="flex justify-center items-center flex-1">
@@ -249,21 +233,91 @@ export default function LoginComponent({
             <p className="text-xl text-gray-500">My insights</p>
           </div>
         </div>
+        
+        {/* Status indicator */}
+        <div className="flex flex-col items-end">
+          <div className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(backendStatus.connected, backendStatus.mockMode)}`}>
+            {getStatusText()}
+          </div>
+        </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex flex-col items-center justify-center px-6">
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        {/* Connection Status */}
+        {isCheckingBackend && (
+          <div className="mb-4 text-center">
+            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+            <p className="text-sm text-gray-600">Checking connection...</p>
+          </div>
+        )}
+
+        {/* Waiting for Login State */}
+        {isWaitingForLogin && loginWindow.isOpen && (
+          <div className="text-center mb-6 w-full">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center justify-center mb-2">
+                <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse mr-2"></div>
+                <p className="text-sm font-medium text-blue-800">
+                  Login window opened
+                </p>
+              </div>
+              <p className="text-xs text-blue-700 mb-3">
+                Complete your login in the popup window. This extension will update automatically.
+              </p>
+              {backendStatus.mockMode && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-3">
+                  <p className="text-xs text-yellow-800">
+                    <strong>Demo credentials:</strong><br/>
+                    Email: demo.user@cellebrite.com<br/>
+                    Password: password
+                  </p>
+                </div>
+              )}
+              <button
+                onClick={handleCancelLogin}
+                className="text-xs text-blue-600 hover:text-blue-800 underline"
+              >
+                Cancel & Close Window
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Login Instructions */}
+        {!isWaitingForLogin && (
+          <div className="text-center mb-6">
+            <p className="text-sm text-gray-600 mb-2">
+              Click Login to authenticate in a popup window
+            </p>
+            {backendStatus.mockMode && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                <p className="text-xs text-yellow-800">
+                  <strong>Demo Mode:</strong> Use demo.user@cellebrite.com / password
+                </p>
+              </div>
+            )}
+            {!backendStatus.connected && !backendStatus.mockMode && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                <p className="text-xs text-red-800">
+                  Backend not available. Some features may be limited.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Login Button */}
         <button
           onClick={handleLoginClick}
           disabled={
             state.isLoading ||
-            loginTabState.isTabOpen ||
+            isWaitingForLogin ||
             (isCheckingBackend && !backendStatus.mockMode)
           }
           className="w-[176px] bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed mb-8"
         >
-          {loginTabState.isTabOpen ? (
+          {isWaitingForLogin ? (
             <span className="flex items-center justify-center gap-2">
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
               Waiting for login...
@@ -291,6 +345,15 @@ export default function LoginComponent({
             >
               Retry Connection
             </button>
+          </div>
+        )}
+
+        {/* Window Instructions */}
+        {isWaitingForLogin && (
+          <div className="mt-2 text-center">
+            <p className="text-xs text-gray-500">
+              💡 The login window should open automatically. If not, check your popup blocker settings.
+            </p>
           </div>
         )}
       </div>

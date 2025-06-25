@@ -38,18 +38,6 @@
             width: 50%;
         }
 
-        .brand-title {
-            font-size: 1.875rem;
-            font-weight: bold;
-            color: #111827;
-            margin: 0 0 0.5rem 0;
-        }
-
-        .brand-subtitle {
-            color: #6b7280;
-            margin: 0;
-        }
-
         .login-form {
             padding: 1.5rem 2rem 2rem 2rem;
         }
@@ -184,29 +172,17 @@
         }
 
         @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
+            to { transform: rotate(360deg); }
         }
 
         @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         @keyframes pulse {
-            0%, 100% {
-                transform: scale(1);
-            }
-            50% {
-                transform: scale(1.02);
-            }
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
         }
 
         .status-indicator {
@@ -275,18 +251,6 @@
                 padding: 1.5rem;
             }
         }
-
-        /* Auto-fill styling */
-        .form-input:-webkit-autofill {
-            -webkit-box-shadow: 0 0 0 30px white inset !important;
-            -webkit-text-fill-color: #374151 !important;
-        }
-
-        /* Focus states */
-        .login-button:focus, .mock-mode-toggle:focus {
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
-        }
     </style>
 </head>
 
@@ -350,9 +314,8 @@
         </div>
     </div>
 
-    <!-- Scripts loaded externally to comply with CSP -->
-    <script type="module" src="./main.tsx"></script>
-    <script src="./login-dom.js"></script>
+    <!-- Load single JavaScript file -->
+    <script src="./login-app.js"></script>
 </body>
 
 </html>

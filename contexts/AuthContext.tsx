@@ -1,448 +1,304 @@
-// contexts/AuthContext.tsx - Updated with New Tab Login Support
-import React, {
-  createContext,
-  useContext,
-  useReducer,
-  useEffect,
-  ReactNode,
-} from "react";
-import { authService } from "../services/authService";
-import { User, LoginCredentials, AuthState } from "../types/auth";
+// contexts/AuthContext.tsx - Simple with Real-time Monitoring for Popup
+import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+import { authService } from '../services/authService';
+import { User } from '../types/auth';
 
-// Local interface definitions
-interface LoginResponse {
-  success: boolean;
-  token?: string;
-  user?: User;
-  expiresIn?: string;
-  error?: string;
-  code?: string;
+interface AuthState {
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  user: User | null;
+  error: string | null;
+  lastLoginTime: number | null;
 }
 
-interface ApiResponse<T = any> {
-  success?: boolean;
-  data?: T;
-  error?: string;
-  message?: string;
-  code?: string;
-}
-
-// Extended action types for new tab login
 type AuthAction =
-  | { type: "LOGIN_START" }
-  | { type: "LOGIN_SUCCESS"; payload: { user: User; token: string } }
-  | { type: "LOGIN_FAILURE"; payload: string }
-  | { type: "LOGIN_PAGE_OPENED" }
-  | { type: "LOGOUT" }
-  | { type: "SET_USER"; payload: User | null }
-  | { type: "CLEAR_ERROR" }
-  | { type: "TOKEN_REFRESH_SUCCESS"; payload: string }
-  | { type: "TOKEN_EXPIRED" }
-  | { type: "CONNECTION_ERROR"; payload: string }
-  | { type: "AUTH_STATE_CHANGED"; payload: { isAuthenticated: boolean; user: User | null } };
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'LOGIN_SUCCESS'; payload: { user: User; timestamp?: number } }
+  | { type: 'LOGIN_FAILURE'; payload: string }
+  | { type: 'LOGOUT' }
+  | { type: 'CLEAR_ERROR' }
+  | { type: 'UPDATE_USER'; payload: User };
 
-// Extended initial state
 const initialState: AuthState = {
   isAuthenticated: false,
+  isLoading: true,
   user: null,
-  isLoading: true, // Start with loading to check stored auth
   error: null,
+  lastLoginTime: null,
 };
 
-// Reducer with new tab login handling
 function authReducer(state: AuthState, action: AuthAction): AuthState {
   switch (action.type) {
-    case "LOGIN_START":
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.payload };
+
+    case 'LOGIN_SUCCESS':
       return {
         ...state,
-        isLoading: true,
-        error: null,
-      };
-    case "LOGIN_PAGE_OPENED":
-      return {
-        ...state,
-        isLoading: false,
-        error: null,
-      };
-    case "LOGIN_SUCCESS":
-      return {
-        ...state,
-        isLoading: false,
         isAuthenticated: true,
+        isLoading: false,
         user: action.payload.user,
         error: null,
+        lastLoginTime: action.payload.timestamp || Date.now(),
       };
-    case "LOGIN_FAILURE":
+
+    case 'LOGIN_FAILURE':
       return {
         ...state,
-        isLoading: false,
         isAuthenticated: false,
+        isLoading: false,
         user: null,
         error: action.payload,
+        lastLoginTime: null,
       };
-    case "LOGOUT":
+
+    case 'LOGOUT':
       return {
         ...state,
         isAuthenticated: false,
+        isLoading: false,
         user: null,
         error: null,
-        isLoading: false,
+        lastLoginTime: null,
       };
-    case "SET_USER":
-      return {
-        ...state,
-        isAuthenticated: action.payload !== null,
-        user: action.payload,
-        isLoading: false,
-        error: null,
-      };
-    case "CLEAR_ERROR":
-      return {
-        ...state,
-        error: null,
-      };
-    case "TOKEN_REFRESH_SUCCESS":
-      return {
-        ...state,
-        error: null, // Clear any previous errors
-      };
-    case "TOKEN_EXPIRED":
-      return {
-        ...state,
-        isAuthenticated: false,
-        user: null,
-        error: "Your session has expired. Please log in again.",
-        isLoading: false,
-      };
-    case "CONNECTION_ERROR":
-      return {
-        ...state,
-        error: action.payload,
-        isLoading: false,
-      };
-    case "AUTH_STATE_CHANGED":
-      return {
-        ...state,
-        isAuthenticated: action.payload.isAuthenticated,
-        user: action.payload.user,
-        isLoading: false,
-        error: action.payload.isAuthenticated ? null : state.error, // Keep error if not authenticated
-      };
+
+    case 'CLEAR_ERROR':
+      return { ...state, error: null };
+
+    case 'UPDATE_USER':
+      return { ...state, user: action.payload };
+
     default:
       return state;
   }
 }
 
-// Context type with additional methods
 interface AuthContextType {
   state: AuthState;
-  login: (credentials: LoginCredentials) => Promise<LoginResponse>;
+  login: (credentials: { username: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
-  refreshToken: () => Promise<boolean>;
   checkConnection: () => Promise<boolean>;
-  getAuthToken: () => string | null;
-  makeAuthenticatedRequest: <T>(endpoint: string, options?: RequestInit) => Promise<any>;
+  refreshUser: () => Promise<void>;
 }
 
-// Create context
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Provider component
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export function AuthProvider({ children }: AuthProviderProps) {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
-  // Listen for auth state changes from AuthService
-  useEffect(() => {
-    const handleAuthStateChange = (event: CustomEvent) => {
-      const { isAuthenticated, user } = event.detail;
-      dispatch({
-        type: "AUTH_STATE_CHANGED",
-        payload: { isAuthenticated, user }
-      });
-    };
+  // Real-time auth check function
+  const checkAuthState = useCallback(async () => {
+    try {
+      // Check Chrome storage first (most reliable)
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        const result = await chrome.storage.local.get(['authState']);
+        const authState = result.authState;
+        
+        if (authState?.isLoggedIn && authState.currentUser) {
+          console.log('✅ Auth found in Chrome storage:', authState.currentUser.username);
+          dispatch({
+            type: 'LOGIN_SUCCESS',
+            payload: {
+              user: authState.currentUser,
+              timestamp: authState.timestamp,
+            },
+          });
+          return true;
+        }
+      }
 
-    window.addEventListener('authStateChanged', handleAuthStateChange as EventListener);
-    
-    return () => {
-      window.removeEventListener('authStateChanged', handleAuthStateChange as EventListener);
-    };
+      // Fallback to localStorage
+      const stored = localStorage.getItem('authState');
+      if (stored) {
+        const authState = JSON.parse(stored);
+        if (authState?.isLoggedIn && authState.currentUser) {
+          console.log('✅ Auth found in localStorage:', authState.currentUser.username);
+          dispatch({
+            type: 'LOGIN_SUCCESS',
+            payload: {
+              user: authState.currentUser,
+              timestamp: authState.timestamp,
+            },
+          });
+          return true;
+        }
+      }
+
+      return false;
+    } catch (error) {
+      console.error('❌ Auth check failed:', error);
+      return false;
+    }
   }, []);
 
-  // Initialize auth state on mount
+  // Initialize authentication state on mount
   useEffect(() => {
     const initializeAuth = async () => {
-      try {
-        console.log('🔄 Initializing authentication...');
+      console.log('🚀 Initializing auth state...');
+      dispatch({ type: 'SET_LOADING', payload: true });
 
-        // Check backend connectivity first
-        const connectionTest = await authService.testConnection();
-        if (!connectionTest.connected) {
-          console.warn('⚠️ Backend not connected:', connectionTest.error);
-          dispatch({ 
-            type: "CONNECTION_ERROR", 
-            payload: connectionTest.error || 'Backend not available' 
-          });
-          return;
-        }
-
-        // Check if user is authenticated from storage
-        const isAuthenticated = authService.isAuthenticated();
-        const currentUser = authService.getCurrentUser();
-
-        if (isAuthenticated && currentUser) {
-          // Verify with API that token is still valid
-          const apiUser = await authService.getCurrentUserFromAPI();
-          
-          if (apiUser) {
-            dispatch({ type: "SET_USER", payload: apiUser });
-            console.log('✅ Authentication restored for user:', apiUser.username);
-          } else {
-            // Token invalid, clear state
-            dispatch({ type: "SET_USER", payload: null });
-            console.log('⚠️ Stored token invalid, cleared auth state');
-          }
-        } else {
-          dispatch({ type: "SET_USER", payload: null });
-          console.log('ℹ️ No stored authentication found');
-        }
-      } catch (error) {
-        console.error('💥 Auth initialization error:', error);
-        dispatch({ 
-          type: "CONNECTION_ERROR", 
-          payload: error instanceof Error ? error.message : 'Initialization failed' 
-        });
+      const isAuthenticated = await checkAuthState();
+      
+      if (!isAuthenticated) {
+        dispatch({ type: 'SET_LOADING', payload: false });
       }
     };
 
     initializeAuth();
-  }, []);
+  }, [checkAuthState]);
 
-  // Auto token refresh (check every 5 minutes)
+  // Real-time monitoring with storage changes
   useEffect(() => {
-    if (!state.isAuthenticated) {
-      return;
-    }
+    let pollingInterval: NodeJS.Timeout;
 
-    const refreshInterval = setInterval(async () => {
-      try {
-        const refreshed = await authService.refreshToken();
-        if (refreshed) {
-          dispatch({ type: "TOKEN_REFRESH_SUCCESS", payload: "Token refreshed" });
-          console.log('🔄 Token auto-refreshed');
-        } else {
-          dispatch({ type: "TOKEN_EXPIRED" });
-          console.warn('⚠️ Token refresh failed, logging out');
+    const startMonitoring = () => {
+      // Fast polling for real-time updates
+      pollingInterval = setInterval(() => {
+        if (!state.isAuthenticated) {
+          checkAuthState();
         }
-      } catch (error) {
-        console.error('❌ Auto refresh error:', error);
-        dispatch({ type: "TOKEN_EXPIRED" });
+      }, 500); // Check every 500ms when not authenticated
+    };
+
+    // Storage change listener for Chrome extension
+    const handleStorageChange = (changes: any, areaName: string) => {
+      if (areaName === 'local' && changes.authState) {
+        console.log('💾 Storage auth state changed');
+        checkAuthState();
       }
-    }, 5 * 60 * 1000); // 5 minutes
+    };
 
-    return () => clearInterval(refreshInterval);
-  }, [state.isAuthenticated]);
+    // Message listener for login success
+    const handleMessage = (message: any, sender: any, sendResponse: any) => {
+      if (message.type === 'LOGIN_SUCCESS') {
+        console.log('📨 Login success message received');
+        checkAuthState();
+        sendResponse({ success: true });
+      }
+      return true;
+    };
 
-  // Listen for Chrome storage changes (auth updates from login page)
-  useEffect(() => {
+    // Setup listeners
     if (typeof chrome !== 'undefined' && chrome.storage) {
-      const handleStorageChange = (changes: any) => {
-        if (changes.authState) {
-          const newAuthState = changes.authState.newValue;
-          if (newAuthState && newAuthState.isLoggedIn && newAuthState.currentUser) {
-            console.log('🔄 Auth state updated from storage:', newAuthState.currentUser.username);
-            dispatch({
-              type: "AUTH_STATE_CHANGED",
-              payload: {
-                isAuthenticated: newAuthState.isLoggedIn,
-                user: newAuthState.currentUser
-              }
-            });
-          } else if (!newAuthState || !newAuthState.isLoggedIn) {
-            dispatch({
-              type: "AUTH_STATE_CHANGED",
-              payload: {
-                isAuthenticated: false,
-                user: null
-              }
-            });
-          }
-        }
-      };
-
       chrome.storage.onChanged.addListener(handleStorageChange);
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.onMessage.addListener(handleMessage);
+    }
+
+    startMonitoring();
+
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
       
-      return () => {
+      if (typeof chrome !== 'undefined' && chrome.storage) {
         chrome.storage.onChanged.removeListener(handleStorageChange);
-      };
-    }
-  }, []);
-
-  // Login function with new tab approach
-  const login = async (credentials: LoginCredentials): Promise<LoginResponse> => {
-    dispatch({ type: "LOGIN_START" });
-
-    try {
-      console.log('🔐 Attempting login with new tab approach...');
-
-      // Validate credentials first
-      const validation = authService.validateCredentials(credentials);
-      if (!validation.isValid) {
-        const errorMessage = validation.errors.join(", ");
-        dispatch({ type: "LOGIN_FAILURE", payload: errorMessage });
-        return { success: false, error: errorMessage, code: 'VALIDATION_ERROR' };
-      }
-
-      // Check backend connectivity
-      const connectionTest = await authService.testConnection();
-      if (!connectionTest.connected) {
-        const errorMessage = `Backend not available: ${connectionTest.error}`;
-        dispatch({ type: "CONNECTION_ERROR", payload: errorMessage });
-        return { success: false, error: errorMessage, code: 'CONNECTION_ERROR' };
-      }
-
-      // Open login page in new tab
-      const result = await authService.login(credentials);
-
-      if (result.success && result.code === 'LOGIN_PAGE_OPENED') {
-        dispatch({ type: "LOGIN_PAGE_OPENED" });
-        console.log('✅ Login page opened in new tab');
-        return {
-          success: true,
-          code: 'LOGIN_PAGE_OPENED'
-        };
-      } else {
-        const errorMessage = result.error || "Failed to open login page";
-        dispatch({ type: "LOGIN_FAILURE", payload: errorMessage });
-        console.error('❌ Login failed:', errorMessage);
-        return result;
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
-      dispatch({ type: "LOGIN_FAILURE", payload: errorMessage });
-      console.error('💥 Login exception:', error);
-      return { success: false, error: errorMessage, code: 'EXCEPTION_ERROR' };
-    }
-  };
-
-  // Logout function
-  const logout = async (): Promise<void> => {
-    try {
-      console.log('🔓 Logging out...');
-      await authService.logout();
-      dispatch({ type: "LOGOUT" });
-      console.log('✅ Logout successful');
-    } catch (error) {
-      console.error('❌ Logout error:', error);
-      // Force logout even if API call fails
-      dispatch({ type: "LOGOUT" });
-    }
-  };
-
-  // Clear error function
-  const clearError = (): void => {
-    dispatch({ type: "CLEAR_ERROR" });
-  };
-
-  // Manual token refresh
-  const refreshToken = async (): Promise<boolean> => {
-    try {
-      const refreshed = await authService.refreshToken();
-      if (refreshed) {
-        dispatch({ type: "TOKEN_REFRESH_SUCCESS", payload: "Token refreshed" });
-        return true;
-      } else {
-        dispatch({ type: "TOKEN_EXPIRED" });
-        return false;
-      }
-    } catch (error) {
-      console.error('❌ Token refresh error:', error);
-      dispatch({ type: "TOKEN_EXPIRED" });
-      return false;
-    }
-  };
-
-  // Check backend connection
-  const checkConnection = async (): Promise<boolean> => {
-    try {
-      const result = await authService.testConnection();
-      if (!result.connected && result.error) {
-        dispatch({ type: "CONNECTION_ERROR", payload: result.error });
-      }
-      return result.connected;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Connection check failed';
-      dispatch({ type: "CONNECTION_ERROR", payload: errorMessage });
-      return false;
-    }
-  };
-
-  // Get auth token
-  const getAuthToken = (): string | null => {
-    return authService.getAuthToken();
-  };
-
-  // Make authenticated API request
-  const makeAuthenticatedRequest = async <T extends any>(
-    endpoint: string, 
-    options: RequestInit = {}
-  ): Promise<ApiResponse<T>> => {
-    try {
-      const result = await authService.authenticatedRequest<T>(endpoint, options);
-      
-      if (!result.success) {
-        if (result.code === 'TOKEN_EXPIRED') {
-          dispatch({ type: "TOKEN_EXPIRED" });
-        } else if (result.code === 'NOT_AUTHENTICATED') {
-          dispatch({ type: "LOGOUT" });
-        }
       }
       
-      return result;
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        chrome.runtime.onMessage.removeListener(handleMessage);
+      }
+    };
+  }, [state.isAuthenticated, checkAuthState]);
+
+  // Handle visibility changes
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !state.isAuthenticated) {
+        console.log('👁️ Popup became visible, checking auth...');
+        checkAuthState();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [state.isAuthenticated, checkAuthState]);
+
+  const login = async (credentials: { username: string; password: string }) => {
+    try {
+      dispatch({ type: 'LOGIN_FAILURE', payload: 'Login should be handled through login window' });
+      throw new Error('Login should be handled through login window');
     } catch (error) {
-      console.error('❌ Authenticated request error:', error);
+      dispatch({
+        type: 'LOGIN_FAILURE',
+        payload: error instanceof Error ? error.message : 'Login failed',
+      });
       throw error;
     }
   };
 
-  const value: AuthContextType = {
-    state,
-    login,
-    logout,
-    clearError,
-    refreshToken,
-    checkConnection,
-    getAuthToken,
-    makeAuthenticatedRequest,
+  const logout = async () => {
+    try {
+      await authService.logout();
+      dispatch({ type: 'LOGOUT' });
+      console.log('🔓 User logged out successfully');
+    } catch (error) {
+      console.error('Logout failed:', error);
+      // Force logout even if API call fails
+      dispatch({ type: 'LOGOUT' });
+    }
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  const clearError = () => {
+    dispatch({ type: 'CLEAR_ERROR' });
+  };
+
+  const checkConnection = async (): Promise<boolean> => {
+    try {
+      const result = await authService.testConnection();
+      return result.connected;
+    } catch (error) {
+      console.error('Connection check failed:', error);
+      return false;
+    }
+  };
+
+  const refreshUser = async () => {
+    try {
+      if (!authService.isAuthenticated()) {
+        return;
+      }
+
+      const user = await authService.getCurrentUserFromAPI();
+      if (user) {
+        dispatch({ type: 'UPDATE_USER', payload: user });
+      } else {
+        // If user fetch fails, assume token is invalid
+        dispatch({ type: 'LOGOUT' });
+      }
+    } catch (error) {
+      console.error('User refresh failed:', error);
+      // Don't logout on refresh failure unless it's an auth error
+      if (error instanceof Error && error.message.includes('401')) {
+        dispatch({ type: 'LOGOUT' });
+      }
+    }
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        state,
+        login,
+        logout,
+        clearError,
+        checkConnection,
+        refreshUser,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
-// Custom hook to use auth context
-export function useAuth(): AuthContextType {
+export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 }
-
-// Export additional utilities
-export const withAuth = <P extends object>(
-  Component: React.ComponentType<P>
-): React.ComponentType<P> => {
-  return (props: P) => {
-    const { state } = useAuth();
-
-    if (!state.isAuthenticated) {
-      return <div>Please log in to access this component.</div>;
-    }
-
-    return <Component {...props} />;
-  };
-};
