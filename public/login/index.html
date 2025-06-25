@@ -38,7 +38,6 @@
             width: 50%;
         }
 
-
         .brand-title {
             font-size: 1.875rem;
             font-weight: bold;
@@ -90,6 +89,10 @@
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         }
 
+        .form-input.error {
+            border-color: #ef4444;
+        }
+
         .forgot-password {
             text-align: left;
             margin-top: 0.5rem;
@@ -119,13 +122,31 @@
             margin-top: 1rem;
         }
 
-        .login-button:hover {
+        .login-button:hover:not(:disabled) {
             background: #2563eb;
         }
 
         .login-button:disabled {
             background: #9ca3af;
             cursor: not-allowed;
+        }
+
+        .mock-mode-toggle {
+            width: 100%;
+            background: #6b7280;
+            color: white;
+            border: none;
+            padding: 0.5rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-top: 0.5rem;
+            display: none;
+        }
+
+        .mock-mode-toggle:hover {
+            background: #4b5563;
         }
 
         .error-message {
@@ -136,6 +157,7 @@
             border-radius: 6px;
             margin-bottom: 1rem;
             font-size: 0.875rem;
+            animation: slideIn 0.3s ease-out;
         }
 
         .success-message {
@@ -147,6 +169,7 @@
             margin-bottom: 1rem;
             font-size: 0.875rem;
             text-align: center;
+            animation: slideIn 0.3s ease-out, pulse 2s infinite;
         }
 
         .loading {
@@ -166,12 +189,33 @@
             }
         }
 
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.02);
+            }
+        }
+
         .status-indicator {
             padding: 0.75rem;
             margin: 1rem 2rem;
             border-radius: 6px;
             font-size: 0.875rem;
             text-align: center;
+            display: none;
         }
 
         .status-connected {
@@ -185,6 +229,64 @@
             border: 1px solid #fecaca;
             color: #dc2626;
         }
+
+        .status-mock {
+            background: #fffbeb;
+            border: 1px solid #fed7aa;
+            color: #d97706;
+        }
+
+        .credentials-hint {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+            color: #475569;
+            display: none;
+        }
+
+        .credentials-hint strong {
+            color: #1e293b;
+        }
+
+        .demo-info {
+            text-align: center;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e5e7eb;
+            font-size: 0.75rem;
+            color: #6b7280;
+        }
+
+        /* Responsive design */
+        @media (max-width: 480px) {
+            .login-container {
+                margin: 1rem;
+                max-width: calc(100% - 2rem);
+            }
+            
+            .login-header {
+                padding: 1.5rem;
+            }
+            
+            .login-form {
+                padding: 1.5rem;
+            }
+        }
+
+        /* Auto-fill styling */
+        .form-input:-webkit-autofill {
+            -webkit-box-shadow: 0 0 0 30px white inset !important;
+            -webkit-text-fill-color: #374151 !important;
+        }
+
+        /* Focus states */
+        .login-button:focus, .mock-mode-toggle:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+        }
     </style>
 </head>
 
@@ -196,7 +298,7 @@
         </div>
 
         <!-- Status Indicator -->
-        <div id="status-indicator" class="status-indicator" style="display: none;">
+        <div id="status-indicator" class="status-indicator">
             <span id="status-text">Checking backend connection...</span>
         </div>
 
@@ -206,6 +308,13 @@
 
             <div id="error-container"></div>
             <div id="success-container"></div>
+
+            <!-- Mock Mode Credentials Hint -->
+            <div id="credentials-hint" class="credentials-hint">
+                <strong>Demo Credentials:</strong><br>
+                Email: demo.user@cellebrite.com<br>
+                Password: password
+            </div>
 
             <form id="login-form">
                 <div class="form-group">
@@ -226,11 +335,24 @@
                 <button type="submit" id="login-button" class="login-button">
                     Sign in
                 </button>
+
+                <!-- Mock Mode Toggle (Development Only) -->
+                <button type="button" id="mock-mode-toggle" class="mock-mode-toggle">
+                    Switch to Mock Mode
+                </button>
             </form>
+
+            <!-- Demo Info -->
+            <div class="demo-info">
+                This is a demo login for the Cellebrite extension.<br>
+                The tab will close automatically after successful login.
+            </div>
         </div>
     </div>
 
+    <!-- Scripts loaded externally to comply with CSP -->
     <script type="module" src="./main.tsx"></script>
+    <script src="./login-dom.js"></script>
 </body>
 
 </html>
