@@ -44,23 +44,25 @@ export default function LoginComponent({
   // Handle successful login detection
   useEffect(() => {
     if (state.isAuthenticated && isWaitingForLogin) {
-      console.log('✅ Login detected - success!');
-      
+      console.log("✅ Login detected - success!");
+
       // Close login window if open (but don't force it)
       if (loginWindow.window && !loginWindow.window.closed) {
         // CHANGED: Don't force close, just notify
-        console.log('🪟 Login successful, but keeping window open as requested');
+        console.log(
+          "🪟 Login successful, but keeping window open as requested"
+        );
       }
-      
+
       // Clear intervals
       if (loginWindow.checkInterval) {
         clearInterval(loginWindow.checkInterval);
       }
-      
+
       // Reset states
       setLoginWindow({ isOpen: false, window: null });
       setIsWaitingForLogin(false);
-      
+
       // Call success callback
       if (onLoginSuccess) {
         serviceManager.onLoginSuccess();
@@ -102,30 +104,33 @@ export default function LoginComponent({
   const handleLoginClick = async () => {
     try {
       setIsWaitingForLogin(true);
-      
+
       // Determine login URL
       let loginUrl: string;
-      
+
       if (typeof chrome !== "undefined" && chrome.runtime) {
         // Use extension-hosted login page
         loginUrl = chrome.runtime.getURL("login/index.html");
-        
+
         // Add mock mode parameter if needed
         if (backendStatus.mockMode || !backendStatus.connected) {
           loginUrl += "?mock=true";
         }
       } else {
         // Fallback to backend-hosted login page
-        loginUrl = `${backendStatus.apiUrl.replace("/api", "")}/login?source=extension`;
+        loginUrl = `${backendStatus.apiUrl.replace(
+          "/api",
+          ""
+        )}/login?source=extension`;
       }
 
-      console.log('🪟 Opening login window:', loginUrl);
+      console.log("🪟 Opening login window:", loginUrl);
 
       // Open login page in new window (NOT tab)
       const newWindow = window.open(
         loginUrl,
-        'cellebrite-login',
-        'width=500,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes'
+        "cellebrite-login",
+        "width=500,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes"
       );
 
       if (newWindow) {
@@ -134,16 +139,22 @@ export default function LoginComponent({
           window: newWindow,
           openTime: Date.now(),
         });
-        
+
         // Start monitoring the window
         startWindowMonitoring(newWindow);
       } else {
-        throw new Error('Failed to open login window. Please check popup blocker settings.');
+        throw new Error(
+          "Failed to open login window. Please check popup blocker settings."
+        );
       }
     } catch (error) {
       console.error("Failed to open login window:", error);
       setIsWaitingForLogin(false);
-      alert(`Failed to open login window: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(
+        `Failed to open login window: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
     }
   };
 
@@ -152,18 +163,20 @@ export default function LoginComponent({
       try {
         // Check if window is still open
         if (loginWindow.closed) {
-          console.log('🪟 Login window was closed by user');
+          console.log("🪟 Login window was closed by user");
           clearInterval(checkInterval);
           setLoginWindow({ isOpen: false, window: null });
-          
+
           // CHANGED: Give more time for auth state to be processed
           // and don't immediately reset waiting state
           setTimeout(async () => {
             if (!state.isAuthenticated) {
-              console.log('🔄 Window closed but no auth detected, resetting state');
+              console.log(
+                "🔄 Window closed but no auth detected, resetting state"
+              );
               setIsWaitingForLogin(false);
             } else {
-              console.log('✅ Window closed but user is authenticated');
+              console.log("✅ Window closed but user is authenticated");
             }
           }, 2000); // Increased from 1000ms to 2000ms
           return;
@@ -171,9 +184,8 @@ export default function LoginComponent({
 
         // Check auth state - the AuthContext should automatically detect changes
         // No need to manually check here since we have storage listeners
-        
       } catch (error) {
-        console.error('Window monitoring error:', error);
+        console.error("Window monitoring error:", error);
         clearInterval(checkInterval);
         setLoginWindow({ isOpen: false, window: null });
         // CHANGED: Don't immediately reset waiting state on error
@@ -185,7 +197,7 @@ export default function LoginComponent({
       }
     }, 1000); // Check every second
 
-    setLoginWindow(prev => ({
+    setLoginWindow((prev) => ({
       ...prev,
       checkInterval,
     }));
@@ -193,7 +205,7 @@ export default function LoginComponent({
     // CHANGED: Increased timeout from 10 to 30 minutes
     setTimeout(() => {
       if (!loginWindow.closed) {
-        console.log('🕒 Login window timeout (30 min), cleaning up...');
+        console.log("🕒 Login window timeout (30 min), cleaning up...");
         // Don't force close, just clean up our tracking
         clearInterval(checkInterval);
         setLoginWindow({ isOpen: false, window: null });
@@ -206,22 +218,24 @@ export default function LoginComponent({
 
   const handleCancelLogin = () => {
     // CHANGED: Ask user before closing window
-    const confirmClose = window.confirm('Are you sure you want to cancel the login process? This will close the login window.');
-    
+    const confirmClose = window.confirm(
+      "Are you sure you want to cancel the login process? This will close the login window."
+    );
+
     if (!confirmClose) {
       return;
     }
-    
+
     // Close login window
     if (loginWindow.window && !loginWindow.window.closed) {
       loginWindow.window.close();
     }
-    
+
     // Clear interval
     if (loginWindow.checkInterval) {
       clearInterval(loginWindow.checkInterval);
     }
-    
+
     // Reset states
     setLoginWindow({ isOpen: false, window: null });
     setIsWaitingForLogin(false);
@@ -275,13 +289,16 @@ export default function LoginComponent({
                 </p>
               </div>
               <p className="text-xs text-blue-700 mb-3">
-                Complete your login in the popup window. The window will stay open after login.
+                Complete your login in the popup window. The window will stay
+                open after login.
               </p>
               {backendStatus.mockMode && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-3">
                   <p className="text-xs text-yellow-800">
-                    <strong>Demo credentials:</strong><br/>
-                    Email: demo.user@cellebrite.com<br/>
+                    <strong>Demo credentials:</strong>
+                    <br />
+                    Email: demo.user@cellebrite.com
+                    <br />
                     Password: password
                   </p>
                 </div>
@@ -295,7 +312,7 @@ export default function LoginComponent({
             </div>
           </div>
         )}
-        
+
         {/* Login Button */}
         <button
           onClick={handleLoginClick}
@@ -309,7 +326,7 @@ export default function LoginComponent({
           {isWaitingForLogin ? (
             <span className="flex items-center justify-center gap-2">
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              Login window open...
+              Signing in...
             </span>
           ) : state.isLoading ? (
             <span className="flex items-center justify-center gap-2">

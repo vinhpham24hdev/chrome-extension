@@ -1,4 +1,4 @@
-// public/login/login-app.js - Removed Auto Close & Countdown (Vanilla JS)
+// public/login/login-app.js - CSP Compliant Version (Vanilla JS)
 (function() {
     'use strict';
 
@@ -324,28 +324,40 @@
         showSuccessMessage();
     }
 
+    // CSP-compliant success message function
     function showSuccessMessage() {
         const successContainer = DOM.get('success-container');
         
         if (successContainer) {
-            const closeButtonHTML = `
-                <button 
-                    onclick="window.close()" 
-                    style="margin-top: 10px; padding: 8px 16px; background: #16a34a; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-family: inherit; transition: background-color 0.2s;"
-                    onmouseover="this.style.background='#15803d'"
-                    onmouseout="this.style.background='#16a34a'"
-                >
-                    Close Window
-                </button>
-            `;
+            // Create success message div
+            const successDiv = document.createElement('div');
+            successDiv.className = 'success-message';
+            successDiv.innerHTML = '✅ Login successful! You can now close this window manually or continue using it.<br>';
             
-            DOM.setHTML(successContainer, `
-                <div class="success-message">
-                    ✅ Login successful! You can now close this window manually or continue using it.
-                    <br>
-                    ${closeButtonHTML}
-                </div>
-            `);
+            // Create close button element (CSP compliant)
+            const closeButton = document.createElement('button');
+            closeButton.textContent = 'Close Window';
+            closeButton.style.cssText = 'margin-top: 10px; padding: 8px 16px; background: #16a34a; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-family: inherit; transition: background-color 0.2s;';
+            
+            // Add event listeners (CSP compliant)
+            closeButton.addEventListener('click', () => {
+                window.close();
+            });
+            
+            closeButton.addEventListener('mouseover', () => {
+                closeButton.style.background = '#15803d';
+            });
+            
+            closeButton.addEventListener('mouseout', () => {
+                closeButton.style.background = '#16a34a';
+            });
+            
+            // Append button to success message
+            successDiv.appendChild(closeButton);
+            
+            // Clear container and add success message
+            successContainer.innerHTML = '';
+            successContainer.appendChild(successDiv);
         }
     }
 
@@ -546,6 +558,7 @@
             });
         }
 
+        // Global keyboard handlers
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' && event.target.tagName !== 'BUTTON') {
                 const form = DOM.get('login-form');
