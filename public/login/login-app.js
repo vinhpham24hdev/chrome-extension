@@ -1,4 +1,4 @@
-// public/login/login-app.js - Updated to Close Window Instead of Tab
+// public/login/login-app.js - Removed Auto Close & Countdown (Vanilla JS)
 (function() {
     'use strict';
 
@@ -38,14 +38,12 @@
         backendError: null,
         enableMockMode: CONFIG.ENABLE_MOCK_MODE,
         authCheckInterval: null,
-        closeTimeout: null,
-        isWindow: false // Track if we're in a popup window
+        isWindow: false
     };
 
     // Detect if we're in a popup window
     function detectWindowType() {
         try {
-            // Check if this is a popup window (not a tab)
             state.isWindow = !!(window.opener || window.parent !== window);
             console.log('🪟 Window type detected:', state.isWindow ? 'popup window' : 'tab');
         } catch (error) {
@@ -83,7 +81,6 @@
         }
 
         setupMessageHandlers() {
-            // Minimal message handling for window mode
             if (!this.isExtensionContext) {
                 console.log('🔧 Running in non-extension mode');
                 return;
@@ -304,7 +301,7 @@
             }
 
             if (loginSuccess) {
-                state.success = 'Login successful! Closing window...';
+                state.success = 'Login successful! You can now close this window.';
                 updateUI();
                 handleLoginSuccess();
             }
@@ -324,92 +321,29 @@
             state.authCheckInterval = null;
         }
 
-        showSuccessWithCountdown();
-        scheduleWindowClosure();
+        showSuccessMessage();
     }
 
-    function showSuccessWithCountdown() {
+    function showSuccessMessage() {
         const successContainer = DOM.get('success-container');
         
         if (successContainer) {
-            const windowText = state.isWindow ? 'window' : 'tab';
+            const closeButtonHTML = `
+                <button 
+                    onclick="window.close()" 
+                    style="margin-top: 10px; padding: 8px 16px; background: #16a34a; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-family: inherit; transition: background-color 0.2s;"
+                    onmouseover="this.style.background='#15803d'"
+                    onmouseout="this.style.background='#16a34a'"
+                >
+                    Close Window
+                </button>
+            `;
+            
             DOM.setHTML(successContainer, `
                 <div class="success-message">
-                    ✅ Login successful! Closing ${windowText} in <span id="countdown">3</span> seconds...
-                </div>
-            `);
-
-            let countdown = 3;
-            const countdownElement = DOM.get('countdown');
-            const countdownInterval = setInterval(() => {
-                countdown--;
-                if (countdownElement) {
-                    DOM.setText(countdownElement, countdown.toString());
-                }
-                if (countdown <= 0) {
-                    clearInterval(countdownInterval);
-                }
-            }, 1000);
-        }
-    }
-
-    function scheduleWindowClosure() {
-        if (state.closeTimeout) {
-            clearTimeout(state.closeTimeout);
-        }
-
-        state.closeTimeout = setTimeout(() => {
-            closeWindow();
-        }, 3000);
-    }
-
-    function closeWindow() {
-        console.log('🔄 Attempting to close login window...');
-
-        try {
-            if (state.isWindow) {
-                // We're in a popup window - just close it
-                console.log('🪟 Closing popup window...');
-                window.close();
-            } else if (extensionComm.isExtensionContext && chrome.tabs) {
-                // We're in a tab - use Chrome tabs API
-                console.log('📑 Closing tab via Chrome API...');
-                chrome.tabs.getCurrent((tab) => {
-                    if (chrome.runtime.lastError) {
-                        console.warn('⚠️ Error getting current tab:', chrome.runtime.lastError.message);
-                        window.close();
-                    } else if (tab?.id) {
-                        chrome.tabs.remove(tab.id, () => {
-                            if (chrome.runtime.lastError) {
-                                console.warn('⚠️ Error closing tab:', chrome.runtime.lastError.message);
-                                window.close();
-                            } else {
-                                console.log('✅ Tab closed successfully');
-                            }
-                        });
-                    } else {
-                        console.warn('⚠️ Could not get current tab, trying window.close()');
-                        window.close();
-                    }
-                });
-            } else {
-                // Fallback - just close
-                console.log('🔄 Using window.close() fallback');
-                window.close();
-            }
-        } catch (error) {
-            console.error('❌ Failed to close window:', error);
-            showManualCloseMessage();
-        }
-    }
-
-    function showManualCloseMessage() {
-        const successContainer = DOM.get('success-container');
-        if (successContainer) {
-            const windowText = state.isWindow ? 'window' : 'tab';
-            DOM.setHTML(successContainer, `
-                <div class="success-message">
-                    ✅ Login successful! You can now close this ${windowText} manually.
+                    ✅ Login successful! You can now close this window manually or continue using it.
+                    <br>
+                    ${closeButtonHTML}
                 </div>
             `);
         }
@@ -479,9 +413,6 @@
             if (state.enableMockMode) {
                 DOM.addClass(statusIndicator, 'status-mock');
                 DOM.setText(statusText, '🔧 Mock Mode - Use demo credentials');
-            } else if (state.backendConnected) {
-                DOM.addClass(statusIndicator, 'status-connected');
-                DOM.setText(statusText, '✅ Backend connected - Ready to login');
             } else {
                 DOM.addClass(statusIndicator, 'status-error');
                 DOM.setText(statusText, `❌ ${state.backendError || 'Backend not available'}`);
@@ -536,9 +467,9 @@
             DOM.setHTML(errorContainer, '');
         }
 
-        if (state.success && !successContainer.innerHTML.includes('countdown')) {
+        if (state.success && !successContainer.innerHTML.includes('✅')) {
             DOM.setHTML(successContainer, `<div class="success-message">✅ ${state.success}</div>`);
-        } else if (!state.success && !successContainer.innerHTML.includes('countdown')) {
+        } else if (!state.success && !successContainer.innerHTML.includes('✅')) {
             DOM.setHTML(successContainer, '');
         }
     }
@@ -623,13 +554,6 @@
                 }
             }
 
-            if (event.key === 'Escape') {
-                const successContainer = DOM.get('success-container');
-                if (successContainer && successContainer.innerHTML.includes('successful')) {
-                    closeWindow();
-                }
-            }
-
             if ((event.ctrlKey || event.metaKey) && event.key === 'r') {
                 event.preventDefault();
                 window.location.reload();
@@ -666,13 +590,6 @@
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 console.log('Login window became visible');
-                setTimeout(async () => {
-                    const authState = await extensionComm.getStoredAuthState();
-                    if (authState?.isLoggedIn) {
-                        console.log('User is already logged in, closing window');
-                        closeWindow();
-                    }
-                }, 1000);
             }
         });
 
@@ -681,9 +598,6 @@
             
             if (state.authCheckInterval) {
                 clearInterval(state.authCheckInterval);
-            }
-            if (state.closeTimeout) {
-                clearTimeout(state.closeTimeout);
             }
 
             extensionComm.safeRuntimeSendMessage({
@@ -716,37 +630,24 @@
     function initialize() {
         console.log('🚀 Initializing login window...');
 
-        // Detect window type first
         detectWindowType();
-
-        // Initialize safe extension communication
         extensionComm = new SafeExtensionCommunicator();
-
-        // Check backend connection
         checkBackendConnection();
 
-        // Pre-fill demo credentials for development
         if (CONFIG.NODE_ENV === 'development' || state.enableMockMode) {
             state.credentials = { ...MOCK_CREDENTIALS };
             updateFormValues(MOCK_CREDENTIALS);
         }
 
-        // Setup event handlers
         setupEventHandlers();
-
-        // Setup page lifecycle handlers
         setupPageHandlers();
-
-        // Start auth monitoring
         startAuthMonitoring();
 
-        // Auto-focus email field
         const emailInput = DOM.get('email');
         if (emailInput) {
             emailInput.focus();
         }
 
-        // Initial UI update
         updateUI();
 
         console.log('✅ Login window initialized successfully');

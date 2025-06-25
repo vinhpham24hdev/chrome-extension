@@ -1,4 +1,4 @@
-// components/LoginComponent.tsx - Enhanced with Login Window (No Popup Close)
+// components/LoginComponent.tsx - Prevent Auto Close & Better Window Management
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { serviceManager } from "../services/serviceManager";
@@ -46,9 +46,10 @@ export default function LoginComponent({
     if (state.isAuthenticated && isWaitingForLogin) {
       console.log('✅ Login detected - success!');
       
-      // Close login window if open
+      // Close login window if open (but don't force it)
       if (loginWindow.window && !loginWindow.window.closed) {
-        loginWindow.window.close();
+        // CHANGED: Don't force close, just notify
+        console.log('🪟 Login successful, but keeping window open as requested');
       }
       
       // Clear intervals
@@ -151,16 +152,20 @@ export default function LoginComponent({
       try {
         // Check if window is still open
         if (loginWindow.closed) {
-          console.log('🪟 Login window was closed');
+          console.log('🪟 Login window was closed by user');
           clearInterval(checkInterval);
           setLoginWindow({ isOpen: false, window: null });
           
-          // Give a moment for auth state to be saved, then check
+          // CHANGED: Give more time for auth state to be processed
+          // and don't immediately reset waiting state
           setTimeout(async () => {
             if (!state.isAuthenticated) {
+              console.log('🔄 Window closed but no auth detected, resetting state');
               setIsWaitingForLogin(false);
+            } else {
+              console.log('✅ Window closed but user is authenticated');
             }
-          }, 1000);
+          }, 2000); // Increased from 1000ms to 2000ms
           return;
         }
 
@@ -171,7 +176,12 @@ export default function LoginComponent({
         console.error('Window monitoring error:', error);
         clearInterval(checkInterval);
         setLoginWindow({ isOpen: false, window: null });
-        setIsWaitingForLogin(false);
+        // CHANGED: Don't immediately reset waiting state on error
+        setTimeout(() => {
+          if (!state.isAuthenticated) {
+            setIsWaitingForLogin(false);
+          }
+        }, 2000);
       }
     }, 1000); // Check every second
 
@@ -180,19 +190,28 @@ export default function LoginComponent({
       checkInterval,
     }));
 
-    // Auto-cleanup after 10 minutes
+    // CHANGED: Increased timeout from 10 to 30 minutes
     setTimeout(() => {
       if (!loginWindow.closed) {
-        console.log('🕒 Login window timeout, closing...');
-        loginWindow.close();
+        console.log('🕒 Login window timeout (30 min), cleaning up...');
+        // Don't force close, just clean up our tracking
+        clearInterval(checkInterval);
+        setLoginWindow({ isOpen: false, window: null });
+        if (!state.isAuthenticated) {
+          setIsWaitingForLogin(false);
+        }
       }
-      clearInterval(checkInterval);
-      setLoginWindow({ isOpen: false, window: null });
-      setIsWaitingForLogin(false);
-    }, 10 * 60 * 1000);
+    }, 30 * 60 * 1000); // 30 minutes instead of 10
   };
 
   const handleCancelLogin = () => {
+    // CHANGED: Ask user before closing window
+    const confirmClose = window.confirm('Are you sure you want to cancel the login process? This will close the login window.');
+    
+    if (!confirmClose) {
+      return;
+    }
+    
     // Close login window
     if (loginWindow.window && !loginWindow.window.closed) {
       loginWindow.window.close();
@@ -233,13 +252,6 @@ export default function LoginComponent({
             <p className="text-xl text-gray-500">My insights</p>
           </div>
         </div>
-        
-        {/* Status indicator */}
-        <div className="flex flex-col items-end">
-          <div className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(backendStatus.connected, backendStatus.mockMode)}`}>
-            {getStatusText()}
-          </div>
-        </div>
       </div>
 
       {/* Main Content */}
@@ -263,7 +275,7 @@ export default function LoginComponent({
                 </p>
               </div>
               <p className="text-xs text-blue-700 mb-3">
-                Complete your login in the popup window. This extension will update automatically.
+                Complete your login in the popup window. The window will stay open after login.
               </p>
               {backendStatus.mockMode && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-3">
@@ -278,35 +290,12 @@ export default function LoginComponent({
                 onClick={handleCancelLogin}
                 className="text-xs text-blue-600 hover:text-blue-800 underline"
               >
-                Cancel & Close Window
+                Cancel Login Process
               </button>
             </div>
           </div>
         )}
-
-        {/* Login Instructions */}
-        {!isWaitingForLogin && (
-          <div className="text-center mb-6">
-            <p className="text-sm text-gray-600 mb-2">
-              Click Login to authenticate in a popup window
-            </p>
-            {backendStatus.mockMode && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-                <p className="text-xs text-yellow-800">
-                  <strong>Demo Mode:</strong> Use demo.user@cellebrite.com / password
-                </p>
-              </div>
-            )}
-            {!backendStatus.connected && !backendStatus.mockMode && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-                <p className="text-xs text-red-800">
-                  Backend not available. Some features may be limited.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
+        
         {/* Login Button */}
         <button
           onClick={handleLoginClick}
@@ -320,7 +309,7 @@ export default function LoginComponent({
           {isWaitingForLogin ? (
             <span className="flex items-center justify-center gap-2">
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              Waiting for login...
+              Login window open...
             </span>
           ) : state.isLoading ? (
             <span className="flex items-center justify-center gap-2">
@@ -345,15 +334,6 @@ export default function LoginComponent({
             >
               Retry Connection
             </button>
-          </div>
-        )}
-
-        {/* Window Instructions */}
-        {isWaitingForLogin && (
-          <div className="mt-2 text-center">
-            <p className="text-xs text-gray-500">
-              💡 The login window should open automatically. If not, check your popup blocker settings.
-            </p>
           </div>
         )}
       </div>
