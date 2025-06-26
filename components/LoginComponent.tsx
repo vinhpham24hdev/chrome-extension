@@ -192,7 +192,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
   return (
     <div className="w-[402px] h-[277px] bg-white flex flex-col">
       {/* Header with Cellebrite Logo */}
-      <div className="bg-white p-4 flex items-center justify-center border-b border-gray-100">
+      <div className="bg-white p-4 flex items-center justify-center">
         {/* Cellebrite Logo */}
           <div className="flex flex-col items-center">
             {logoUrl && (
