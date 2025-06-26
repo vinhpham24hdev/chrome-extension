@@ -1,5 +1,6 @@
-// components/Dashboard.tsx - Updated to fix modal container issues
+// components/Dashboard.tsx - Updated with inline Portal for proper modal rendering
 import React, { useState } from "react";
+import { createPortal } from 'react-dom';
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
 import MenuItem from "@mui/material/MenuItem";
@@ -13,6 +14,53 @@ import RegionSelector, { RegionSelection } from "./RegionSelector";
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 import VideoRecorder from "./VideoRecorder";
 import VideoPreview, { VideoData } from "./VideoPreview";
+// Portal component inline
+
+interface PortalProps {
+  children: React.ReactNode;
+  containerId?: string;
+}
+
+function Portal({ children, containerId = 'modal-portal' }: PortalProps) {
+  const [portalElement, setPortalElement] = React.useState<HTMLElement | null>(null);
+
+  React.useEffect(() => {
+    // Create or get the portal container
+    let element = document.getElementById(containerId);
+    
+    if (!element) {
+      element = document.createElement('div');
+      element.id = containerId;
+      element.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+        z-index: 9999;
+      `;
+      document.body.appendChild(element);
+    }
+
+    // Enable pointer events when we have content
+    element.style.pointerEvents = 'auto';
+    setPortalElement(element);
+
+    // Cleanup function
+    return () => {
+      if (element && element.children.length === 0) {
+        element.style.pointerEvents = 'none';
+      }
+    };
+  }, [containerId]);
+
+  if (!portalElement) {
+    return null;
+  }
+
+  return createPortal(children, portalElement);
+}
 
 import logo from "@/assets/logo.png";
 
@@ -238,10 +286,10 @@ export default function Dashboard() {
   return (
     <>
       {/* Main Dashboard Container */}
-      <div className="w-[402px] h-[380px] bg-white flex flex-col">
+      <div className="w-[402px] h-[380px] bg-white flex flex-col relative">
         {/* Header with Cellebrite Logo */}
-        <div className="bg-white p-4 flex items-center justify-between">
-          <div className="flex justify-center items-start flex-1">
+        <div className="bg-white p-4 flex items-start justify-between">
+          <div className="flex justify-center items-center flex-1">
             {/* Cellebrite Logo */}
             <div className="flex flex-col items-center">
               {logo && <img src={logo} alt="Cellebrite Logo" className="w-2/3" />}
@@ -369,9 +417,9 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* Status indicator when capturing */}
+        {/* Status indicator when capturing - Inside popup */}
         {isCapturing && (
-          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
             <div className="bg-white rounded-lg p-6 flex flex-col items-center">
               <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
               <p className="text-gray-700">Capturing...</p>
@@ -380,42 +428,50 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Modals - Rendered Outside Main Container */}
+      {/* Modals - Rendered via Portal outside popup container */}
       {showRegionSelector && (
-        <RegionSelector
-          imageUrl={fullScreenImage}
-          onRegionSelect={handleRegionSelect}
-          onCancel={handleCancelRegionSelection}
-        />
+        <Portal>
+          <RegionSelector
+            imageUrl={fullScreenImage}
+            onRegionSelect={handleRegionSelect}
+            onCancel={handleCancelRegionSelection}
+          />
+        </Portal>
       )}
 
       {screenshotPreview && (
-        <ScreenshotPreview
-          screenshot={screenshotPreview}
-          onSave={handleSaveScreenshot}
-          onDownload={handleDownloadScreenshot}
-          onRetake={handleRetakeScreenshot}
-          onClose={() => setScreenshotPreview(null)}
-          isUploading={isUploading}
-        />
+        <Portal>
+          <ScreenshotPreview
+            screenshot={screenshotPreview}
+            onSave={handleSaveScreenshot}
+            onDownload={handleDownloadScreenshot}
+            onRetake={handleRetakeScreenshot}
+            onClose={() => setScreenshotPreview(null)}
+            isUploading={isUploading}
+          />
+        </Portal>
       )}
 
       {showVideoRecorder && (
-        <VideoRecorder
-          caseId={selectedCase}
-          onVideoCapture={handleVideoRecorded}
-          onClose={() => setShowVideoRecorder(false)}
-        />
+        <Portal>
+          <VideoRecorder
+            caseId={selectedCase}
+            onVideoCapture={handleVideoRecorded}
+            onClose={() => setShowVideoRecorder(false)}
+          />
+        </Portal>
       )}
 
       {videoPreview && (
-        <VideoPreview
-          video={videoPreview}
-          onSave={() => {}}
-          onDownload={() => {}}
-          onRetake={() => setVideoPreview(null)}
-          onClose={() => setVideoPreview(null)}
-        />
+        <Portal>
+          <VideoPreview
+            video={videoPreview}
+            onSave={() => {}}
+            onDownload={() => {}}
+            onRetake={() => setVideoPreview(null)}
+            onClose={() => setVideoPreview(null)}
+          />
+        </Portal>
       )}
     </>
   );

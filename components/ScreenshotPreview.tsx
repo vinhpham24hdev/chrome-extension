@@ -177,7 +177,7 @@ export default function ScreenshotPreview({
     <>
       {/* Main Screenshot Preview - Larger Modal */}
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-7xl max-h-[95vh] flex flex-col overflow-hidden">
+        <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-7xl max-h-[95vh] flex flex-col overflow-auto">
           {/* Header */}
           <div className="flex items-center justify-between p-6 border-b bg-white">
             <div className="flex-1">
@@ -217,14 +217,13 @@ export default function ScreenshotPreview({
           </div>
 
           {/* Large Image Container */}
-          <div className="flex-1 flex items-center justify-center p-6 bg-gray-100 overflow-auto">
+          <div className="flex-1 flex items-center justify-center p-6 bg-gray-100">
             <div className="relative group w-full h-full">
               <img
                 src={screenshot.dataUrl}
                 alt="Screenshot preview"
                 className="max-w-full max-h-full object-contain border border-gray-300 rounded-lg shadow-lg cursor-zoom-in mx-auto bg-white"
                 onClick={toggleFullscreen}
-                style={{ minHeight: '400px' }}
               />
               
               {/* Image overlay controls */}
