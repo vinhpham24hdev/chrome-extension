@@ -1,6 +1,5 @@
-// components/Dashboard.tsx - Updated with inline Portal for proper modal rendering
+// components/Dashboard.tsx - Updated to use new window for screenshot preview
 import React, { useState } from "react";
-import { createPortal } from 'react-dom';
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
 import MenuItem from "@mui/material/MenuItem";
@@ -14,53 +13,6 @@ import RegionSelector, { RegionSelection } from "./RegionSelector";
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 import VideoRecorder from "./VideoRecorder";
 import VideoPreview, { VideoData } from "./VideoPreview";
-// Portal component inline
-
-interface PortalProps {
-  children: React.ReactNode;
-  containerId?: string;
-}
-
-function Portal({ children, containerId = 'modal-portal' }: PortalProps) {
-  const [portalElement, setPortalElement] = React.useState<HTMLElement | null>(null);
-
-  React.useEffect(() => {
-    // Create or get the portal container
-    let element = document.getElementById(containerId);
-    
-    if (!element) {
-      element = document.createElement('div');
-      element.id = containerId;
-      element.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        pointer-events: none;
-        z-index: 9999;
-      `;
-      document.body.appendChild(element);
-    }
-
-    // Enable pointer events when we have content
-    element.style.pointerEvents = 'auto';
-    setPortalElement(element);
-
-    // Cleanup function
-    return () => {
-      if (element && element.children.length === 0) {
-        element.style.pointerEvents = 'none';
-      }
-    };
-  }, [containerId]);
-
-  if (!portalElement) {
-    return null;
-  }
-
-  return createPortal(children, portalElement);
-}
 
 import logo from "@/assets/logo.png";
 
@@ -284,186 +236,183 @@ export default function Dashboard() {
   };
 
   return (
-    <>
-      {/* Main Dashboard Container */}
-      <div className="w-[402px] h-[380px] bg-white flex flex-col relative">
-        {/* Header with Cellebrite Logo */}
-        <div className="bg-white p-4 flex items-start justify-between">
-          <div className="flex justify-center items-center flex-1">
-            {/* Cellebrite Logo */}
-            <div className="flex flex-col items-center">
-              {logo && <img src={logo} alt="Cellebrite Logo" className="w-2/3" />}
-              <p className="text-xl text-gray-500">My insights</p>
-            </div>
-          </div>
-          {/* User Avatar */}
-          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
-            {state.user?.username?.substring(0, 2).toUpperCase() || "JD"}
+    <div className="w-[402px] h-[380px] bg-white flex flex-col relative">
+      {/* Header with Cellebrite Logo */}
+      <div className="bg-white p-4 flex items-center justify-between">
+        <div className="flex justify-center items-center flex-1">
+          {/* Cellebrite Logo */}
+          <div className="flex flex-col items-center">
+            {logo && <img src={logo} alt="Cellebrite Logo" className="w-2/3" />}
+            <p className="text-xl text-gray-500">My insights</p>
           </div>
         </div>
-
-        {/* Instruction Text */}
-        <div className="px-6 text-center">
-          <p className="text-sm text-gray-700">
-            Select your case. Captured data will wait for you there
-          </p>
+        {/* User Avatar */}
+        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
+          {state.user?.username?.substring(0, 2).toUpperCase() || "JD"}
         </div>
-
-        {/* Case Selector */}
-        <div className="p-6">
-          <Box>
-            <FormControl fullWidth>
-              <InputLabel id="case-select-label">Case ID</InputLabel>
-              <Select
-                labelId="case-select-label"
-                id="case-select"
-                value={selectedCase}
-                label="Select Case"
-                onChange={(e: SelectChangeEvent<string>) =>
-                  handleCaseSelect(e.target.value)
-                }
-              >
-                {mockCases.map((caseItem) => (
-                  <MenuItem key={caseItem.id} value={caseItem.id}>
-                    <div className="flex justify-between items-center w-full">
-                      <span>{caseItem.title}</span>
-                    </div>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
-        </div>
-        
-        {/* Capture Tools Grid */}
-        <div className="px-6 py-2">
-          <div className="flex items-start justify-between">
-            {/* Screen Capture */}
-            <button
-              onClick={() => handleScreenshot("screen")}
-              disabled={isCapturing || !selectedCase}
-              className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
-                <div className="w-4 h-3 bg-gray-600 rounded-xs"></div>
-              </div>
-              <span className="text-xs text-gray-700">Screen</span>
-            </button>
-
-            {/* Full Page Capture */}
-            <button
-              onClick={() => handleScreenshot("full")}
-              disabled={isCapturing || !selectedCase}
-              className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <div className="w-8 h-6 border-2 border-gray-600 rounded-sm relative">
-                <div className="w-6 h-4 bg-gray-600 rounded-xs absolute top-0.5 left-0.5"></div>
-              </div>
-              <span className="text-xs text-gray-700">Full</span>
-            </button>
-
-            {/* Region Capture */}
-            <button
-              onClick={() => handleScreenshot("region")}
-              disabled={isCapturing || !selectedCase}
-              className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm"></div>
-              <span className="text-xs text-gray-700">Region</span>
-            </button>
-
-            {/* Divider */}
-            <div className="w-px h-8 bg-gray-300"></div>
-
-            {/* Video Recording */}
-            <button
-              onClick={() => handleVideoCapture("video")}
-              disabled={isCapturing || !selectedCase}
-              className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative"
-            >
-              <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
-                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-              </div>
-              <span className="text-xs text-gray-700">Video</span>
-            </button>
-
-            {/* Region Video */}
-            <button
-              onClick={() => handleVideoCapture("r-video")}
-              disabled={isCapturing || !selectedCase}
-              className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative"
-            >
-              <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm flex items-center justify-center">
-                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-              </div>
-              <span className="text-xs text-gray-700">R.Video</span>
-            </button>
-
-            {/* More Options */}
-            <button className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 transition-colors">
-              <div className="w-4 h-6 flex flex-col justify-center items-center space-y-0.5">
-                <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
-                <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
-                <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        {/* View Report Button */}
-        <div className="flex justify-center">
-          <button className="w-[176px] bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed">
-            View Report
-          </button>
-        </div>
-
-        {/* Status indicator when capturing - Inside popup */}
-        {isCapturing && (
-          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
-            <div className="bg-white rounded-lg p-6 flex flex-col items-center">
-              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-              <p className="text-gray-700">Capturing...</p>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Modals - Rendered via Portal outside popup container */}
+      {/* Instruction Text */}
+      <div className="px-6 text-center">
+        <p className="text-sm text-gray-700">
+          Select your case. Captured data will wait for you there
+        </p>
+      </div>
+
+      {/* Case Selector */}
+      <div className="p-6">
+        <Box>
+          <FormControl fullWidth>
+            <InputLabel id="case-select-label">Case ID</InputLabel>
+            <Select
+              labelId="case-select-label"
+              id="case-select"
+              value={selectedCase}
+              label="Select Case"
+              onChange={(e: SelectChangeEvent<string>) =>
+                handleCaseSelect(e.target.value)
+              }
+            >
+              {mockCases.map((caseItem) => (
+                <MenuItem key={caseItem.id} value={caseItem.id}>
+                  <div className="flex justify-between items-center w-full">
+                    <span>{caseItem.title}</span>
+                  </div>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
+      </div>
+      
+      {/* Capture Tools Grid */}
+      <div className="px-6 py-2">
+        <div className="flex items-start justify-between">
+          {/* Screen Capture */}
+          <button
+            onClick={() => handleScreenshot("screen")}
+            disabled={isCapturing || !selectedCase}
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
+              <div className="w-4 h-3 bg-gray-600 rounded-xs"></div>
+            </div>
+            <span className="text-xs text-gray-700">Screen</span>
+          </button>
+
+          {/* Full Page Capture */}
+          <button
+            onClick={() => handleScreenshot("full")}
+            disabled={isCapturing || !selectedCase}
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <div className="w-8 h-6 border-2 border-gray-600 rounded-sm relative">
+              <div className="w-6 h-4 bg-gray-600 rounded-xs absolute top-0.5 left-0.5"></div>
+            </div>
+            <span className="text-xs text-gray-700">Full</span>
+          </button>
+
+          {/* Region Capture */}
+          <button
+            onClick={() => handleScreenshot("region")}
+            disabled={isCapturing || !selectedCase}
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm"></div>
+            <span className="text-xs text-gray-700">Region</span>
+          </button>
+
+          {/* Divider */}
+          <div className="w-px h-8 bg-gray-300"></div>
+
+          {/* Video Recording */}
+          <button
+            onClick={() => handleVideoCapture("video")}
+            disabled={isCapturing || !selectedCase}
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative"
+          >
+            <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
+              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+            </div>
+            <span className="text-xs text-gray-700">Video</span>
+          </button>
+
+          {/* Region Video */}
+          <button
+            onClick={() => handleVideoCapture("r-video")}
+            disabled={isCapturing || !selectedCase}
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative"
+          >
+            <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm flex items-center justify-center">
+              <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+            </div>
+            <span className="text-xs text-gray-700">R.Video</span>
+          </button>
+
+          {/* More Options */}
+          <button className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 transition-colors">
+            <div className="w-4 h-6 flex flex-col justify-center items-center space-y-0.5">
+              <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
+              <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
+              <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* View Report Button */}
+      <div className="flex justify-center">
+        <button className="w-[176px] bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed">
+          View Report
+        </button>
+      </div>
+
+      {/* Status indicator when capturing */}
+      {isCapturing && (
+        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
+          <div className="bg-white rounded-lg p-6 flex flex-col items-center">
+            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-gray-700">Capturing...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Modals */}
       {showRegionSelector && (
-        <Portal>
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
           <RegionSelector
             imageUrl={fullScreenImage}
             onRegionSelect={handleRegionSelect}
             onCancel={handleCancelRegionSelection}
           />
-        </Portal>
+        </div>
       )}
 
       {screenshotPreview && (
-        <Portal>
-          <ScreenshotPreview
-            screenshot={screenshotPreview}
-            onSave={handleSaveScreenshot}
-            onDownload={handleDownloadScreenshot}
-            onRetake={handleRetakeScreenshot}
-            onClose={() => setScreenshotPreview(null)}
-            isUploading={isUploading}
-          />
-        </Portal>
+        <ScreenshotPreview
+          screenshot={screenshotPreview}
+          onSave={handleSaveScreenshot}
+          onDownload={handleDownloadScreenshot}
+          onRetake={handleRetakeScreenshot}
+          onClose={() => setScreenshotPreview(null)}
+          isUploading={isUploading}
+        />
       )}
 
       {showVideoRecorder && (
-        <Portal>
-          <VideoRecorder
-            caseId={selectedCase}
-            onVideoCapture={handleVideoRecorded}
-            onClose={() => setShowVideoRecorder(false)}
-          />
-        </Portal>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] w-full mx-4 overflow-auto">
+            <VideoRecorder
+              caseId={selectedCase}
+              onVideoCapture={handleVideoRecorded}
+              onClose={() => setShowVideoRecorder(false)}
+            />
+          </div>
+        </div>
       )}
 
       {videoPreview && (
-        <Portal>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <VideoPreview
             video={videoPreview}
             onSave={() => {}}
@@ -471,8 +420,8 @@ export default function Dashboard() {
             onRetake={() => setVideoPreview(null)}
             onClose={() => setVideoPreview(null)}
           />
-        </Portal>
+        </div>
       )}
-    </>
+    </div>
   );
 }
