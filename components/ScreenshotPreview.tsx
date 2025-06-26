@@ -1,4 +1,4 @@
-// components/ScreenshotPreview.tsx - Updated with Add to Case Dialog matching Figma
+// components/ScreenshotPreview.tsx - Updated with Larger Preview matching Figma
 import React, { useState, useEffect } from "react";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
 import { caseService } from "../services/caseService";
@@ -36,6 +36,7 @@ export default function ScreenshotPreview({
   isUploading = false,
 }: ScreenshotPreviewProps) {
   const [showAddToCase, setShowAddToCase] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [formData, setFormData] = useState<AddToCaseFormData>({
     name: "",
     description: "",
@@ -168,29 +169,45 @@ export default function ScreenshotPreview({
     return new Date(timestamp).toLocaleString();
   };
 
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
+  };
+
   return (
     <>
-      {/* Main Screenshot Preview */}
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] w-full mx-4 flex flex-col overflow-hidden">
+      {/* Main Screenshot Preview - Larger Modal */}
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-7xl max-h-[95vh] flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Screenshot Preview</h2>
-              <p className="text-sm text-gray-500">{screenshot.filename}</p>
+          <div className="flex items-center justify-between p-6 border-b bg-white">
+            <div className="flex-1">
+              <h2 className="text-xl font-semibold text-gray-900">Screenshot Preview</h2>
+              <p className="text-sm text-gray-500 mt-1">{screenshot.filename}</p>
             </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={toggleFullscreen}
+                className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded"
+                title="Toggle fullscreen"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                </svg>
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded"
+                title="Close preview"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* Screenshot Info */}
-          <div className="px-4 py-3 bg-gray-50 border-b">
+          <div className="px-6 py-4 bg-gray-50 border-b">
             <div className="flex flex-wrap gap-6 text-sm text-gray-600">
               <div><span className="font-medium">Case:</span> {screenshot.caseId}</div>
               <div><span className="font-medium">Type:</span> {screenshot.type}</div>
@@ -199,68 +216,112 @@ export default function ScreenshotPreview({
             </div>
           </div>
 
-          {/* Image Container */}
-          <div className="flex-1 p-4 overflow-auto">
-            <div className="relative group">
+          {/* Large Image Container */}
+          <div className="flex-1 flex items-center justify-center p-6 bg-gray-100 overflow-auto">
+            <div className="relative group w-full h-full">
               <img
                 src={screenshot.dataUrl}
                 alt="Screenshot preview"
-                className="max-w-full h-auto border border-gray-300 rounded cursor-pointer mx-auto"
+                className="max-w-full max-h-full object-contain border border-gray-300 rounded-lg shadow-lg cursor-zoom-in mx-auto bg-white"
+                onClick={toggleFullscreen}
+                style={{ minHeight: '400px' }}
               />
+              
+              {/* Image overlay controls */}
+              <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <div className="bg-black bg-opacity-75 rounded-lg px-3 py-2 text-white text-sm">
+                  Click to view fullscreen
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Footer Actions */}
-          <div className="p-4 border-t bg-gray-50">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="p-6 border-t bg-white">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <button
                 onClick={onRetake}
                 disabled={isUploading}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center justify-center px-4 py-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
                 Retake
               </button>
 
               <button
                 onClick={onDownload}
                 disabled={isUploading}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+                className="flex items-center justify-center px-4 py-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                <span>Download</span>
+                Download
               </button>
 
               <button
                 onClick={onSave}
                 disabled={isUploading}
-                className="px-4 py-2 text-sm font-medium text-white bg-gray-600 border border-transparent rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+                className="flex items-center justify-center px-4 py-3 text-sm font-medium text-white bg-gray-600 border border-transparent rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
                 </svg>
-                <span>Save Local</span>
+                Save Local
               </button>
 
               <button
                 onClick={handleAddToCase}
                 disabled={isUploading}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+                className="flex items-center justify-center px-4 py-3 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
-                <span>Add to case</span>
+                Add to case
               </button>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Fullscreen Modal */}
+      {isFullscreen && (
+        <div className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-[60]">
+          <div className="relative w-full h-full flex items-center justify-center p-4">
+            <img
+              src={screenshot.dataUrl}
+              alt="Screenshot fullscreen"
+              className="max-w-full max-h-full object-contain cursor-zoom-out"
+              onClick={toggleFullscreen}
+            />
+
+            {/* Close fullscreen button */}
+            <button
+              onClick={toggleFullscreen}
+              className="absolute top-6 right-6 bg-black bg-opacity-50 text-white p-3 rounded-full hover:bg-opacity-70 transition-all"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Fullscreen info overlay */}
+            <div className="absolute bottom-6 left-6 bg-black bg-opacity-50 text-white px-4 py-3 rounded-lg">
+              <p className="text-sm font-medium">{screenshot.filename}</p>
+              <p className="text-xs opacity-75 mt-1">
+                {formatFileSize(screenshot.dataUrl)} • {formatTimestamp(screenshot.timestamp)}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add to Case Dialog */}
       {showAddToCase && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-60">
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[70]">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
             {/* Dialog Header */}
             <div className="flex items-center justify-between p-4 border-b">

@@ -1,4 +1,4 @@
-// components/Dashboard.tsx - Updated to match Figma design
+// components/Dashboard.tsx - Updated to fix modal container issues
 import React, { useState } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
@@ -236,147 +236,151 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="w-[402px] h-[380px] bg-white flex flex-col">
-      {/* Header with Cellebrite Logo */}
-      <div className="bg-white p-4 flex items-center justify-between">
-        <div className="flex justify-center items-center flex-1">
-          {/* Cellebrite Logo */}
-          <div className="flex flex-col items-center">
-            {logo && <img src={logo} alt="Cellebrite Logo" className="w-2/3" />}
-            <p className="text-xl text-gray-500">My insights</p>
+    <>
+      {/* Main Dashboard Container */}
+      <div className="w-[402px] h-[380px] bg-white flex flex-col">
+        {/* Header with Cellebrite Logo */}
+        <div className="bg-white p-4 flex items-center justify-between">
+          <div className="flex justify-center items-start flex-1">
+            {/* Cellebrite Logo */}
+            <div className="flex flex-col items-center">
+              {logo && <img src={logo} alt="Cellebrite Logo" className="w-2/3" />}
+              <p className="text-xl text-gray-500">My insights</p>
+            </div>
+          </div>
+          {/* User Avatar */}
+          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
+            {state.user?.username?.substring(0, 2).toUpperCase() || "JD"}
           </div>
         </div>
-        {/* User Avatar */}
-        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
-          {state.user?.username?.substring(0, 2).toUpperCase() || "JD"}
+
+        {/* Instruction Text */}
+        <div className="px-6 text-center">
+          <p className="text-sm text-gray-700">
+            Select your case. Captured data will wait for you there
+          </p>
         </div>
-      </div>
 
-      {/* Instruction Text */}
-      <div className="px-6 text-center">
-        <p className="text-sm text-gray-700">
-          Select your case. Captured data will wait for you there
-        </p>
-      </div>
-
-      {/* Case Selector */}
-      <div className="p-6">
-        <Box>
-          <FormControl fullWidth>
-            <InputLabel id="case-select-label">Case ID</InputLabel>
-            <Select
-              labelId="case-select-label"
-              id="case-select"
-              value={selectedCase}
-              label="Select Case"
-              onChange={(e: SelectChangeEvent<string>) =>
-                handleCaseSelect(e.target.value)
-              }
+        {/* Case Selector */}
+        <div className="p-6">
+          <Box>
+            <FormControl fullWidth>
+              <InputLabel id="case-select-label">Case ID</InputLabel>
+              <Select
+                labelId="case-select-label"
+                id="case-select"
+                value={selectedCase}
+                label="Select Case"
+                onChange={(e: SelectChangeEvent<string>) =>
+                  handleCaseSelect(e.target.value)
+                }
+              >
+                {mockCases.map((caseItem) => (
+                  <MenuItem key={caseItem.id} value={caseItem.id}>
+                    <div className="flex justify-between items-center w-full">
+                      <span>{caseItem.title}</span>
+                    </div>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+        </div>
+        
+        {/* Capture Tools Grid */}
+        <div className="px-6 py-2">
+          <div className="flex items-start justify-between">
+            {/* Screen Capture */}
+            <button
+              onClick={() => handleScreenshot("screen")}
+              disabled={isCapturing || !selectedCase}
+              className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {mockCases.map((caseItem) => (
-                <MenuItem key={caseItem.id} value={caseItem.id}>
-                  <div className="flex justify-between items-center w-full">
-                    <span>{caseItem.title}</span>
-                  </div>
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Box>
-      </div>
-      {/* Capture Tools Grid */}
-      <div className="px-6 py-2">
-        <div className="flex items-start justify-between">
-          {/* Screen Capture */}
-          <button
-            onClick={() => handleScreenshot("screen")}
-            disabled={isCapturing || !selectedCase}
-            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
-              <div className="w-4 h-3 bg-gray-600 rounded-xs"></div>
-            </div>
-            <span className="text-xs text-gray-700">Screen</span>
-          </button>
+              <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
+                <div className="w-4 h-3 bg-gray-600 rounded-xs"></div>
+              </div>
+              <span className="text-xs text-gray-700">Screen</span>
+            </button>
 
-          {/* Full Page Capture */}
-          <button
-            onClick={() => handleScreenshot("full")}
-            disabled={isCapturing || !selectedCase}
-            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <div className="w-8 h-6 border-2 border-gray-600 rounded-sm relative">
-              <div className="w-6 h-4 bg-gray-600 rounded-xs absolute top-0.5 left-0.5"></div>
-            </div>
-            <span className="text-xs text-gray-700">Full</span>
-          </button>
+            {/* Full Page Capture */}
+            <button
+              onClick={() => handleScreenshot("full")}
+              disabled={isCapturing || !selectedCase}
+              className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <div className="w-8 h-6 border-2 border-gray-600 rounded-sm relative">
+                <div className="w-6 h-4 bg-gray-600 rounded-xs absolute top-0.5 left-0.5"></div>
+              </div>
+              <span className="text-xs text-gray-700">Full</span>
+            </button>
 
-          {/* Region Capture */}
-          <button
-            onClick={() => handleScreenshot("region")}
-            disabled={isCapturing || !selectedCase}
-            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm"></div>
-            <span className="text-xs text-gray-700">Region</span>
-          </button>
+            {/* Region Capture */}
+            <button
+              onClick={() => handleScreenshot("region")}
+              disabled={isCapturing || !selectedCase}
+              className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm"></div>
+              <span className="text-xs text-gray-700">Region</span>
+            </button>
 
-          {/* Divider */}
-          <div className="w-px h-8 bg-gray-300"></div>
+            {/* Divider */}
+            <div className="w-px h-8 bg-gray-300"></div>
 
-          {/* Video Recording */}
-          <button
-            onClick={() => handleVideoCapture("video")}
-            disabled={isCapturing || !selectedCase}
-            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative"
-          >
-            <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
-              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-            </div>
-            <span className="text-xs text-gray-700">Video</span>
-          </button>
+            {/* Video Recording */}
+            <button
+              onClick={() => handleVideoCapture("video")}
+              disabled={isCapturing || !selectedCase}
+              className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative"
+            >
+              <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
+                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+              </div>
+              <span className="text-xs text-gray-700">Video</span>
+            </button>
 
-          {/* Region Video */}
-          <button
-            onClick={() => handleVideoCapture("r-video")}
-            disabled={isCapturing || !selectedCase}
-            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative"
-          >
-            <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm flex items-center justify-center">
-              <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-            </div>
-            <span className="text-xs text-gray-700">R.Video</span>
-          </button>
+            {/* Region Video */}
+            <button
+              onClick={() => handleVideoCapture("r-video")}
+              disabled={isCapturing || !selectedCase}
+              className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative"
+            >
+              <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm flex items-center justify-center">
+                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+              </div>
+              <span className="text-xs text-gray-700">R.Video</span>
+            </button>
 
-          {/* More Options */}
-          <button className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 transition-colors">
-            <div className="w-4 h-6 flex flex-col justify-center items-center space-y-0.5">
-              <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
-              <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
-              <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
-            </div>
-          </button>
-        </div>
-      </div>
-
-      {/* View Report Button */}
-      <div className="flex justify-center">
-        <button className="w-[176px] bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed">
-          View Report
-        </button>
-      </div>
-
-      {/* Status indicator when capturing */}
-      {isCapturing && (
-        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 flex flex-col items-center">
-            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-gray-700">Capturing...</p>
+            {/* More Options */}
+            <button className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 transition-colors">
+              <div className="w-4 h-6 flex flex-col justify-center items-center space-y-0.5">
+                <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
+                <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
+                <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
+              </div>
+            </button>
           </div>
         </div>
-      )}
 
-      {/* Modals */}
+        {/* View Report Button */}
+        <div className="flex justify-center">
+          <button className="w-[176px] bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed">
+            View Report
+          </button>
+        </div>
+
+        {/* Status indicator when capturing */}
+        {isCapturing && (
+          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 flex flex-col items-center">
+              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+              <p className="text-gray-700">Capturing...</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Modals - Rendered Outside Main Container */}
       {showRegionSelector && (
         <RegionSelector
           imageUrl={fullScreenImage}
@@ -413,6 +417,6 @@ export default function Dashboard() {
           onClose={() => setVideoPreview(null)}
         />
       )}
-    </div>
+    </>
   );
 }
