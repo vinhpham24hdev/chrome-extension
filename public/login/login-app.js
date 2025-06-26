@@ -321,29 +321,89 @@
             state.authCheckInterval = null;
         }
 
-        showSuccessMessage();
+        // Show success message with countdown and auto-close
+        showSuccessWithCountdown();
     }
 
-    function showSuccessMessage() {
+    function showSuccessWithCountdown() {
         const successContainer = DOM.get('success-container');
         
         if (successContainer) {
-            const closeButtonHTML = `
-                <button 
-                    onclick="window.close()" 
-                    style="margin-top: 10px; padding: 8px 16px; background: #16a34a; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-family: inherit; transition: background-color 0.2s;"
-                    onmouseover="this.style.background='#15803d'"
-                    onmouseout="this.style.background='#16a34a'"
-                >
-                    Close Window
-                </button>
-            `;
+            // Immediately notify parent window to focus extension popup
+            notifyParentToFocus();
+            let countdown = 1;
+            const countdownElement = DOM.get('countdown');
             
+            const countdownInterval = setInterval(() => {
+                countdown--;
+                if (countdownElement) {
+                    DOM.setText(countdownElement, countdown.toString());
+                }
+                if (countdown <= 0) {
+                    clearInterval(countdownInterval);
+                    closeWindow();
+                }
+            }, 1000);
+        }
+    }
+
+    function notifyParentToFocus() {
+        try {
+            // Notify extension popup to focus itself
+            if (extensionComm.isExtensionContext && chrome.runtime) {
+                extensionComm.safeRuntimeSendMessage({
+                    type: 'FOCUS_EXTENSION_POPUP',
+                    timestamp: Date.now(),
+                    source: 'login_window'
+                }).catch(error => {
+                    console.warn('Could not notify extension to focus:', error);
+                });
+            }
+
+            // If this is a popup window, try to focus the opener
+            if (window.opener && !window.opener.closed) {
+                try {
+                    window.opener.focus();
+                } catch (error) {
+                    console.warn('Could not focus opener window:', error);
+                }
+            }
+        } catch (error) {
+            console.warn('Could not notify parent to focus:', error);
+        }
+    }
+
+    function closeWindow() {
+        console.log('🔄 Auto-closing login window...');
+
+        try {
+            // Final attempt to focus extension popup before closing
+            notifyParentToFocus();
+            
+            // Small delay to ensure message is sent
+            setTimeout(() => {
+                window.close();
+            }, 100);
+        } catch (error) {
+            console.error('❌ Failed to close window:', error);
+            // Fallback: show manual close message
+            showManualCloseMessage();
+        }
+    }
+
+    function showManualCloseMessage() {
+        const successContainer = DOM.get('success-container');
+        if (successContainer) {
             DOM.setHTML(successContainer, `
                 <div class="success-message">
-                    ✅ Login successful! You can now close this window manually or continue using it.
+                    ✅ Login successful! You can now close this window manually.
                     <br>
-                    ${closeButtonHTML}
+                    <button 
+                        onclick="window.close()" 
+                        style="margin-top: 10px; padding: 8px 16px; background: #16a34a; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-family: inherit;"
+                    >
+                        Close Window
+                    </button>
                 </div>
             `);
         }

@@ -1,24 +1,47 @@
-// components/Dashboard.tsx - Cellebrite Style UI
+// components/Dashboard.tsx - Updated to match Figma design
 import React, { useState } from "react";
-import Box from "@mui/material/Box";
-import InputLabel from "@mui/material/InputLabel";
-import MenuItem from "@mui/material/MenuItem";
-import FormControl from "@mui/material/FormControl";
-import Select, { SelectChangeEvent } from "@mui/material/Select";
-
 import { useAuth } from "../contexts/AuthContext";
-import {
-  screenshotService,
-  ScreenshotResult,
-} from "../services/screenshotService";
+import { screenshotService, ScreenshotResult } from "../services/screenshotService";
 import { videoService, VideoResult } from "../services/videoService";
 import RegionSelector, { RegionSelection } from "./RegionSelector";
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 import VideoRecorder from "./VideoRecorder";
 import VideoPreview, { VideoData } from "./VideoPreview";
-import ToolsGrid from "./ToolsGrid";
 
 import logo from "@/assets/logo.png";
+
+
+// Cellebrite logo SVG component
+const CellebriteLogo = () => (
+  <svg width="200" height="40" viewBox="0 0 200 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <g clipPath="url(#clip0)">
+      {/* Cellebrite dot pattern */}
+      <circle cx="8" cy="20" r="2" fill="#1a1a1a"/>
+      <circle cx="16" cy="12" r="2" fill="#1a1a1a"/>
+      <circle cx="16" cy="20" r="2" fill="#1a1a1a"/>
+      <circle cx="16" cy="28" r="2" fill="#1a1a1a"/>
+      <circle cx="24" cy="8" r="2" fill="#1a1a1a"/>
+      <circle cx="24" cy="16" r="2" fill="#1a1a1a"/>
+      <circle cx="24" cy="24" r="2" fill="#1a1a1a"/>
+      <circle cx="24" cy="32" r="2" fill="#1a1a1a"/>
+      <circle cx="32" cy="12" r="2" fill="#1a1a1a"/>
+      <circle cx="32" cy="20" r="2" fill="#1a1a1a"/>
+      <circle cx="32" cy="28" r="2" fill="#1a1a1a"/>
+      <circle cx="40" cy="20" r="2" fill="#1a1a1a"/>
+      {/* Orange accent dot */}
+      <circle cx="28" cy="8" r="2" fill="#FF6B35"/>
+    </g>
+    {/* Cellebrite text */}
+    <text x="55" y="25" fontSize="24" fontWeight="600" fill="#1a1a1a" fontFamily="Inter, system-ui">
+      Cellebrite
+    </text>
+    <defs>
+      <clipPath id="clip0">
+        <rect width="48" height="40" fill="white"/>
+      </clipPath>
+    </defs>
+  </svg>
+);
 
 interface CaseItem {
   id: string;
@@ -27,49 +50,39 @@ interface CaseItem {
   createdAt: string;
 }
 
-// Mock case data
+// Updated mock cases to match Figma format
 const mockCases: CaseItem[] = [
   {
-    id: "CASE-001",
+    id: "Case-120320240830",
     title: "Website Bug Investigation",
     status: "active",
     createdAt: "2024-06-10",
   },
   {
-    id: "CASE-002",
+    id: "Case-120320240829", 
     title: "Performance Issue Analysis",
     status: "pending",
     createdAt: "2024-06-09",
   },
   {
-    id: "CASE-003",
-    title: "User Experience Review",
+    id: "Case-120320240828",
+    title: "User Experience Review", 
     status: "active",
     createdAt: "2024-06-08",
-  },
-  {
-    id: "CASE-004",
-    title: "Security Audit Report",
-    status: "closed",
-    createdAt: "2024-06-07",
   },
 ];
 
 export default function Dashboard() {
   const { state, logout } = useAuth();
   const [selectedCase, setSelectedCase] = useState<string>(mockCases[0].id);
-  const [captureMode, setCaptureMode] = useState<"screenshot" | "video" | null>(
-    null
-  );
+  const [captureMode, setCaptureMode] = useState<"screenshot" | "video" | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [showRegionSelector, setShowRegionSelector] = useState(false);
   const [fullScreenImage, setFullScreenImage] = useState<string>("");
-  const [screenshotPreview, setScreenshotPreview] =
-    useState<ScreenshotData | null>(null);
+  const [screenshotPreview, setScreenshotPreview] = useState<ScreenshotData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showVideoRecorder, setShowVideoRecorder] = useState(false);
   const [videoPreview, setVideoPreview] = useState<VideoData | null>(null);
-  const [logoUrl, setLogoUrl] = useState(logo);
 
   const handleLogout = async () => {
     await logout();
@@ -79,9 +92,7 @@ export default function Dashboard() {
     setSelectedCase(caseId);
   };
 
-  const handleScreenshot = async (
-    type: "full" | "visible" | "region" = "visible"
-  ) => {
+  const handleScreenshot = async (type: "screen" | "full" | "region" = "screen") => {
     if (!selectedCase) {
       alert("Please select a case first");
       return;
@@ -107,9 +118,10 @@ export default function Dashboard() {
           return;
         }
       } else {
-        // Capture full screen or visible area
+        // Capture screen or full page
+        const captureType = type === "screen" ? "visible" : "full";
         result = await screenshotService.captureFullScreen({
-          type: type,
+          type: captureType,
           format: "png",
         });
       }
@@ -168,7 +180,7 @@ export default function Dashboard() {
     setFullScreenImage("");
   };
 
-  const handleVideoCapture = () => {
+  const handleVideoCapture = (type: "video" | "r-video" = "video") => {
     if (!selectedCase) {
       alert("Please select a case first");
       return;
@@ -232,7 +244,6 @@ export default function Dashboard() {
 
   const handleDownloadScreenshot = () => {
     if (!screenshotPreview) return;
-
     screenshotService.downloadScreenshot(
       screenshotPreview.dataUrl,
       screenshotPreview.filename
@@ -251,72 +262,188 @@ export default function Dashboard() {
     setCaptureMode(null);
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "active":
-        return "bg-green-100 text-green-800";
-      case "pending":
-        return "bg-yellow-100 text-yellow-800";
-      case "closed":
-        return "bg-gray-100 text-gray-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
-
   return (
-    <div className="w-[402px] h-[380px] bg-white flex flex-col p-4">
-      {/* Header */}
-      <div className="bg-white p-4 flex items-start">
-        <div className="flex justify-center items-center flex-1">
+    <div className="w-[402px] h-[380px] bg-white flex flex-col">
+      {/* Header with Cellebrite Logo */}
+      <div className="bg-white p-4 flex items-center justify-between border-b border-gray-100">
+         <div className="flex justify-center items-center flex-1">
           {/* Cellebrite Logo */}
           <div className="flex flex-col items-center">
-            {logoUrl && (
-              <img src={logoUrl} alt="Cellebrite Logo" className="w-2/3" />
+            {logo && (
+              <img src={logo} alt="Cellebrite Logo" className="w-2/3" />
             )}
             <p className="text-xl text-gray-500">My insights</p>
           </div>
         </div>
-        <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
-          JD
+        {/* User Avatar */}
+        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
+          {state.user?.username?.substring(0, 2).toUpperCase() || "JD"}
         </div>
       </div>
-      <div className="flex justify-center">
-        <p className="text-sm text-gray-800">
+
+      {/* Instruction Text */}
+      <div className="px-6 py-2 text-center">
+        <p className="text-sm text-gray-700">
           Select your case. Captured data will wait for you there
         </p>
       </div>
+
       {/* Case Selector */}
-      <Box sx={{ marginTop: 2, padding: 2 }}>
-        <FormControl fullWidth>
-          <InputLabel id="case-select-label">Case ID</InputLabel>
-          <Select
-            labelId="case-select-label"
-            id="case-select"
+      <div className="px-6 py-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Case ID
+        </label>
+        <div className="relative">
+          <select
             value={selectedCase}
-            label="Select Case"
-            onChange={(e: SelectChangeEvent<string>) =>
-              handleCaseSelect(e.target.value)
-            }
+            onChange={(e) => handleCaseSelect(e.target.value)}
+            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none cursor-pointer"
           >
             {mockCases.map((caseItem) => (
-              <MenuItem key={caseItem.id} value={caseItem.id}>
-                <div className="flex justify-between items-center w-full">
-                  <span>{caseItem.title}</span>
-                </div>
-              </MenuItem>
+              <option key={caseItem.id} value={caseItem.id}>
+                {caseItem.id}
+              </option>
             ))}
-          </Select>
-        </FormControl>
-      </Box>
-      {/* Capture Mode Selector */}
-      <ToolsGrid />
-      {/* Screenshot Preview */}
-      <div className="flex justify-center mt-4">
+          </select>
+          {/* Dropdown arrow */}
+          <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      {/* Capture Tools Grid */}
+      <div className="px-6 py-2">
+        <div className="flex items-center justify-center space-x-4">
+          {/* Screen Capture */}
+          <button
+            onClick={() => handleScreenshot("screen")}
+            disabled={isCapturing || !selectedCase}
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
+              <div className="w-4 h-3 bg-gray-600 rounded-xs"></div>
+            </div>
+            <span className="text-xs text-gray-700">Screen</span>
+          </button>
+
+          {/* Full Page Capture */}
+          <button
+            onClick={() => handleScreenshot("full")}
+            disabled={isCapturing || !selectedCase}
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <div className="w-8 h-6 border-2 border-gray-600 rounded-sm relative">
+              <div className="w-6 h-4 bg-gray-600 rounded-xs absolute top-0.5 left-0.5"></div>
+            </div>
+            <span className="text-xs text-gray-700">Full</span>
+          </button>
+
+          {/* Region Capture */}
+          <button
+            onClick={() => handleScreenshot("region")}
+            disabled={isCapturing || !selectedCase}
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm"></div>
+            <span className="text-xs text-gray-700">Region</span>
+          </button>
+
+          {/* Divider */}
+          <div className="w-px h-8 bg-gray-300"></div>
+
+          {/* Video Recording */}
+          <button
+            onClick={() => handleVideoCapture("video")}
+            disabled={isCapturing || !selectedCase}
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative"
+          >
+            <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
+              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+            </div>
+            <span className="text-xs text-gray-700">Video</span>
+          </button>
+
+          {/* Region Video */}
+          <button
+            onClick={() => handleVideoCapture("r-video")}
+            disabled={isCapturing || !selectedCase}
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative"
+          >
+            <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm flex items-center justify-center">
+              <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+            </div>
+            <span className="text-xs text-gray-700">R.Video</span>
+          </button>
+
+          {/* More Options */}
+          <button className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 transition-colors">
+            <div className="w-4 h-6 flex flex-col justify-center items-center space-y-0.5">
+              <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
+              <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
+              <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
+            </div>
+            <span className="text-xs text-gray-700 invisible">More</span>
+          </button>
+        </div>
+      </div>
+
+      {/* View Report Button */}
+      <div className="flex justify-center mt-4 px-6">
         <button className="w-[176px] bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed">
           View Report
         </button>
       </div>
+
+      {/* Status indicator when capturing */}
+      {isCapturing && (
+        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 flex flex-col items-center">
+            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-gray-700">Capturing...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Modals */}
+      {showRegionSelector && (
+        <RegionSelector
+          imageUrl={fullScreenImage}
+          onRegionSelect={handleRegionSelect}
+          onCancel={handleCancelRegionSelection}
+        />
+      )}
+
+      {screenshotPreview && (
+        <ScreenshotPreview
+          screenshot={screenshotPreview}
+          onSave={handleSaveScreenshot}
+          onDownload={handleDownloadScreenshot}
+          onRetake={handleRetakeScreenshot}
+          onClose={() => setScreenshotPreview(null)}
+          isUploading={isUploading}
+        />
+      )}
+
+      {showVideoRecorder && (
+        <VideoRecorder
+          caseId={selectedCase}
+          onVideoCapture={handleVideoRecorded}
+          onClose={() => setShowVideoRecorder(false)}
+        />
+      )}
+
+      {videoPreview && (
+        <VideoPreview
+          video={videoPreview}
+          onSave={() => {}}
+          onDownload={() => {}}
+          onRetake={() => setVideoPreview(null)}
+          onClose={() => setVideoPreview(null)}
+        />
+      )}
     </div>
   );
 }
