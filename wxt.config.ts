@@ -1,4 +1,4 @@
-// wxt.config.ts
+// wxt.config.ts - Revert CSP to secure settings
 import { defineConfig } from "wxt";
 
 export default defineConfig({
@@ -19,20 +19,16 @@ export default defineConfig({
     action: {
       default_title: "Cellebrite Capture Tool",
     },
-    // Content Security Policy for login page
     content_security_policy: {
       extension_pages: "script-src 'self'; object-src 'self'",
     },
   },
 
-  // WXT will auto-discover entrypoints in entrypoints/ directory
-  // No need to manually define them
-
   webExt: {
     disabled: false,
   },
 
-  // Development settings (fixed)
+  // Development settings
   dev: {
     server: {
       port: 3000,
