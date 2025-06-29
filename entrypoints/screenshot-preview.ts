@@ -1,0 +1,22 @@
+// entrypoints/screenshot-preview.ts - Simple script for screenshot preview page
+export default defineUnlistedScript(() => {
+  // This script will be built as screenshot-preview.js and loaded by the HTML page
+  
+  import('../components/ScreenshotPreviewApp').then(({ initializePreviewApp }) => {
+    initializePreviewApp();
+  }).catch(error => {
+    console.error('Failed to load screenshot preview app:', error);
+    
+    // Show error message
+    const loadingElement = document.getElementById('loading');
+    if (loadingElement) {
+      loadingElement.innerHTML = `
+        <div style="color: #ef4444; text-align: center;">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">⚠️</div>
+          <div style="font-size: 1.125rem; margin-bottom: 0.5rem;">Failed to load preview</div>
+          <div style="font-size: 0.875rem; opacity: 0.7;">Please close this window and try again</div>
+        </div>
+      `;
+    }
+  });
+});

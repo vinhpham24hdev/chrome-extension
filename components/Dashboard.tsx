@@ -1,5 +1,5 @@
 // components/Dashboard.tsx - Updated to use new window for screenshot preview
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
 import MenuItem from "@mui/material/MenuItem";
@@ -9,6 +9,7 @@ import Select, { SelectChangeEvent } from "@mui/material/Select";
 import { useAuth } from "../contexts/AuthContext";
 import { screenshotService, ScreenshotResult } from "../services/screenshotService";
 import { videoService, VideoResult } from "../services/videoService";
+import { screenshotWindowService } from "../services/screenshotWindowService";
 import RegionSelector, { RegionSelection } from "./RegionSelector";
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 import VideoRecorder from "./VideoRecorder";
@@ -56,6 +57,72 @@ export default function Dashboard() {
   const [isUploading, setIsUploading] = useState(false);
   const [showVideoRecorder, setShowVideoRecorder] = useState(false);
   const [videoPreview, setVideoPreview] = useState<VideoData | null>(null);
+
+  // Setup screenshot window service listeners
+  useEffect(() => {
+    // Setup listeners for screenshot window events
+    screenshotWindowService.addListener('window_closed', () => {
+      setScreenshotPreview(null);
+      setCaptureMode(null);
+      console.log('Screenshot preview window closed');
+    });
+
+    screenshotWindowService.addListener('save_screenshot', async (screenshotData: ScreenshotData) => {
+      if (screenshotData) {
+        console.log('Save screenshot request from preview window');
+        await handleSaveScreenshotFromWindow(screenshotData);
+      }
+    });
+
+    screenshotWindowService.addListener('retake_screenshot', () => {
+      console.log('Retake screenshot request from preview window');
+      setScreenshotPreview(null);
+      setCaptureMode(null);
+      // Could trigger retake logic here if needed
+    });
+
+    return () => {
+      // Cleanup listeners
+      screenshotWindowService.removeListener('window_closed');
+      screenshotWindowService.removeListener('save_screenshot');
+      screenshotWindowService.removeListener('retake_screenshot');
+    };
+  }, [selectedCase]);
+
+  const handleSaveScreenshotFromWindow = async (screenshotData: ScreenshotData) => {
+    setIsUploading(true);
+
+    try {
+      console.log('Saving screenshot from preview window...');
+      
+      // Save to Chrome storage (same logic as before)
+      const result: ScreenshotResult = {
+        success: true,
+        dataUrl: screenshotData.dataUrl,
+        filename: screenshotData.filename,
+        blob: screenshotData.blob,
+      };
+
+      const saved = await screenshotService.saveToStorage(result, selectedCase);
+
+      if (saved) {
+        console.log("Screenshot saved successfully from preview window!");
+        setScreenshotPreview(null);
+        setCaptureMode(null);
+        
+        // Show success notification (could be improved with toast notifications)
+        alert("Screenshot saved successfully!");
+      } else {
+        console.error("Failed to save screenshot from preview window");
+        alert("Failed to save screenshot");
+      }
+    } catch (error) {
+      console.error("Save error from preview window:", error);
+      alert("Failed to save screenshot");
+    }
+
+    setIsUploading(false);
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -109,7 +176,22 @@ export default function Dashboard() {
           blob: result.blob,
         };
 
-        setScreenshotPreview(screenshotData);
+        console.log('Opening screenshot preview in new window...');
+        
+        // Open screenshot preview in new window instead of modal
+        const windowResult = await screenshotWindowService.openScreenshotPreview(screenshotData, {
+          width: 1400,
+          height: 900,
+          centered: true
+        });
+
+        if (!windowResult.success) {
+          console.error('Failed to open preview window:', windowResult.error);
+          // Fallback to in-popup preview
+          setScreenshotPreview(screenshotData);
+        } else {
+          console.log('Preview window opened successfully:', windowResult.windowId);
+        }
       } else {
         alert(result.error || "Screenshot capture failed");
       }
@@ -140,7 +222,22 @@ export default function Dashboard() {
           blob: result.blob,
         };
 
-        setScreenshotPreview(screenshotData);
+        console.log('Opening region screenshot preview in new window...');
+        
+        // Open screenshot preview in new window instead of modal
+        const windowResult = await screenshotWindowService.openScreenshotPreview(screenshotData, {
+          width: 1400,
+          height: 900,
+          centered: true
+        });
+
+        if (!windowResult.success) {
+          console.error('Failed to open preview window:', windowResult.error);
+          // Fallback to in-popup preview
+          setScreenshotPreview(screenshotData);
+        } else {
+          console.log('Region preview window opened successfully:', windowResult.windowId);
+        }
       } else {
         alert(result.error || "Region capture failed");
       }
@@ -377,7 +474,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Modals */}
+      {/* Modals - Only show if NOT opened in new window */}
       {showRegionSelector && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
           <RegionSelector
@@ -388,7 +485,8 @@ export default function Dashboard() {
         </div>
       )}
 
-      {screenshotPreview && (
+      {/* Fallback screenshot preview modal (only if window failed to open) */}
+      {screenshotPreview && !screenshotWindowService.isPreviewWindowOpen() && (
         <ScreenshotPreview
           screenshot={screenshotPreview}
           onSave={handleSaveScreenshot}
