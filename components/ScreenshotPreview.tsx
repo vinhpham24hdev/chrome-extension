@@ -59,20 +59,27 @@ export default function ScreenshotPreview({
       // Create the HTML content for the new window
       const htmlContent = createPreviewHTML(screenshot);
       
-      // Open new window with larger size
-      const newWindow = window.open('', '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes,location=no,menubar=no,toolbar=no');
+      // Create blob URL to bypass CSP
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const blobUrl = URL.createObjectURL(blob);
+      
+      // Open new window with blob URL
+      const newWindow = window.open(blobUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes,location=no,menubar=no,toolbar=no');
       
       if (newWindow) {
-        newWindow.document.write(htmlContent);
-        newWindow.document.close();
-        
         // Setup window communication
         setupWindowCommunication(newWindow);
+        
+        // Cleanup blob URL after window loads
+        setTimeout(() => {
+          URL.revokeObjectURL(blobUrl);
+        }, 1000);
         
         // Close the popup modal
         onClose();
       } else {
-        // Fallback to popup modal if window blocked
+        // Cleanup and fallback to popup modal if window blocked
+        URL.revokeObjectURL(blobUrl);
         setShowInPopup(true);
         setWindowOpened(false);
       }
@@ -103,7 +110,8 @@ export default function ScreenshotPreview({
 
     const snapshotId = `Snapshot ${Math.floor(Math.random() * 100000000)}`;
 
-    return `
+    // Use Data URL approach to avoid CSP issues
+    const htmlContent = `
       <!DOCTYPE html>
       <html lang="en">
       <head>
@@ -408,7 +416,7 @@ export default function ScreenshotPreview({
           <!-- Header -->
           <div class="header">
             <h2>${snapshotId}</h2>
-            <button id="closeBtn" class="close-btn">
+            <button onclick="handleClose()" class="close-btn">
               <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
               </svg>
@@ -500,10 +508,10 @@ export default function ScreenshotPreview({
 
               <!-- Footer -->
               <div class="footer">
-                <button id="cancelBtn" class="btn btn-cancel">
+                <button onclick="handleCancel()" class="btn btn-cancel" id="cancelBtn">
                   Cancel
                 </button>
-                <button id="addBtn" class="btn btn-primary">
+                <button onclick="handleAddToCase()" class="btn btn-primary" id="addBtn">
                   Add to case
                 </button>
               </div>
@@ -512,115 +520,105 @@ export default function ScreenshotPreview({
         </div>
 
         <script>
-          // All JavaScript code without inline event handlers
-          (function() {
-            let isUploading = false;
-            
-            function initializeURL() {
-              if (window.opener && !window.opener.closed) {
-                try {
-                  document.getElementById('urlInput').value = window.opener.location.href;
-                } catch (error) {
-                  console.log('Could not access opener URL');
-                }
-              }
-            }
-            
-            function handleCancel() {
+          console.log('Script started in new window');
+          
+          let isUploading = false;
+          
+          function handleClose() {
+            console.log('Close clicked');
+            window.close();
+          }
+          
+          function handleCancel() {
+            console.log('Cancel clicked');
+            try {
               if (window.opener && !window.opener.closed) {
                 window.opener.postMessage({ action: 'cancel' }, '*');
               }
-              window.close();
+            } catch (e) {
+              console.error('Error messaging opener:', e);
+            }
+            window.close();
+          }
+          
+          function handleAddToCase() {
+            console.log('Add to case clicked');
+            if (isUploading) return;
+            
+            const name = document.getElementById('nameInput').value.trim();
+            const description = document.getElementById('descriptionInput').value.trim();
+            const url = document.getElementById('urlInput').value.trim();
+            const selectedCase = document.getElementById('caseSelect').value;
+            
+            console.log('Form data:', { name, description, url, selectedCase });
+            
+            if (!name) {
+              alert('Please enter a name for the screenshot');
+              return;
             }
             
-            function handleAddToCase() {
-              if (isUploading) return;
+            // Show upload progress
+            isUploading = true;
+            document.getElementById('uploadSection').style.display = 'block';
+            document.getElementById('cancelBtn').disabled = true;
+            document.getElementById('addBtn').disabled = true;
+            document.getElementById('addBtn').innerHTML = '<div class="loading"></div> Adding...';
+            
+            // Simulate upload progress
+            let progress = 0;
+            const interval = setInterval(function() {
+              progress += Math.random() * 15;
+              if (progress > 100) progress = 100;
               
-              const name = document.getElementById('nameInput').value.trim();
-              const description = document.getElementById('descriptionInput').value.trim();
-              const url = document.getElementById('urlInput').value.trim();
-              const selectedCase = document.getElementById('caseSelect').value;
+              document.getElementById('progressBar').style.width = progress + '%';
+              document.getElementById('uploadPercent').textContent = Math.round(progress) + '%';
               
-              if (!name) {
-                alert('Please enter a name for the screenshot');
-                return;
-              }
-              
-              // Show upload progress
-              isUploading = true;
-              document.getElementById('uploadSection').style.display = 'block';
-              document.getElementById('cancelBtn').disabled = true;
-              document.getElementById('addBtn').disabled = true;
-              document.getElementById('addBtn').innerHTML = '<div class="loading"></div> Adding...';
-              
-              // Simulate upload progress
-              let progress = 0;
-              const interval = setInterval(function() {
-                progress += Math.random() * 15;
-                if (progress > 100) progress = 100;
+              if (progress >= 100) {
+                clearInterval(interval);
+                document.getElementById('uploadStatus').textContent = 'Upload completed!';
+                document.getElementById('successMessage').style.display = 'block';
                 
-                document.getElementById('progressBar').style.width = progress + '%';
-                document.getElementById('uploadPercent').textContent = Math.round(progress) + '%';
-                
-                if (progress >= 100) {
-                  clearInterval(interval);
-                  document.getElementById('uploadStatus').textContent = 'Upload completed!';
-                  document.getElementById('successMessage').style.display = 'block';
-                  
-                  setTimeout(function() {
+                setTimeout(function() {
+                  try {
                     if (window.opener && !window.opener.closed) {
                       window.opener.postMessage({ 
                         action: 'addedToCase', 
                         data: { name: name, description: description, url: url, selectedCase: selectedCase }
                       }, '*');
                     }
-                    window.close();
-                  }, 1500);
-                }
-              }, 100);
+                  } catch (e) {
+                    console.error('Error messaging opener:', e);
+                  }
+                  window.close();
+                }, 1500);
+              }
+            }, 100);
+          }
+          
+          // Initialize on load
+          window.addEventListener('load', function() {
+            console.log('Window loaded');
+            
+            // Auto-detect URL
+            try {
+              if (window.opener && !window.opener.closed) {
+                document.getElementById('urlInput').value = window.opener.location.href;
+              }
+            } catch (e) {
+              console.log('Could not access opener URL:', e);
             }
             
-            // Setup event listeners when DOM is loaded
-            document.addEventListener('DOMContentLoaded', function() {
-              // Initialize URL
-              initializeURL();
-              
-              // Close button
-              const closeBtn = document.getElementById('closeBtn');
-              if (closeBtn) {
-                closeBtn.addEventListener('click', function() {
-                  window.close();
-                });
-              }
-              
-              // Cancel button
-              const cancelBtn = document.getElementById('cancelBtn');
-              if (cancelBtn) {
-                cancelBtn.addEventListener('click', handleCancel);
-              }
-              
-              // Add to case button
-              const addBtn = document.getElementById('addBtn');
-              if (addBtn) {
-                addBtn.addEventListener('click', handleAddToCase);
-              }
-              
-              // Auto-focus on name input
-              const nameInput = document.getElementById('nameInput');
-              if (nameInput) {
-                nameInput.focus();
-              }
-            });
-            
-            // Listen for messages from parent
-            window.addEventListener('message', function(event) {
-              // Handle any messages if needed
-            });
-          })();
+            // Focus name input
+            document.getElementById('nameInput').focus();
+          });
+          
+          console.log('Script setup complete');
         </script>
       </body>
       </html>
     `;
+
+    return htmlContent;
   };
 
   const setupWindowCommunication = (newWindow: Window) => {
