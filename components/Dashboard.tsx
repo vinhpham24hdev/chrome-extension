@@ -238,7 +238,7 @@ export default function Dashboard() {
   return (
     <div className="w-[402px] h-[380px] bg-white flex flex-col relative">
       {/* Header with Cellebrite Logo */}
-      <div className="bg-white p-4 flex items-center justify-between">
+      <div className="bg-white p-4 flex items-start justify-between">
         <div className="flex justify-center items-center flex-1">
           {/* Cellebrite Logo */}
           <div className="flex flex-col items-center">

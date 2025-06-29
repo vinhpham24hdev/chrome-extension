@@ -212,38 +212,6 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
           </div>
         )}
 
-        {/* Waiting for Login State */}
-        {isWaitingForLogin && (
-          <div className="text-center mb-6 w-full">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-center justify-center mb-2">
-                <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse mr-2"></div>
-                <p className="text-sm font-medium text-blue-800">Login window opened</p>
-              </div>
-              <p className="text-xs text-blue-700 mb-3">
-                Complete your login in the popup window. The window will stay open after login.
-              </p>
-              {backendStatus.mockMode && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-3">
-                  <p className="text-xs text-yellow-800">
-                    <strong>Demo credentials:</strong>
-                    <br />
-                    Email: demo.user@cellebrite.com
-                    <br />
-                    Password: password
-                  </p>
-                </div>
-              )}
-              <button
-                onClick={() => setIsWaitingForLogin(false)}
-                className="text-xs text-blue-600 hover:text-blue-800 underline"
-              >
-                Cancel Login Process
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Login Button */}
         <button
           onClick={handleLoginClick}
