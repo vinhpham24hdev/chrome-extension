@@ -156,7 +156,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
       const newWindow = window.open(
         loginUrl,
         "cellebrite-login",
-        "width=500,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes"
+        "width=500,height=800,scrollbars=yes,resizable=yes,status=yes,location=yes"
       );
 
       if (!newWindow) {
