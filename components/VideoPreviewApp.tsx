@@ -444,7 +444,7 @@ function VideoPreviewWindow() {
 }
 
 // Initialize the app function
-export function initializePreviewApp() {
+export function initializeVideoPreviewApp() {
   const init = () => {
     const rootElement = document.getElementById('root');
     if (rootElement) {

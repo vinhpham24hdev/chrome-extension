@@ -1,11 +1,11 @@
-// entrypoints/screenshot-preview.ts - Simple script for screenshot preview page
+// entrypoints/video-preview.ts - Video preview entry point
 export default defineUnlistedScript(() => {
-  // This script will be built as screenshot-preview.js and loaded by the HTML page
+  // This script will be built as video-preview.js and loaded by the HTML page
   
-  import('../components/ScreenshotPreviewApp').then(({ initializeScreenPreviewApp }) => {
-    initializeScreenPreviewApp();
+  import('../components/VideoPreviewApp').then(({ initializeVideoPreviewApp }) => {
+    initializeVideoPreviewApp();
   }).catch(error => {
-    console.error('Failed to load screenshot preview app:', error);
+    console.error('Failed to load video preview app:', error);
     
     // Show error message
     const loadingElement = document.getElementById('loading');
