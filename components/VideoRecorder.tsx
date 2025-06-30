@@ -49,7 +49,12 @@ export default function VideoRecorder({
 
   // Auto-start recording when component mounts if autoStart is true
   useEffect(() => {
-    if (autoStart && isSupported && !hasAutoStarted.current && !recordingState.isRecording) {
+    if (
+      autoStart &&
+      isSupported &&
+      !hasAutoStarted.current &&
+      !recordingState.isRecording
+    ) {
       hasAutoStarted.current = true;
       handleStartRecording();
     }
@@ -190,8 +195,12 @@ export default function VideoRecorder({
           <div className="flex items-center">
             <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-3"></div>
             <div>
-              <h4 className="font-medium text-blue-900">Starting Recording...</h4>
-              <p className="text-sm text-blue-700">Setting up video capture, please wait...</p>
+              <h4 className="font-medium text-blue-900">
+                Starting Recording...
+              </h4>
+              <p className="text-sm text-blue-700">
+                Setting up video capture, please wait...
+              </p>
             </div>
           </div>
         </div>
@@ -220,169 +229,61 @@ export default function VideoRecorder({
 
       {/* Recording Status - Prominent when recording */}
       {recordingState.isRecording && (
-        <div className="bg-gradient-to-r from-red-50 to-red-100 border-2 border-red-200 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-black/80 border border-red-700 rounded p-3 text-white font-sans">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center">
               <div
-                className={`w-4 h-4 rounded-full mr-4 ${
-                  recordingState.isPaused
-                    ? "bg-yellow-500"
-                    : "bg-red-500 animate-pulse"
+                className={`w-3 h-3 rounded-full mr-2 ${
+                  recordingState.isPaused ? "bg-yellow-500" : "bg-red-500"
                 }`}
               ></div>
               <div>
-                <div className="text-xl font-bold text-red-900">
-                  {recordingState.isPaused
-                    ? "⏸️ Recording Paused"
-                    : "🎥 Recording in Progress"}
+                <div className="text-sm font-bold">
+                  {recordingState.isPaused ? "⏸️ Paused" : "🎥 Recording"}
                 </div>
-                <div className="text-sm text-red-700 mt-1">
-                  Duration: {videoService.formatDuration(recordingState.duration)} • 
-                  Size: {videoService.formatFileSize(recordingState.size)}
+                <div className="text-xs text-gray-400 mt-1">
+                  {videoService.formatDuration(recordingState.duration)} |{" "}
+                  {videoService.formatFileSize(recordingState.size)}
                 </div>
               </div>
             </div>
 
-            <div className="text-4xl">
+            <div className="text-xl">
               {recordingState.isPaused ? "⏸️" : "🎥"}
             </div>
           </div>
 
-          {/* Recording Controls - Large and prominent */}
-          <div className="flex flex-wrap gap-3">
+          {/* Controls - Gọn và dễ nhấn */}
+          <div className="flex gap-2">
             <button
               onClick={handleStopRecording}
               disabled={recordingState.status === "stopping"}
-              className="flex items-center px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors text-lg font-medium"
+              className="px-3 py-1 bg-gray-900 border border-red-600 text-red-400 hover:bg-red-900 hover:text-white text-xs transition-all disabled:opacity-50"
             >
-              <span className="mr-2 text-xl">⏹️</span>
-              {recordingState.status === "stopping" ? "Stopping..." : "Stop Recording"}
+              ⏹️ Stop
             </button>
 
             {recordingState.isPaused ? (
               <button
                 onClick={handleResumeRecording}
-                className="flex items-center px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-lg font-medium"
+                className="px-3 py-1 bg-green-900 border border-green-700 hover:bg-green-700 text-xs transition-all"
               >
-                <span className="mr-2 text-xl">▶️</span>
-                Resume
+                ▶️ Resume
               </button>
             ) : (
               <button
                 onClick={handlePauseRecording}
-                className="flex items-center px-6 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors text-lg font-medium"
+                className="px-3 py-1 bg-yellow-900 border border-yellow-700 hover:bg-yellow-700 text-xs transition-all"
               >
-                <span className="mr-2 text-xl">⏸️</span>
-                Pause
+                ⏸️ Pause
               </button>
             )}
 
             <button
               onClick={handleCancelRecording}
-              className="flex items-center px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-lg font-medium"
+              className="px-3 py-1 bg-red-900 border border-red-700 hover:bg-red-700 text-xs transition-all"
             >
-              <span className="mr-2 text-xl">❌</span>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Recording Options - Only show when not recording and not auto-started */}
-      {!recordingState.isRecording && !autoStart && (
-        <div className="bg-gray-50 rounded-lg p-4">
-          <h4 className="font-medium text-gray-900 mb-3">Recording Options</h4>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Recording Type */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Recording Type
-              </label>
-              <select
-                value={videoOptions.type}
-                onChange={(e) =>
-                  handleOptionsChange({ type: e.target.value as any })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="tab">Current Tab</option>
-                <option value="desktop">Desktop/Window</option>
-              </select>
-            </div>
-
-            {/* Quality */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Quality
-              </label>
-              <select
-                value={videoOptions.quality}
-                onChange={(e) =>
-                  handleOptionsChange({ quality: e.target.value as any })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="low">Low (720p)</option>
-                <option value="medium">Medium (1080p)</option>
-                <option value="high">High (1080p+)</option>
-              </select>
-            </div>
-
-            {/* Max Duration */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Max Duration (minutes)
-              </label>
-              <select
-                value={
-                  videoOptions.maxDuration ? videoOptions.maxDuration / 60 : 5
-                }
-                onChange={(e) =>
-                  handleOptionsChange({
-                    maxDuration: parseInt(e.target.value) * 60,
-                  })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value={1}>1 minute</option>
-                <option value={5}>5 minutes</option>
-                <option value={10}>10 minutes</option>
-                <option value={30}>30 minutes</option>
-              </select>
-            </div>
-
-            {/* Include Audio */}
-            <div className="flex items-center">
-              <input
-                type="checkbox"
-                id="includeAudio"
-                checked={videoOptions.includeAudio}
-                onChange={(e) =>
-                  handleOptionsChange({ includeAudio: e.target.checked })
-                }
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <label
-                htmlFor="includeAudio"
-                className="ml-2 text-sm text-gray-700"
-              >
-                Include Audio
-              </label>
-            </div>
-          </div>
-
-          {/* Manual Start Button */}
-          <div className="mt-4">
-            <button
-              onClick={handleStartRecording}
-              disabled={recordingState.status === "starting" || isInitializing}
-              className="flex items-center px-6 py-3 bg-red-500 text-white rounded-md hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-lg font-medium"
-            >
-              <span className="mr-2 text-xl">🎥</span>
-              {recordingState.status === "starting" || isInitializing
-                ? "Starting..."
-                : "Start Recording"}
+              ❌ Cancel
             </button>
           </div>
         </div>
@@ -393,10 +294,21 @@ export default function VideoRecorder({
         <div className="bg-blue-50 rounded-lg p-4">
           <h4 className="font-medium text-blue-900 mb-3">📹 Quick Settings</h4>
           <div className="text-sm text-blue-700 space-y-1">
-            <p><strong>Type:</strong> {videoOptions.type === 'tab' ? 'Current Tab' : 'Desktop/Window'}</p>
-            <p><strong>Quality:</strong> {videoOptions.quality}</p>
-            <p><strong>Audio:</strong> {videoOptions.includeAudio ? 'Enabled' : 'Disabled'}</p>
-            <p><strong>Max Duration:</strong> {(videoOptions.maxDuration || 300) / 60} minutes</p>
+            <p>
+              <strong>Type:</strong>{" "}
+              {videoOptions.type === "tab" ? "Current Tab" : "Desktop/Window"}
+            </p>
+            <p>
+              <strong>Quality:</strong> {videoOptions.quality}
+            </p>
+            <p>
+              <strong>Audio:</strong>{" "}
+              {videoOptions.includeAudio ? "Enabled" : "Disabled"}
+            </p>
+            <p>
+              <strong>Max Duration:</strong>{" "}
+              {(videoOptions.maxDuration || 300) / 60} minutes
+            </p>
           </div>
         </div>
       )}

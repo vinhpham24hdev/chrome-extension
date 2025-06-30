@@ -289,7 +289,7 @@ export default function Dashboard() {
     
     // Set default options based on capture type
     const defaultOptions: Partial<VideoOptions> = {
-      type: type === "r-video" ? "desktop" : "tab", // r-video uses desktop capture for region
+      type: type === "video" ? "desktop" : "tab", // r-video uses desktop capture for region
       format: "webm",
       quality: "medium",
       maxDuration: 300, // 5 minutes
