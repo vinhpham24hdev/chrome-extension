@@ -1,4 +1,4 @@
-// components/VideoRecorder.tsx - Video Recording Interface
+// components/VideoRecorder.tsx - Video Recording Interface with Auto Start
 import React, { useState, useEffect, useRef } from "react";
 import {
   videoService,
@@ -10,12 +10,16 @@ import {
 
 interface VideoRecorderProps {
   caseId: string;
+  autoStart?: boolean; // New prop to auto-start recording
+  defaultOptions?: Partial<VideoOptions>; // Default recording options
   onVideoCapture?: (result: VideoResult) => void;
   onClose?: () => void;
 }
 
 export default function VideoRecorder({
   caseId,
+  autoStart = false,
+  defaultOptions = {},
   onVideoCapture,
   onClose,
 }: VideoRecorderProps) {
@@ -30,19 +34,31 @@ export default function VideoRecorder({
     quality: "medium",
     maxDuration: 300, // 5 minutes default
     includeAudio: false,
+    ...defaultOptions, // Apply any default options passed in
   });
   const [error, setError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(false);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
+  const hasAutoStarted = useRef(false);
 
   useEffect(() => {
     // Check if video recording is supported
     setIsSupported(videoService.isSupported());
   }, []);
 
+  // Auto-start recording when component mounts if autoStart is true
+  useEffect(() => {
+    if (autoStart && isSupported && !hasAutoStarted.current && !recordingState.isRecording) {
+      hasAutoStarted.current = true;
+      handleStartRecording();
+    }
+  }, [autoStart, isSupported]);
+
   const handleStartRecording = async () => {
     try {
       setError(null);
+      setIsInitializing(true);
 
       const controls = await videoService.startRecording(videoOptions, {
         onStateChange: (state) => {
@@ -59,10 +75,12 @@ export default function VideoRecorder({
       });
 
       setRecordingControls(controls);
+      setIsInitializing(false);
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Failed to start recording"
       );
+      setIsInitializing(false);
       console.error("Recording start failed:", error);
     }
   };
@@ -166,21 +184,112 @@ export default function VideoRecorder({
         )}
       </div>
 
-      {/* Error Display */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+      {/* Initializing State */}
+      {isInitializing && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center">
-            <div className="text-red-500 mr-3">❌</div>
+            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-3"></div>
             <div>
-              <h4 className="font-medium text-red-900">Recording Error</h4>
-              <p className="text-sm text-red-700">{error}</p>
+              <h4 className="font-medium text-blue-900">Starting Recording...</h4>
+              <p className="text-sm text-blue-700">Setting up video capture, please wait...</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Recording Options */}
-      {!recordingState.isRecording && (
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <div className="text-red-500 mr-3">❌</div>
+              <div>
+                <h4 className="font-medium text-red-900">Recording Error</h4>
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            </div>
+            <button
+              onClick={handleStartRecording}
+              className="text-sm text-blue-600 hover:text-blue-800 underline"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Recording Status - Prominent when recording */}
+      {recordingState.isRecording && (
+        <div className="bg-gradient-to-r from-red-50 to-red-100 border-2 border-red-200 rounded-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center">
+              <div
+                className={`w-4 h-4 rounded-full mr-4 ${
+                  recordingState.isPaused
+                    ? "bg-yellow-500"
+                    : "bg-red-500 animate-pulse"
+                }`}
+              ></div>
+              <div>
+                <div className="text-xl font-bold text-red-900">
+                  {recordingState.isPaused
+                    ? "⏸️ Recording Paused"
+                    : "🎥 Recording in Progress"}
+                </div>
+                <div className="text-sm text-red-700 mt-1">
+                  Duration: {videoService.formatDuration(recordingState.duration)} • 
+                  Size: {videoService.formatFileSize(recordingState.size)}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-4xl">
+              {recordingState.isPaused ? "⏸️" : "🎥"}
+            </div>
+          </div>
+
+          {/* Recording Controls - Large and prominent */}
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handleStopRecording}
+              disabled={recordingState.status === "stopping"}
+              className="flex items-center px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors text-lg font-medium"
+            >
+              <span className="mr-2 text-xl">⏹️</span>
+              {recordingState.status === "stopping" ? "Stopping..." : "Stop Recording"}
+            </button>
+
+            {recordingState.isPaused ? (
+              <button
+                onClick={handleResumeRecording}
+                className="flex items-center px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-lg font-medium"
+              >
+                <span className="mr-2 text-xl">▶️</span>
+                Resume
+              </button>
+            ) : (
+              <button
+                onClick={handlePauseRecording}
+                className="flex items-center px-6 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors text-lg font-medium"
+              >
+                <span className="mr-2 text-xl">⏸️</span>
+                Pause
+              </button>
+            )}
+
+            <button
+              onClick={handleCancelRecording}
+              className="flex items-center px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-lg font-medium"
+            >
+              <span className="mr-2 text-xl">❌</span>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Recording Options - Only show when not recording and not auto-started */}
+      {!recordingState.isRecording && !autoStart && (
         <div className="bg-gray-50 rounded-lg p-4">
           <h4 className="font-medium text-gray-900 mb-3">Recording Options</h4>
 
@@ -262,96 +371,35 @@ export default function VideoRecorder({
               </label>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Recording Status */}
-      {recordingState.isRecording && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div
-                className={`w-3 h-3 rounded-full mr-3 ${
-                  recordingState.isPaused
-                    ? "bg-yellow-500"
-                    : "bg-red-500 animate-pulse"
-                }`}
-              ></div>
-              <div>
-                <div className="font-medium text-blue-900">
-                  {recordingState.isPaused
-                    ? "Recording Paused"
-                    : "Recording..."}
-                </div>
-                <div className="text-sm text-blue-700">
-                  Duration:{" "}
-                  {videoService.formatDuration(recordingState.duration)} | Size:{" "}
-                  {videoService.formatFileSize(recordingState.size)}
-                </div>
-              </div>
-            </div>
-
-            <div className="text-2xl text-blue-600">
-              {recordingState.isPaused ? "⏸️" : "🎥"}
-            </div>
+          {/* Manual Start Button */}
+          <div className="mt-4">
+            <button
+              onClick={handleStartRecording}
+              disabled={recordingState.status === "starting" || isInitializing}
+              className="flex items-center px-6 py-3 bg-red-500 text-white rounded-md hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-lg font-medium"
+            >
+              <span className="mr-2 text-xl">🎥</span>
+              {recordingState.status === "starting" || isInitializing
+                ? "Starting..."
+                : "Start Recording"}
+            </button>
           </div>
         </div>
       )}
 
-      {/* Control Buttons */}
-      <div className="flex flex-wrap gap-3">
-        {!recordingState.isRecording ? (
-          <button
-            onClick={handleStartRecording}
-            disabled={recordingState.status === "starting"}
-            className="flex items-center px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <span className="mr-2">🎥</span>
-            {recordingState.status === "starting"
-              ? "Starting..."
-              : "Start Recording"}
-          </button>
-        ) : (
-          <>
-            <button
-              onClick={handleStopRecording}
-              disabled={recordingState.status === "stopping"}
-              className="flex items-center px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800 disabled:opacity-50 transition-colors"
-            >
-              <span className="mr-2">⏹️</span>
-              {recordingState.status === "stopping"
-                ? "Stopping..."
-                : "Stop Recording"}
-            </button>
-
-            {recordingState.isPaused ? (
-              <button
-                onClick={handleResumeRecording}
-                className="flex items-center px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors"
-              >
-                <span className="mr-2">▶️</span>
-                Resume
-              </button>
-            ) : (
-              <button
-                onClick={handlePauseRecording}
-                className="flex items-center px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors"
-              >
-                <span className="mr-2">⏸️</span>
-                Pause
-              </button>
-            )}
-
-            <button
-              onClick={handleCancelRecording}
-              className="flex items-center px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
-            >
-              <span className="mr-2">❌</span>
-              Cancel
-            </button>
-          </>
-        )}
-      </div>
+      {/* Quick Settings for Auto-started Recording */}
+      {autoStart && !recordingState.isRecording && !isInitializing && (
+        <div className="bg-blue-50 rounded-lg p-4">
+          <h4 className="font-medium text-blue-900 mb-3">📹 Quick Settings</h4>
+          <div className="text-sm text-blue-700 space-y-1">
+            <p><strong>Type:</strong> {videoOptions.type === 'tab' ? 'Current Tab' : 'Desktop/Window'}</p>
+            <p><strong>Quality:</strong> {videoOptions.quality}</p>
+            <p><strong>Audio:</strong> {videoOptions.includeAudio ? 'Enabled' : 'Disabled'}</p>
+            <p><strong>Max Duration:</strong> {(videoOptions.maxDuration || 300) / 60} minutes</p>
+          </div>
+        </div>
+      )}
 
       {/* Video Preview */}
       {recordingState.status === "completed" && (
@@ -376,7 +424,7 @@ export default function VideoRecorder({
       )}
 
       {/* Recording Tips */}
-      {!recordingState.isRecording && (
+      {!recordingState.isRecording && !isInitializing && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <h4 className="font-medium text-blue-900 mb-2">💡 Recording Tips</h4>
           <ul className="text-sm text-blue-700 space-y-1">
