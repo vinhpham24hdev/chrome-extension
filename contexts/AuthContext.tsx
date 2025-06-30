@@ -1,4 +1,4 @@
-// contexts/AuthContext.tsx - Simple with Real-time Monitoring for Popup
+// contexts/AuthContext.tsx - Simple Auth Context
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 import { authService } from '../services/authService';
 import { User } from '../types/auth';
@@ -87,10 +87,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
-  // Real-time auth check function
+  // Check auth state function
   const checkAuthState = useCallback(async () => {
     try {
-      // Check Chrome storage first (most reliable)
+      // Check Chrome storage first
       if (typeof chrome !== 'undefined' && chrome.storage) {
         const result = await chrome.storage.local.get(['authState']);
         const authState = result.authState;
@@ -148,86 +148,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initializeAuth();
   }, [checkAuthState]);
 
-  // Real-time monitoring with storage changes
-  useEffect(() => {
-    let pollingInterval: NodeJS.Timeout;
-
-    const startMonitoring = () => {
-      // Fast polling for real-time updates
-      pollingInterval = setInterval(() => {
-        if (!state.isAuthenticated) {
-          checkAuthState();
-        }
-      }, 500); // Check every 500ms when not authenticated
-    };
-
-    // Storage change listener for Chrome extension
-    const handleStorageChange = (changes: any, areaName: string) => {
-      if (areaName === 'local' && changes.authState) {
-        console.log('💾 Storage auth state changed');
-        checkAuthState();
-      }
-    };
-
-    // Message listener for login success
-    const handleMessage = (message: any, sender: any, sendResponse: any) => {
-      if (message.type === 'LOGIN_SUCCESS') {
-        console.log('📨 Login success message received');
-        checkAuthState();
-        sendResponse({ success: true });
-      }
-      return true;
-    };
-
-    // Setup listeners
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.onChanged.addListener(handleStorageChange);
-    }
-
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.onMessage.addListener(handleMessage);
-    }
-
-    startMonitoring();
-
-    return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-      }
-      
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.onChanged.removeListener(handleStorageChange);
-      }
-      
-      if (typeof chrome !== 'undefined' && chrome.runtime) {
-        chrome.runtime.onMessage.removeListener(handleMessage);
-      }
-    };
-  }, [state.isAuthenticated, checkAuthState]);
-
-  // Handle visibility changes
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && !state.isAuthenticated) {
-        console.log('👁️ Popup became visible, checking auth...');
-        checkAuthState();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [state.isAuthenticated, checkAuthState]);
-
   const login = async (credentials: { username: string; password: string }) => {
+    dispatch({ type: 'SET_LOADING', payload: true });
+    dispatch({ type: 'CLEAR_ERROR' });
+
     try {
-      dispatch({ type: 'LOGIN_FAILURE', payload: 'Login should be handled through login window' });
-      throw new Error('Login should be handled through login window');
+      console.log('🔐 Attempting login...');
+      
+      const response = await authService.login(credentials);
+      
+      if (response.success && response.user && response.token) {
+        console.log('✅ Login successful:', response.user.username);
+        
+        dispatch({
+          type: 'LOGIN_SUCCESS',
+          payload: {
+            user: response.user,
+            timestamp: Date.now(),
+          },
+        });
+      } else {
+        throw new Error(response.error || 'Login failed');
+      }
     } catch (error) {
+      console.error('❌ Login failed:', error);
       dispatch({
         type: 'LOGIN_FAILURE',
         payload: error instanceof Error ? error.message : 'Login failed',
       });
       throw error;
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 

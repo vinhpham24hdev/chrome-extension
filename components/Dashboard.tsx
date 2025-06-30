@@ -1,5 +1,5 @@
-// components/Dashboard.tsx - Updated with Auto-Start Video Recording
-import React, { useState, useEffect } from "react";
+// components/Dashboard.tsx - Updated with User Logout Dropdown
+import React, { useState, useEffect, useRef } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
 import MenuItem from "@mui/material/MenuItem";
@@ -58,6 +58,10 @@ export default function Dashboard() {
   const [showVideoRecorder, setShowVideoRecorder] = useState(false);
   const [videoRecorderOptions, setVideoRecorderOptions] = useState<Partial<VideoOptions>>({});
   const [videoPreview, setVideoPreview] = useState<VideoData | null>(null);
+  
+  // User dropdown state
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Setup screenshot window service listeners
   useEffect(() => {
@@ -89,6 +93,20 @@ export default function Dashboard() {
       screenshotWindowService.removeListener('retake_screenshot');
     };
   }, [selectedCase]);
+
+  // Handle click outside dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowUserDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const handleSaveScreenshotFromWindow = async (screenshotData: ScreenshotData) => {
     setIsUploading(true);
@@ -126,7 +144,17 @@ export default function Dashboard() {
   };
 
   const handleLogout = async () => {
-    await logout();
+    setShowUserDropdown(false);
+    try {
+      await logout();
+      console.log('✅ User logged out successfully');
+    } catch (error) {
+      console.error('❌ Logout failed:', error);
+    }
+  };
+
+  const handleUserAvatarClick = () => {
+    setShowUserDropdown(!showUserDropdown);
   };
 
   const handleCaseSelect = (caseId: string) => {
@@ -361,9 +389,43 @@ export default function Dashboard() {
             <p className="text-xl text-gray-500">My insights</p>
           </div>
         </div>
-        {/* User Avatar */}
-        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
-          {state.user?.username?.substring(0, 2).toUpperCase() || "JD"}
+        
+        {/* User Avatar with Dropdown */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={handleUserAvatarClick}
+            className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            {state.user?.username?.substring(0, 2).toUpperCase() || "JD"}
+          </button>
+          
+          {/* Dropdown Menu */}
+          {showUserDropdown && (
+            <div className="absolute right-0 top-10 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+              {/* User Info */}
+              <div className="px-4 py-2 border-b border-gray-100">
+                <p className="text-sm font-medium text-gray-900">
+                  {state.user?.firstName} {state.user?.lastName}
+                </p>
+                <p className="text-xs text-gray-500">{state.user?.email}</p>
+              </div>
+              
+              {/* User Role */}
+              <div className="px-4 py-2 border-b border-gray-100">
+                <p className="text-xs text-gray-500 uppercase tracking-wide">
+                  {state.user?.role || 'User'}
+                </p>
+              </div>
+              
+              {/* Logout Button */}
+              <button
+                onClick={handleLogout}
+                className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-800 transition-colors duration-200"
+              >
+                Sign Out
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

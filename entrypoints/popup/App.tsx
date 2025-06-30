@@ -116,6 +116,7 @@ function ServiceInitializer({ children }: { children: React.ReactNode }) {
 // Main app content component
 function AppContent() {
   const { state } = useAuth();
+
   // Show loading state while checking authentication
   if (state.isLoading) {
     return (
@@ -129,7 +130,15 @@ function AppContent() {
   }
 
   // Show dashboard if authenticated, otherwise show login
-  return state.isAuthenticated ? <Dashboard /> : <LoginComponent />;
+  return state.isAuthenticated ? (
+    <Dashboard />
+  ) : (
+    <LoginComponent
+      onLoginSuccess={() => {
+        console.log("✅ Login successful, switching to dashboard");
+      }}
+    />
+  );
 }
 
 // Main App component
@@ -142,7 +151,7 @@ function App() {
 
           {/* Development info */}
           {import.meta.env.VITE_NODE_ENV === "development" && (
-            <div className="fixed top-0 left-0 text-xs text-gray-600 px-2 py-1">
+            <div className="fixed top-0 left-0 text-xs text-gray-600 px-2 py-1 bg-white/80 rounded-br">
               {import.meta.env.VITE_ENABLE_MOCK_MODE === "true"
                 ? "🔧 Mock"
                 : "🔗 Real"}{" "}

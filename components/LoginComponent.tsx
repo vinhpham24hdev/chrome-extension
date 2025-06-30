@@ -1,9 +1,7 @@
-// components/LoginComponent.tsx - Updated to match Figma design
+// components/LoginComponent.tsx - Simple Login Form with Conditional Display
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { serviceManager } from "../services/serviceManager";
 import logo from "@/assets/logo.png";
-
 
 // Tools Grid Component for disabled state
 const DisabledToolsGrid = () => (
@@ -40,8 +38,6 @@ const DisabledToolsGrid = () => (
           <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
         </div>
         <span className="text-xs text-gray-400">Video</span>
-        {/* Red notification dot */}
-        <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></div>
       </div>
 
       {/* Region Video - Disabled */}
@@ -50,8 +46,6 @@ const DisabledToolsGrid = () => (
           <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
         </div>
         <span className="text-xs text-gray-400">R.Video</span>
-        {/* Red notification dot */}
-        <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></div>
       </div>
 
       {/* More Options - Disabled */}
@@ -70,184 +64,207 @@ interface LoginComponentProps {
   onLoginSuccess?: () => void;
 }
 
-interface BackendStatus {
-  connected: boolean;
-  apiUrl: string;
-  mockMode: boolean;
-  error?: string;
-}
-
 export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) {
-  const { state, clearError, checkConnection } = useAuth();
-  const [backendStatus, setBackendStatus] = useState<BackendStatus>({
-    connected: false,
-    apiUrl: import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api",
-    mockMode: import.meta.env.VITE_ENABLE_MOCK_MODE === "true",
+  const { state, login, clearError } = useAuth();
+  const [showLoginForm, setShowLoginForm] = useState(false);
+  const [credentials, setCredentials] = useState({
+    username: "",
+    password: "",
   });
-  const [isCheckingBackend, setIsCheckingBackend] = useState(true);
-  const [logoUrl, setLogoUrl] = useState(logo);
-  const [isWaitingForLogin, setIsWaitingForLogin] = useState(false);
-
-  // Handle successful login detection
-  useEffect(() => {
-    if (state.isAuthenticated && isWaitingForLogin) {
-      console.log("✅ Login detected - success!");
-      setIsWaitingForLogin(false);
-
-      if (onLoginSuccess) {
-        serviceManager.onLoginSuccess();
-        onLoginSuccess();
-      }
-    }
-  }, [state.isAuthenticated, isWaitingForLogin, onLoginSuccess]);
-
-  // Check backend status on mount
-  useEffect(() => {
-    checkBackendStatus();
-  }, []);
 
   // Clear error when component mounts
   useEffect(() => {
     clearError();
-  }, []);
+  }, [clearError]);
 
-  const checkBackendStatus = async () => {
-    setIsCheckingBackend(true);
-    try {
-      const connected = await checkConnection();
-      setBackendStatus((prev) => ({
-        ...prev,
-        connected,
-        error: connected ? undefined : "Backend not reachable",
-      }));
-    } catch (error) {
-      setBackendStatus((prev) => ({
-        ...prev,
-        connected: false,
-        error: error instanceof Error ? error.message : "Connection check failed",
-      }));
+  // Handle successful login
+  useEffect(() => {
+    if (state.isAuthenticated) {
+      // Reset form state on successful login
+      setShowLoginForm(false);
+      setCredentials({ username: "", password: "" });
+      
+      if (onLoginSuccess) {
+        onLoginSuccess();
+      }
     }
-    setIsCheckingBackend(false);
+  }, [state.isAuthenticated, onLoginSuccess]);
+
+  const handleLoginClick = () => {
+    setShowLoginForm(true);
+    clearError();
   };
 
-  const handleLoginClick = async () => {
-    try {
-      setIsWaitingForLogin(true);
-
-      // Determine login URL
-      let loginUrl: string;
-
-      if (typeof chrome !== "undefined" && chrome.runtime) {
-        // Use extension-hosted login page
-        loginUrl = chrome.runtime.getURL("login/index.html");
-
-        // Add mock mode parameter if needed
-        if (backendStatus.mockMode || !backendStatus.connected) {
-          loginUrl += "?mock=true";
-        }
-      } else {
-        // Fallback to backend-hosted login page
-        loginUrl = `${backendStatus.apiUrl.replace("/api", "")}/login?source=extension`;
-      }
-
-      console.log("🪟 Opening login window:", loginUrl);
-
-      // Open login page in new window
-      const newWindow = window.open(
-        loginUrl,
-        "cellebrite-login",
-        "width=500,height=800,scrollbars=yes,resizable=yes,status=yes,location=yes"
-      );
-
-      if (!newWindow) {
-        throw new Error("Failed to open login window. Please check popup blocker settings.");
-      }
-
-      // Start monitoring for login completion
-      const checkLoginStatus = setInterval(() => {
-        if (state.isAuthenticated) {
-          clearInterval(checkLoginStatus);
-          setIsWaitingForLogin(false);
-          if (onLoginSuccess) {
-            onLoginSuccess();
-          }
-        }
-      }, 1000);
-
-      // Clear interval after 30 minutes
-      setTimeout(() => {
-        clearInterval(checkLoginStatus);
-        if (!state.isAuthenticated) {
-          setIsWaitingForLogin(false);
-        }
-      }, 30 * 60 * 1000);
-
-    } catch (error) {
-      console.error("Failed to open login window:", error);
-      setIsWaitingForLogin(false);
-      alert(`Failed to open login window: ${error instanceof Error ? error.message : "Unknown error"}`);
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setCredentials(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    // Clear error when user starts typing
+    if (state.error) {
+      clearError();
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!credentials.username.trim() || !credentials.password.trim()) {
+      return;
+    }
+
+    try {
+      await login(credentials);
+    } catch (error) {
+      // Error is handled by the auth context
+      console.error("Login failed:", error);
+    }
+  };
+
+  const handleCancel = () => {
+    setShowLoginForm(false);
+    setCredentials({ username: "", password: "" });
+    clearError();
   };
 
   return (
-    <div className="w-[402px] h-[277px] bg-white flex flex-col">
+    <div className="w-[402px] h-[280px] bg-white flex flex-col">
       {/* Header with Cellebrite Logo */}
       <div className="bg-white p-4 flex items-center justify-center">
-        {/* Cellebrite Logo */}
-          <div className="flex flex-col items-center">
-            {logoUrl && (
-              <img src={logoUrl} alt="Cellebrite Logo" className="w-2/3" />
-            )}
-            <p className="text-xl text-gray-500">My insights</p>
-          </div>
+        <div className="flex flex-col items-center">
+          {logo && (
+            <img src={logo} alt="Cellebrite Logo" className="w-2/3" />
+          )}
+          <p className="text-xl text-gray-500">My insights</p>
+        </div>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col items-center justify-center px-6">
-        {/* Connection Status Check */}
-        {isCheckingBackend && (
-          <div className="mb-6 text-center">
-            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-            <p className="text-sm text-gray-600">Checking connection...</p>
-          </div>
-        )}
-
-        {/* Login Button */}
-        <button
-          onClick={handleLoginClick}
-          disabled={state.isLoading || isWaitingForLogin || (isCheckingBackend && !backendStatus.mockMode)}
-          className="w-[176px] bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed mb-8"
-        >
-          {isWaitingForLogin ? (
-            <span className="flex items-center justify-center gap-2">
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              Signing in...
-            </span>
-          ) : state.isLoading ? (
-            <span className="flex items-center justify-center gap-2">
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              Signing in...
-            </span>
-          ) : (
-            "Login"
-          )}
-        </button>
-
-        {/* Disabled Tools Grid */}
-        <DisabledToolsGrid />
-
-        {/* Backend Status Details */}
-        {backendStatus.error && !backendStatus.mockMode && (
-          <div className="mt-4 text-center">
-            <p className="text-xs text-red-600">{backendStatus.error}</p>
+        {!showLoginForm ? (
+          /* Initial Login Button */
+          <div className="w-full max-w-sm">
+            {/* Demo tip for development */}
+            {import.meta.env.VITE_ENABLE_MOCK_MODE === 'true' && (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-center">
+                <p className="text-sm text-blue-600">Demo: demo / password</p>
+              </div>
+            )}
+            
             <button
-              onClick={checkBackendStatus}
-              className="text-xs text-blue-600 hover:text-blue-800 underline mt-1"
+              onClick={handleLoginClick}
+              disabled={state.isLoading}
+              className="w-[176px] mx-auto block bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed mb-8"
             >
-              Retry Connection
+              {state.isLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Signing in...
+                </span>
+              ) : (
+                "Login"
+              )}
             </button>
           </div>
+        ) : (
+          /* Login Form */
+          <div className="w-full max-w-sm">
+            <form onSubmit={handleSubmit}>
+              {/* Demo tip for development */}
+              {import.meta.env.VITE_ENABLE_MOCK_MODE === 'true' && !state.isLoading && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-center">
+                  <p className="text-sm text-blue-600">Demo: demo / password</p>
+                </div>
+              )}
+              
+              {/* Error Message */}
+              {state.error && !state.isLoading && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                  <p className="text-sm text-red-600">{state.error}</p>
+                </div>
+              )}
+
+              {/* Input Fields - Hidden when loading */}
+              {!state.isLoading && (
+                <>
+                  {/* Username/Email Field */}
+                  <div className="mb-4">
+                    <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
+                      Username/Email
+                    </label>
+                    <input
+                      type="text"
+                      id="username"
+                      name="username"
+                      value={credentials.username}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter username or email"
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* Password Field */}
+                  <div className="mb-6">
+                    <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      id="password"
+                      name="password"
+                      value={credentials.password}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter password"
+                      required
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Action Buttons */}
+              {state.isLoading ? (
+                /* Loading State - Only show loading button */
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    disabled
+                    className="w-[176px] bg-blue-600 text-white py-3 px-4 rounded-md font-medium opacity-70 cursor-not-allowed"
+                  >
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Signing in...
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                /* Normal State - Show Cancel and Sign In buttons */
+                <div className="flex gap-2 mb-6">
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    className="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-3 px-4 rounded-md font-medium transition-all duration-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!credentials.username.trim() || !credentials.password.trim()}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
+                  >
+                    Sign In
+                  </button>
+                </div>
+              )}
+            </form>
+          </div>
         )}
+
+        {/* Disabled Tools Grid */}
+        {!showLoginForm && <DisabledToolsGrid />}
       </div>
     </div>
   );

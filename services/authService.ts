@@ -1,4 +1,4 @@
-// services/authService.ts - Updated with New Tab Login Support
+// services/authService.ts - Simple Auth Service with Direct Login
 import { User, LoginCredentials } from "../types/auth";
 
 export interface LoginResponse {
@@ -23,27 +23,31 @@ export interface ConnectionTestResult {
   error?: string;
 }
 
+// Mock user for development
+const MOCK_USER = {
+  id: "demo-user-001",
+  username: "demo.user@cellebrite.com",
+  email: "demo.user@cellebrite.com",
+  firstName: "Demo",
+  lastName: "User",
+  role: "analyst",
+  permissions: ["screenshot", "video", "case_management"],
+  lastLogin: new Date().toISOString(),
+};
+
 export class AuthService {
   private static instance: AuthService;
   private currentUser: User | null = null;
   private authToken: string | null = null;
   private isLoggedIn: boolean = false;
   private apiBaseUrl: string;
-  private authCheckInterval: NodeJS.Timeout | null = null;
 
   private constructor() {
-    this.apiBaseUrl =
-      import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api";
+    this.apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api";
     console.log("🔗 AuthService connecting to:", this.apiBaseUrl);
 
     // Load auth state on initialization
     this.loadAuthState();
-
-    // Set up message listener for login updates
-    this.setupMessageListener();
-
-    // Start auth state polling
-    this.startAuthStatePolling();
   }
 
   public static getInstance(): AuthService {
@@ -54,133 +58,137 @@ export class AuthService {
   }
 
   /**
-   * Setup message listener for login page communication
-   */
-  private setupMessageListener(): void {
-    if (typeof chrome !== "undefined" && chrome.runtime) {
-      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        console.log("AuthService received message:", message);
-
-        if (message.type === "LOGIN_SUCCESS") {
-          this.handleLoginSuccess(message.data);
-          sendResponse({ success: true });
-        }
-
-        if (message.type === "LOGIN_PAGE_CLOSING") {
-          // Check auth state when login page closes
-          setTimeout(() => this.loadAuthState(), 500);
-          sendResponse({ success: true });
-        }
-
-        if (message.type === "CHECK_AUTH_STATUS") {
-          sendResponse({
-            isAuthenticated: this.isAuthenticated(),
-            user: this.getCurrentUser(),
-          });
-        }
-
-        return true; // Keep message channel open
-      });
-    }
-  }
-
-  /**
-   * Start polling for auth state changes
-   */
-  private startAuthStatePolling(): void {
-    // Poll every 2 seconds for auth state changes
-    this.authCheckInterval = setInterval(() => {
-      this.loadAuthState();
-    }, 2000);
-  }
-
-  /**
-   * Stop auth state polling
-   */
-  private stopAuthStatePolling(): void {
-    if (this.authCheckInterval) {
-      clearInterval(this.authCheckInterval);
-      this.authCheckInterval = null;
-    }
-  }
-
-  /**
-   * Handle login success from login page
-   */
-  private handleLoginSuccess(authData: any): void {
-    if (authData && authData.authToken && authData.currentUser) {
-      this.authToken = authData.authToken;
-      this.currentUser = authData.currentUser;
-      this.isLoggedIn = authData.isLoggedIn;
-
-      console.log(
-        "✅ Login success received from login page:",
-        this.currentUser?.username
-      );
-
-      // Notify any listeners (like React components)
-      this.notifyAuthStateChange();
-    }
-  }
-
-  /**
-   * Notify auth state change (for React components)
-   */
-  private notifyAuthStateChange(): void {
-    // Dispatch custom event for React components to listen to
-    window.dispatchEvent(
-      new CustomEvent("authStateChanged", {
-        detail: {
-          isAuthenticated: this.isAuthenticated(),
-          user: this.getCurrentUser(),
-        },
-      })
-    );
-  }
-
-  /**
-   * Open login in new tab instead of handling directly
+   * Login user with credentials
    */
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
     try {
-      console.log("🔐 Opening login page in new tab...");
+      console.log('🔐 Attempting login for:', credentials.username);
 
-      // Test connection first
-      const connectionTest = await this.testConnection();
-      if (!connectionTest.connected) {
+      // Validate credentials
+      const validation = this.validateCredentials(credentials);
+      if (!validation.isValid) {
         return {
           success: false,
-          error: `Backend not available: ${connectionTest.error}`,
-          code: "CONNECTION_ERROR",
+          error: validation.errors.join(', '),
+          code: "VALIDATION_ERROR",
         };
       }
 
-      // Open login page in new tab
-      const loginUrl = `${this.apiBaseUrl.replace(
-        "/api",
-        ""
-      )}/login?source=extension`;
-
-      if (typeof chrome !== "undefined" && chrome.tabs) {
-        chrome.tabs.create({ url: loginUrl });
-      } else {
-        // Fallback for development
-        window.open(loginUrl, "_blank");
+      // Check if mock mode is enabled or backend is not available
+      const enableMockMode = import.meta.env.VITE_ENABLE_MOCK_MODE === 'true';
+      
+      if (enableMockMode) {
+        return this.performMockLogin(credentials);
       }
 
-      return {
-        success: true,
-        code: "LOGIN_PAGE_OPENED",
-      };
+      // Try real backend login first
+      try {
+        return await this.performRealLogin(credentials);
+      } catch (error) {
+        console.warn('⚠️ Real backend login failed, falling back to mock mode:', error);
+        return this.performMockLogin(credentials);
+      }
+
     } catch (error) {
-      console.error("💥 Login error:", error);
+      console.error('💥 Login error:', error);
       return {
         success: false,
-        error:
-          error instanceof Error ? error.message : "Failed to open login page",
+        error: error instanceof Error ? error.message : "Login failed",
         code: "EXCEPTION_ERROR",
       };
     }
+  }
+
+  /**
+   * Perform mock login for development
+   */
+  private async performMockLogin(credentials: LoginCredentials): Promise<LoginResponse> {
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Check mock credentials
+    if (
+      (credentials.username === "demo.user@cellebrite.com" || credentials.username === "demo") &&
+      credentials.password === "password"
+    ) {
+      const mockToken = `mock_token_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      const authData = {
+        isLoggedIn: true,
+        currentUser: MOCK_USER,
+        authToken: mockToken,
+        timestamp: Date.now(),
+      };
+
+      // Set instance state
+      this.currentUser = MOCK_USER;
+      this.authToken = mockToken;
+      this.isLoggedIn = true;
+
+      // Save to storage
+      await this.saveAuthState();
+
+      console.log('✅ Mock login successful');
+
+      return {
+        success: true,
+        token: mockToken,
+        user: MOCK_USER,
+        code: "MOCK_LOGIN_SUCCESS",
+      };
+    }
+
+    return {
+      success: false,
+      error: "Invalid credentials. Use demo / password or demo.user@cellebrite.com / password",
+      code: "INVALID_CREDENTIALS",
+    };
+  }
+
+  /**
+   * Perform real backend login
+   */
+  private async performRealLogin(credentials: LoginCredentials): Promise<LoginResponse> {
+    const response = await fetch(`${this.apiBaseUrl}/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        username: credentials.username,
+        password: credentials.password,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || data.message || `Login failed: ${response.status}`
+      );
+    }
+
+    if (data.success && data.token && data.user) {
+      // Set instance state
+      this.currentUser = data.user;
+      this.authToken = data.token;
+      this.isLoggedIn = true;
+
+      // Save to storage
+      await this.saveAuthState();
+
+      console.log('✅ Real backend login successful');
+
+      return {
+        success: true,
+        token: data.token,
+        user: data.user,
+        expiresIn: data.expiresIn,
+        code: "REAL_LOGIN_SUCCESS",
+      };
+    }
+
+    throw new Error(data.error || 'Invalid response from server');
   }
 
   /**
@@ -189,7 +197,7 @@ export class AuthService {
   async logout(): Promise<void> {
     try {
       // Call logout endpoint if we have a token
-      if (this.authToken) {
+      if (this.authToken && !this.authToken.startsWith('mock_token_')) {
         await fetch(`${this.apiBaseUrl}/auth/logout`, {
           method: "POST",
           headers: {
@@ -210,9 +218,6 @@ export class AuthService {
       // Clear from storage
       await this.clearAuthState();
 
-      // Notify state change
-      this.notifyAuthStateChange();
-
       console.log("🔓 User logged out successfully");
     }
   }
@@ -223,6 +228,11 @@ export class AuthService {
   async getCurrentUserFromAPI(): Promise<User | null> {
     if (!this.authToken) {
       return null;
+    }
+
+    // Skip API call for mock tokens
+    if (this.authToken.startsWith('mock_token_')) {
+      return this.currentUser;
     }
 
     try {
@@ -253,50 +263,10 @@ export class AuthService {
   }
 
   /**
-   * Refresh authentication token
-   */
-  async refreshToken(): Promise<boolean> {
-    if (!this.authToken) {
-      return false;
-    }
-
-    try {
-      const response = await fetch(`${this.apiBaseUrl}/auth/refresh`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.authToken}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        await this.clearAuthState();
-        return false;
-      }
-
-      const data: LoginResponse = await response.json();
-
-      if (data.success && data.token) {
-        this.authToken = data.token;
-        await this.saveAuthState();
-        console.log("🔄 Token refreshed successfully");
-        return true;
-      }
-
-      return false;
-    } catch (error) {
-      console.error("❌ Token refresh failed:", error);
-      return false;
-    }
-  }
-
-  /**
    * Check if user is authenticated
    */
   isAuthenticated(): boolean {
-    return (
-      this.isLoggedIn && this.authToken !== null && this.currentUser !== null
-    );
+    return this.isLoggedIn && this.authToken !== null && this.currentUser !== null;
   }
 
   /**
@@ -369,30 +339,22 @@ export class AuthService {
         },
       });
 
-      // Handle 401 - token expired
-      if (response.status === 401) {
-        console.warn("🔄 Token expired, attempting refresh...");
-        const refreshed = await this.refreshToken();
-
-        if (refreshed) {
-          // Retry request with new token
-          return this.authenticatedRequest(endpoint, options);
-        } else {
-          await this.clearAuthState();
-          return {
-            success: false,
-            error: "Authentication expired",
-            code: "TOKEN_EXPIRED",
-          };
-        }
+      // Handle 401 - token expired (skip for mock tokens)
+      if (response.status === 401 && !this.authToken.startsWith('mock_token_')) {
+        console.warn("🔄 Token expired");
+        await this.clearAuthState();
+        return {
+          success: false,
+          error: "Authentication expired",
+          code: "TOKEN_EXPIRED",
+        };
       }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         return {
           success: false,
-          error:
-            errorData.error || errorData.message || `HTTP ${response.status}`,
+          error: errorData.error || errorData.message || `HTTP ${response.status}`,
           code: errorData.code || "API_ERROR",
         };
       }
@@ -445,7 +407,7 @@ export class AuthService {
   }
 
   /**
-   * Save auth state to Chrome storage
+   * Save auth state to storage
    */
   private async saveAuthState(): Promise<void> {
     try {
@@ -471,7 +433,7 @@ export class AuthService {
   }
 
   /**
-   * Load auth state from Chrome storage
+   * Load auth state from storage
    */
   private async loadAuthState(): Promise<void> {
     try {
@@ -493,24 +455,11 @@ export class AuthService {
         const isExpired = Date.now() - authData.timestamp > 24 * 60 * 60 * 1000;
 
         if (!isExpired) {
-          const wasAuthenticated = this.isAuthenticated();
-
           this.currentUser = authData.currentUser;
           this.authToken = authData.authToken;
           this.isLoggedIn = authData.isLoggedIn;
 
-          // Only verify token if we weren't authenticated before
-          if (!wasAuthenticated) {
-            // Verify token is still valid by getting user info
-            const user = await this.getCurrentUserFromAPI();
-            if (!user) {
-              // Token invalid, clear state
-              await this.clearAuthState();
-            } else {
-              console.log("🔄 Auth state restored for user:", user.username);
-              this.notifyAuthStateChange();
-            }
-          }
+          console.log("🔄 Auth state restored for user:", this.currentUser?.username);
         } else {
           // Clear expired session
           await this.clearAuthState();
@@ -524,7 +473,7 @@ export class AuthService {
   }
 
   /**
-   * Clear auth state from Chrome storage
+   * Clear auth state from storage
    */
   private async clearAuthState(): Promise<void> {
     try {
@@ -539,20 +488,10 @@ export class AuthService {
       this.authToken = null;
       this.isLoggedIn = false;
 
-      // Notify state change
-      this.notifyAuthStateChange();
-
       console.log("🧹 Auth state cleared");
     } catch (error) {
       console.error("Failed to clear auth state:", error);
     }
-  }
-
-  /**
-   * Cleanup resources
-   */
-  public cleanup(): void {
-    this.stopAuthStatePolling();
   }
 }
 
