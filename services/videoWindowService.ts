@@ -221,9 +221,13 @@ export class VideoWindowService {
     left: number;
     top: number;
   } {
-    // Default dimensions - optimized for video preview
-    const defaultWidth = Math.min(1600, window.screen.availWidth * 0.9);
-    const defaultHeight = Math.min(1000, window.screen.availHeight * 0.9);
+    // Smart default dimensions based on screen size
+    const screenWidth = window.screen.availWidth;
+    const screenHeight = window.screen.availHeight;
+    
+    // Use 70% of screen width, maintain 16:10 aspect ratio
+    const defaultWidth = Math.min(Math.round(screenWidth * 0.7), 1400);
+    const defaultHeight = Math.min(Math.round(defaultWidth * 0.7), screenHeight * 0.8);
 
     const width = options.width || defaultWidth;
     const height = options.height || defaultHeight;

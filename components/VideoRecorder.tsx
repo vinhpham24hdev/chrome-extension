@@ -1,5 +1,9 @@
 // components/VideoRecorder.tsx - Updated for better integration with video preview window
 import React, { useState, useEffect, useRef } from "react";
+import { CiPause1 } from "react-icons/ci";
+import { CiPlay1 } from "react-icons/ci";
+import { CiStop1 } from "react-icons/ci";
+
 import {
   videoService,
   VideoOptions,
@@ -39,6 +43,7 @@ export default function VideoRecorder({
   const [error, setError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(true);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
   const hasAutoStarted = useRef(false);
 
@@ -84,6 +89,7 @@ export default function VideoRecorder({
         error instanceof Error ? error.message : "Failed to start recording"
       );
       setIsInitializing(false);
+      setCountdown(null);
       console.error("Recording start failed:", error);
     }
   };
@@ -187,17 +193,34 @@ export default function VideoRecorder({
         )}
       </div>
 
+      {/* Countdown Display */}
+      {countdown && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+          <div className="text-center">
+            <div className="text-8xl font-bold text-white mb-4 animate-pulse">
+              {countdown}
+            </div>
+            <div className="text-xl text-gray-300">
+              Recording starts in {countdown}...
+            </div>
+            <div className="text-sm text-gray-400 mt-2">
+              Position your screen and get ready!
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Initializing State */}
-      {isInitializing && (
+      {isInitializing && !countdown && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center">
             <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-3"></div>
             <div>
               <h4 className="font-medium text-blue-900">
-                Starting Recording...
+                Waiting for Screen Share...
               </h4>
               <p className="text-sm text-blue-700">
-                Setting up video capture, please wait...
+                Please select what to share in the Chrome dialog, then click "Share"
               </p>
             </div>
           </div>
@@ -237,7 +260,7 @@ export default function VideoRecorder({
               ></div>
               <div>
                 <div className="text-sm font-bold">
-                  {recordingState.isPaused ? "⏸️ Paused" : "🎥 Recording"}
+                  {recordingState.isPaused ? <CiStop1 /> : "🎥"}
                 </div>
                 <div className="text-xs text-gray-300 mt-1">
                   {videoService.formatDuration(recordingState.duration)} |{" "}
@@ -247,7 +270,7 @@ export default function VideoRecorder({
             </div>
 
             <div className="text-xl">
-              {recordingState.isPaused ? "⏸️" : "🎥"}
+              {recordingState.isPaused ? <CiStop1 /> : "🎥"}
             </div>
           </div>
 
@@ -258,7 +281,7 @@ export default function VideoRecorder({
               disabled={recordingState.status === "stopping"}
               className="px-3 py-2 bg-red-600 border border-red-500 text-white hover:bg-red-700 text-sm rounded transition-all disabled:opacity-50 font-medium"
             >
-              ⏹️
+              <CiStop1 />
             </button>
 
             {recordingState.isPaused ? (
@@ -266,14 +289,14 @@ export default function VideoRecorder({
                 onClick={handleResumeRecording}
                 className="px-3 py-2 bg-green-600 border border-green-500 hover:bg-green-700 text-sm rounded transition-all"
               >
-                ▶️
+                <CiPlay1 />
               </button>
             ) : (
               <button
                 onClick={handlePauseRecording}
                 className="px-3 py-2 bg-yellow-600 border border-yellow-500 hover:bg-yellow-700 text-sm rounded transition-all"
               >
-                ⏸️
+                <CiPause1 />
               </button>
             )}
 
@@ -281,7 +304,7 @@ export default function VideoRecorder({
               onClick={handleCancelRecording}
               className="px-3 py-2 bg-gray-600 border border-gray-500 hover:bg-gray-700 text-sm rounded transition-all"
             >
-              ❌ Cancel
+              ❌
             </button>
           </div>
         </div>

@@ -328,9 +328,8 @@ export default function Dashboard() {
       
       // Use video window service to open preview in new window
       const windowResult = await videoWindowService.openVideoPreview(videoData, {
-        width: 1600,
-        height: 1000,
         centered: true
+        // Let the service calculate optimal size
       });
 
       if (windowResult.success) {
@@ -405,7 +404,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-w-[402px] min-h-[380px] bg-white flex flex-col relative">
+    <div className="w-[402px] h-[380px] bg-white flex flex-col relative">
       {/* Header with Cellebrite Logo */}
       <div className="bg-white p-4 flex items-start justify-between">
         <div className="flex justify-center items-center flex-1">
@@ -540,7 +539,7 @@ export default function Dashboard() {
 
           {/* Region Video - Auto Start */}
           <button
-            // onClick={() => handleVideoCapture("r-video")}
+            onClick={() => handleVideoCapture("r-video")}
             disabled={isCapturing || !selectedCase}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
             title="Record selected screen area immediately"
