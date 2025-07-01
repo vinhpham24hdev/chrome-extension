@@ -35,7 +35,7 @@ export default function VideoRecorder({
   const [videoOptions, setVideoOptions] = useState<VideoOptions>({
     type: "tab",
     format: "webm",
-    quality: "medium",
+    quality: "high",
     maxDuration: 300,
     includeAudio: false,
     ...defaultOptions,

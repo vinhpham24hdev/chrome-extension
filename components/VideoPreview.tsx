@@ -313,9 +313,6 @@ export default function VideoPreview({
             <h1 className="text-lg font-semibold text-gray-900">
               Video Preview
             </h1>
-            <span className="ml-3 text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
-              #{snapshotId}
-            </span>
           </div>
           <button
             onClick={onClose}
@@ -375,17 +372,18 @@ export default function VideoPreview({
                   <input
                     type="range"
                     min="0"
-                    max={video.duration}
+                    max={video.duration || 0}
                     value={currentTime}
                     onChange={handleSeek}
-                    className="w-full h-2 bg-white/20 rounded-full appearance-none cursor-pointer 
-          [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 
-          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white 
-          [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg
-          [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-blue-500
-          [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full 
-          [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-blue-500
-          [&::-moz-range-thumb]:cursor-pointer"
+                    className="w-full h-2 rounded-full cursor-pointer appearance-none
+                      bg-gradient-to-r from-gray-400 via-gray-300 to-gray-400
+                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 
+                      [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white 
+                      [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg
+                      [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-blue-500
+                      [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full 
+                      [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-blue-500
+                      [&::-moz-range-thumb]:cursor-pointer"
                   />
                 </div>
 
@@ -395,19 +393,19 @@ export default function VideoPreview({
                     {/* Play/Pause Button - using react-icons */}
                   
                       {isPlaying ? (
-                        <FaPause onClick={togglePlayPause} className="w-6 h-6 text-white" />
+                        <FaPause onClick={togglePlayPause} className="w-6 h-6 cursor-pointer text-white" />
                       ) : (
-                        <FaPlay onClick={togglePlayPause} className="w-6 h-6 ml-1 text-white" />
+                        <FaPlay onClick={togglePlayPause} className="w-6 h-6 cursor-pointer ml-1 text-white" />
                       )}
 
                     {/* Volume Control */}
                     <div className="flex items-center space-x-2 bg-black/40 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
                         {volume === 0 ? (
-                          <FaVolumeXmark onClick={() => setVolume(volume > 0 ? 0 : 1)} className="w-6 h-6 text-white" />
+                          <FaVolumeXmark onClick={() => setVolume(volume > 0 ? 0 : 1)} className="w-6 h-6 cursor-pointer text-white" />
                         ) : volume > 0.5 ? (
-                          <FaVolumeHigh onClick={() => setVolume(volume > 0 ? 0 : 1)} className="w-6 h-6 text-white" />
+                          <FaVolumeHigh onClick={() => setVolume(volume > 0 ? 0 : 1)} className="w-6 h-6 cursor-pointer text-white" />
                         ) : (
-                          <FaVolumeLow onClick={() => setVolume(volume > 0 ? 0 : 1)} className="w-6 h-6 text-white" />
+                          <FaVolumeLow onClick={() => setVolume(volume > 0 ? 0 : 1)} className="w-6 h-6 cursor-pointer text-white" />
                         )}
                       <input
                         type="range"
@@ -417,8 +415,8 @@ export default function VideoPreview({
                         value={volume}
                         onChange={handleVolumeChange}
                         className="w-20 h-1 bg-white/20 rounded-full appearance-none cursor-pointer
-              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 
-              [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                        [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 
+                        [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
                       />
                     </div>
 
@@ -431,7 +429,7 @@ export default function VideoPreview({
                   {/* Right Side Controls */}
                   <div className="flex items-center space-x-3">
                     {/* Fullscreen Button */}
-                    <FaExpandAlt onClick={toggleFullscreen} className="w-6 h-6 text-white" />
+                    <FaExpandAlt onClick={toggleFullscreen} className="w-6 h-6 cursor-pointer text-white" />
                   </div>
                 </div>
               </div>

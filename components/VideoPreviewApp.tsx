@@ -258,7 +258,6 @@ function VideoPreviewWindow() {
       input[type="range"] {
         -webkit-appearance: none !important;
         appearance: none !important;
-        background: transparent !important;
         border: none !important;
         padding: 0 !important;
       }
