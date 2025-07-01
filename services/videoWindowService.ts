@@ -1,4 +1,4 @@
-// services/videoWindowService.ts - Service for managing video preview windows
+// services/videoWindowService.ts - Simple service for managing video preview windows
 import { VideoData } from '../components/VideoPreview';
 
 export interface VideoWindowOptions {
@@ -7,15 +7,8 @@ export interface VideoWindowOptions {
   centered?: boolean;
 }
 
-export interface RecordingWindowData {
-  caseId: string;
-  options?: any;
-}
-
 export class VideoWindowService {
   private static instance: VideoWindowService;
-  private activeRecordingWindow: chrome.windows.Window | null = null;
-  private activeRecordingWindowId: number | null = null;
   private activePreviewWindow: chrome.windows.Window | null = null;
   private activePreviewWindowId: number | null = null;
   private messageListeners: Map<string, (message: any) => void> = new Map();
@@ -32,68 +25,14 @@ export class VideoWindowService {
   }
 
   /**
-   * Open video recorder in new window
+   * Check if Chrome extension APIs are available
    */
-  async openVideoRecorder(
-    data: RecordingWindowData,
-    options: VideoWindowOptions = {}
-  ): Promise<{ success: boolean; windowId?: number; error?: string }> {
+  private isExtensionContext(): boolean {
     try {
-      // Close existing recording window if open
-      await this.closeActiveRecordingWindow();
-
-      // Generate unique ID for this recording session
-      const recordingId = `recording_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      // Store recording data temporarily
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        await chrome.storage.local.set({
-          [`video_recording_${recordingId}`]: data
-        });
-      }
-
-      // Calculate window dimensions and position
-      const windowOptions = await this.calculateWindowOptions(options);
-
-      // Get the recording page URL
-      const recordingUrl = chrome.runtime.getURL(`video-recorder.html?id=${recordingId}`);
-
-      // Create new window
-      const window = await chrome.windows.create({
-        url: recordingUrl,
-        type: 'popup',
-        width: windowOptions.width,
-        height: windowOptions.height,
-        left: windowOptions.left,
-        top: windowOptions.top,
-        focused: true
-      });
-
-      if (!window || !window.id) {
-        throw new Error('Failed to create recording window');
-      }
-
-      this.activeRecordingWindow = window;
-      this.activeRecordingWindowId = window.id;
-
-      // Setup window close listener
-      this.setupWindowCloseListener(window.id, 'recording');
-
-      // Send recording data to the new window
-      setTimeout(() => {
-        this.sendMessageToRecordingWindow('RECORDING_DATA', data);
-      }, 500);
-
-      return {
-        success: true,
-        windowId: window.id
-      };
-
+      return !!(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to open recording window'
-      };
+      console.warn('Extension context not available:', error);
+      return false;
     }
   }
 
@@ -105,6 +44,13 @@ export class VideoWindowService {
     options: VideoWindowOptions = {}
   ): Promise<{ success: boolean; windowId?: number; error?: string }> {
     try {
+      if (!this.isExtensionContext()) {
+        return {
+          success: false,
+          error: 'Extension context not available'
+        };
+      }
+
       // Close existing preview window if open
       await this.closeActivePreviewWindow();
 
@@ -112,14 +58,20 @@ export class VideoWindowService {
       const videoId = `preview_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       // Store video data temporarily
-      if (typeof chrome !== 'undefined' && chrome.storage) {
+      try {
         await chrome.storage.local.set({
           [`video_preview_${videoId}`]: video
         });
+      } catch (storageError) {
+        console.error('Failed to store video data:', storageError);
+        return {
+          success: false,
+          error: 'Failed to store video data'
+        };
       }
 
       // Calculate window dimensions and position
-      const windowOptions = await this.calculateWindowOptions(options);
+      const windowOptions = this.calculateWindowOptions(options);
 
       // Get the preview page URL
       const previewUrl = chrome.runtime.getURL(`video-preview.html?id=${videoId}`);
@@ -143,12 +95,14 @@ export class VideoWindowService {
       this.activePreviewWindowId = window.id;
 
       // Setup window close listener
-      this.setupWindowCloseListener(window.id, 'preview');
+      this.setupWindowCloseListener(window.id);
 
-      // Send video data to the new window
+      // Send video data to the new window after a short delay
       setTimeout(() => {
         this.sendMessageToPreviewWindow('VIDEO_DATA', video);
       }, 500);
+
+      console.log('✅ Video preview window opened successfully:', window.id);
 
       return {
         success: true,
@@ -156,26 +110,11 @@ export class VideoWindowService {
       };
 
     } catch (error) {
+      console.error('❌ Failed to open video preview window:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to open preview window'
       };
-    }
-  }
-
-  /**
-   * Close active recording window
-   */
-  async closeActiveRecordingWindow(): Promise<void> {
-    if (this.activeRecordingWindowId) {
-      try {
-        await chrome.windows.remove(this.activeRecordingWindowId);
-      } catch (error) {
-        console.warn('Failed to close recording window:', error);
-      }
-      
-      this.activeRecordingWindow = null;
-      this.activeRecordingWindowId = null;
     }
   }
 
@@ -186,8 +125,9 @@ export class VideoWindowService {
     if (this.activePreviewWindowId) {
       try {
         await chrome.windows.remove(this.activePreviewWindowId);
+        console.log('📄 Closed previous preview window');
       } catch (error) {
-        console.warn('Failed to close preview window:', error);
+        console.warn('⚠️ Failed to close preview window:', error);
       }
       
       this.activePreviewWindow = null;
@@ -196,31 +136,17 @@ export class VideoWindowService {
   }
 
   /**
-   * Send message to recording window
-   */
-  private sendMessageToRecordingWindow(type: string, data?: any): void {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({
-        type,
-        data,
-        target: 'video-recorder'
-      }).catch((error) => {
-        console.warn('Failed to send message to recording window:', error);
-      });
-    }
-  }
-
-  /**
    * Send message to preview window
    */
   private sendMessageToPreviewWindow(type: string, data?: any): void {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
+    if (this.isExtensionContext()) {
       chrome.runtime.sendMessage({
         type,
         data,
-        target: 'video-preview'
+        target: 'video-preview',
+        timestamp: Date.now()
       }).catch((error) => {
-        console.warn('Failed to send message to preview window:', error);
+        console.warn('⚠️ Failed to send message to preview window:', error);
       });
     }
   }
@@ -229,47 +155,38 @@ export class VideoWindowService {
    * Setup message listener for communication with windows
    */
   private setupMessageListener(): void {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
+    if (this.isExtensionContext()) {
       chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        // Handle messages from recording window
-        if (message.type === 'RECORDING_WINDOW_CLOSED') {
-          this.activeRecordingWindow = null;
-          this.activeRecordingWindowId = null;
-          this.notifyListeners('recording_window_closed', null);
-          sendResponse({ received: true });
-        }
+        try {
+          // Handle messages from preview window
+          if (message.type === 'PREVIEW_WINDOW_CLOSED') {
+            this.activePreviewWindow = null;
+            this.activePreviewWindowId = null;
+            this.notifyListeners('preview_window_closed', null);
+            sendResponse({ received: true });
+          }
 
-        if (message.type === 'VIDEO_RECORDED') {
-          // Forward video recorded event to listeners
-          this.notifyListeners('video_recorded', message.data);
-          sendResponse({ received: true });
-        }
+          if (message.type === 'SAVE_VIDEO') {
+            this.notifyListeners('save_video', message.data);
+            sendResponse({ received: true });
+          }
 
-        if (message.type === 'CLOSE_RECORDING') {
-          this.closeActiveRecordingWindow();
-          sendResponse({ received: true });
-        }
+          if (message.type === 'RETAKE_VIDEO') {
+            this.notifyListeners('retake_video', null);
+            this.closeActivePreviewWindow();
+            sendResponse({ received: true });
+          }
 
-        // Handle messages from preview window
-        if (message.type === 'PREVIEW_WINDOW_CLOSED') {
-          this.activePreviewWindow = null;
-          this.activePreviewWindowId = null;
-          this.notifyListeners('preview_window_closed', null);
-          sendResponse({ received: true });
-        }
+          if (message.type === 'CLOSE_PREVIEW') {
+            this.closeActivePreviewWindow();
+            sendResponse({ received: true });
+          }
 
-        if (message.type === 'SAVE_VIDEO') {
-          this.notifyListeners('save_video', message.data);
-          sendResponse({ received: true });
+          return true; // Keep message channel open for async response
+        } catch (error) {
+          console.error('❌ Error handling message:', error);
+          sendResponse({ error: error instanceof Error ? error.message : 'Unknown error' });
         }
-
-        if (message.type === 'RETAKE_VIDEO') {
-          this.notifyListeners('retake_video', null);
-          this.closeActivePreviewWindow();
-          sendResponse({ received: true });
-        }
-
-        return true;
       });
     }
   }
@@ -277,21 +194,15 @@ export class VideoWindowService {
   /**
    * Setup listener for window close events
    */
-  private setupWindowCloseListener(windowId: number, type: 'recording' | 'preview'): void {
-    if (typeof chrome !== 'undefined' && chrome.windows) {
+  private setupWindowCloseListener(windowId: number): void {
+    if (this.isExtensionContext() && chrome.windows) {
       const handleWindowRemoved = (removedWindowId: number) => {
         if (removedWindowId === windowId) {
-          if (type === 'recording') {
-            this.activeRecordingWindow = null;
-            this.activeRecordingWindowId = null;
-            this.notifyListeners('recording_window_closed', null);
-          } else {
-            this.activePreviewWindow = null;
-            this.activePreviewWindowId = null;
-            this.notifyListeners('preview_window_closed', null);
-          }
-          
+          this.activePreviewWindow = null;
+          this.activePreviewWindowId = null;
+          this.notifyListeners('preview_window_closed', null);
           chrome.windows.onRemoved.removeListener(handleWindowRemoved);
+          console.log('📄 Preview window closed by user');
         }
       };
 
@@ -302,17 +213,17 @@ export class VideoWindowService {
   /**
    * Calculate optimal window options
    */
-  private async calculateWindowOptions(
+  private calculateWindowOptions(
     options: VideoWindowOptions
-  ): Promise<{
+  ): {
     width: number;
     height: number;
     left: number;
     top: number;
-  }> {
-    // Default dimensions - larger for video
-    const defaultWidth = Math.min(1600, window.screen.availWidth * 0.95);
-    const defaultHeight = Math.min(1000, window.screen.availHeight * 0.95);
+  } {
+    // Default dimensions - optimized for video preview
+    const defaultWidth = Math.min(1600, window.screen.availWidth * 0.9);
+    const defaultHeight = Math.min(1000, window.screen.availHeight * 0.9);
 
     const width = options.width || defaultWidth;
     const height = options.height || defaultHeight;
@@ -356,16 +267,9 @@ export class VideoWindowService {
       try {
         listener(data);
       } catch (error) {
-        console.error('Error in event listener:', error);
+        console.error('❌ Error in event listener:', error);
       }
     }
-  }
-
-  /**
-   * Check if recording window is open
-   */
-  isRecordingWindowOpen(): boolean {
-    return this.activeRecordingWindowId !== null;
   }
 
   /**
@@ -376,13 +280,6 @@ export class VideoWindowService {
   }
 
   /**
-   * Get active recording window info
-   */
-  getActiveRecordingWindow(): chrome.windows.Window | null {
-    return this.activeRecordingWindow;
-  }
-
-  /**
    * Get active preview window info
    */
   getActivePreviewWindow(): chrome.windows.Window | null {
@@ -390,33 +287,15 @@ export class VideoWindowService {
   }
 
   /**
-   * Focus recording window if open
-   */
-  async focusRecordingWindow(): Promise<boolean> {
-    if (this.activeRecordingWindowId) {
-      try {
-        await chrome.windows.update(this.activeRecordingWindowId, { focused: true });
-        return true;
-      } catch (error) {
-        console.error('Failed to focus recording window:', error);
-        this.activeRecordingWindow = null;
-        this.activeRecordingWindowId = null;
-        return false;
-      }
-    }
-    return false;
-  }
-
-  /**
    * Focus preview window if open
    */
   async focusPreviewWindow(): Promise<boolean> {
-    if (this.activePreviewWindowId) {
+    if (this.activePreviewWindowId && this.isExtensionContext()) {
       try {
         await chrome.windows.update(this.activePreviewWindowId, { focused: true });
         return true;
       } catch (error) {
-        console.error('Failed to focus preview window:', error);
+        console.error('❌ Failed to focus preview window:', error);
         this.activePreviewWindow = null;
         this.activePreviewWindowId = null;
         return false;
@@ -429,7 +308,6 @@ export class VideoWindowService {
    * Cleanup resources
    */
   cleanup(): void {
-    this.closeActiveRecordingWindow();
     this.closeActivePreviewWindow();
     this.messageListeners.clear();
   }

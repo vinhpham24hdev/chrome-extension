@@ -1,4 +1,4 @@
-// components/VideoRecorder.tsx - Video Recording Interface with Auto Start
+// components/VideoRecorder.tsx - Updated for better integration with video preview window
 import React, { useState, useEffect, useRef } from "react";
 import {
   videoService,
@@ -10,8 +10,8 @@ import {
 
 interface VideoRecorderProps {
   caseId: string;
-  autoStart?: boolean; // New prop to auto-start recording
-  defaultOptions?: Partial<VideoOptions>; // Default recording options
+  autoStart?: boolean;
+  defaultOptions?: Partial<VideoOptions>;
   onVideoCapture?: (result: VideoResult) => void;
   onClose?: () => void;
 }
@@ -32,9 +32,9 @@ export default function VideoRecorder({
     type: "tab",
     format: "webm",
     quality: "medium",
-    maxDuration: 300, // 5 minutes default
+    maxDuration: 300,
     includeAudio: false,
-    ...defaultOptions, // Apply any default options passed in
+    ...defaultOptions,
   });
   const [error, setError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(true);
@@ -43,7 +43,6 @@ export default function VideoRecorder({
   const hasAutoStarted = useRef(false);
 
   useEffect(() => {
-    // Check if video recording is supported
     setIsSupported(videoService.isSupported());
   }, []);
 
@@ -69,7 +68,6 @@ export default function VideoRecorder({
         onStateChange: (state) => {
           setRecordingState(state);
 
-          // Auto-handle completion
           if (state.status === "completed") {
             setRecordingControls(null);
           }
@@ -102,7 +100,7 @@ export default function VideoRecorder({
           videoPreviewRef.current.src = result.dataUrl;
         }
 
-        // Call callback
+        // Call callback - this will open the video preview window
         onVideoCapture?.(result);
       } else {
         setError(result.error || "Recording failed");
@@ -134,7 +132,7 @@ export default function VideoRecorder({
   };
 
   const handleOptionsChange = (updates: Partial<VideoOptions>) => {
-    if (recordingState.isRecording) return; // Can't change options during recording
+    if (recordingState.isRecording) return;
     setVideoOptions((prev) => ({ ...prev, ...updates }));
   };
 
@@ -229,19 +227,19 @@ export default function VideoRecorder({
 
       {/* Recording Status - Prominent when recording */}
       {recordingState.isRecording && (
-        <div className="bg-black/80 border border-red-700 rounded p-3 text-white font-sans">
-          <div className="flex items-center justify-between mb-2">
+        <div className="bg-gray-900 border border-red-500 rounded-lg p-4 text-white">
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
               <div
-                className={`w-3 h-3 rounded-full mr-2 ${
-                  recordingState.isPaused ? "bg-yellow-500" : "bg-red-500"
+                className={`w-3 h-3 rounded-full mr-3 ${
+                  recordingState.isPaused ? "bg-yellow-500" : "bg-red-500 animate-pulse"
                 }`}
               ></div>
               <div>
                 <div className="text-sm font-bold">
                   {recordingState.isPaused ? "⏸️ Paused" : "🎥 Recording"}
                 </div>
-                <div className="text-xs text-gray-400 mt-1">
+                <div className="text-xs text-gray-300 mt-1">
                   {videoService.formatDuration(recordingState.duration)} |{" "}
                   {videoService.formatFileSize(recordingState.size)}
                 </div>
@@ -253,35 +251,35 @@ export default function VideoRecorder({
             </div>
           </div>
 
-          {/* Controls - Gọn và dễ nhấn */}
+          {/* Controls */}
           <div className="flex gap-2">
             <button
               onClick={handleStopRecording}
               disabled={recordingState.status === "stopping"}
-              className="px-3 py-1 bg-gray-900 border border-red-600 text-red-400 hover:bg-red-900 hover:text-white text-xs transition-all disabled:opacity-50"
+              className="px-3 py-2 bg-red-600 border border-red-500 text-white hover:bg-red-700 text-sm rounded transition-all disabled:opacity-50 font-medium"
             >
-              ⏹️ Stop
+              ⏹️
             </button>
 
             {recordingState.isPaused ? (
               <button
                 onClick={handleResumeRecording}
-                className="px-3 py-1 bg-green-900 border border-green-700 hover:bg-green-700 text-xs transition-all"
+                className="px-3 py-2 bg-green-600 border border-green-500 hover:bg-green-700 text-sm rounded transition-all"
               >
-                ▶️ Resume
+                ▶️
               </button>
             ) : (
               <button
                 onClick={handlePauseRecording}
-                className="px-3 py-1 bg-yellow-900 border border-yellow-700 hover:bg-yellow-700 text-xs transition-all"
+                className="px-3 py-2 bg-yellow-600 border border-yellow-500 hover:bg-yellow-700 text-sm rounded transition-all"
               >
-                ⏸️ Pause
+                ⏸️
               </button>
             )}
 
             <button
               onClick={handleCancelRecording}
-              className="px-3 py-1 bg-red-900 border border-red-700 hover:bg-red-700 text-xs transition-all"
+              className="px-3 py-2 bg-gray-600 border border-gray-500 hover:bg-gray-700 text-sm rounded transition-all"
             >
               ❌ Cancel
             </button>
@@ -289,7 +287,7 @@ export default function VideoRecorder({
         </div>
       )}
 
-      {/* Quick Settings for Auto-started Recording */}
+      {/* Auto-start info */}
       {autoStart && !recordingState.isRecording && !isInitializing && (
         <div className="bg-blue-50 rounded-lg p-4">
           <h4 className="font-medium text-blue-900 mb-3">📹 Quick Settings</h4>
@@ -313,24 +311,99 @@ export default function VideoRecorder({
         </div>
       )}
 
-      {/* Video Preview */}
+      {/* Recording Options (when not recording) */}
+      {!recordingState.isRecording && !autoStart && (
+        <div className="space-y-4">
+          <h4 className="font-medium text-gray-900">Recording Options</h4>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Type
+              </label>
+              <select
+                value={videoOptions.type}
+                onChange={(e) => handleOptionsChange({ type: e.target.value as "tab" | "desktop" })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              >
+                <option value="tab">Current Tab</option>
+                <option value="desktop">Desktop/Window</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Quality
+              </label>
+              <select
+                value={videoOptions.quality}
+                onChange={(e) => handleOptionsChange({ quality: e.target.value as "low" | "medium" | "high" })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              >
+                <option value="low">Low (720p)</option>
+                <option value="medium">Medium (1080p)</option>
+                <option value="high">High (1440p)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Max Duration (minutes)
+              </label>
+              <select
+                value={(videoOptions.maxDuration || 300) / 60}
+                onChange={(e) => handleOptionsChange({ maxDuration: parseInt(e.target.value) * 60 })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              >
+                <option value={2}>2 minutes</option>
+                <option value={5}>5 minutes</option>
+                <option value={10}>10 minutes</option>
+                <option value={15}>15 minutes</option>
+              </select>
+            </div>
+
+            <div className="flex items-center">
+              <label className="flex items-center text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={videoOptions.includeAudio || false}
+                  onChange={(e) => handleOptionsChange({ includeAudio: e.target.checked })}
+                  className="mr-2 rounded"
+                />
+                Include Audio
+              </label>
+            </div>
+          </div>
+
+          <button
+            onClick={handleStartRecording}
+            disabled={isInitializing}
+            className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium"
+          >
+            {isInitializing ? "Starting..." : "Start Recording"}
+          </button>
+        </div>
+      )}
+
+      {/* Video Preview (hidden, used for processing) */}
       {recordingState.status === "completed" && (
         <div className="bg-gray-50 rounded-lg p-4">
-          <h4 className="font-medium text-gray-900 mb-3">Recording Preview</h4>
+          <h4 className="font-medium text-gray-900 mb-3">Recording Complete</h4>
           <div className="bg-black rounded-lg overflow-hidden">
             <video
               ref={videoPreviewRef}
-              controls
-              className="w-full h-auto max-h-96"
+              className="w-full h-auto max-h-64 hidden"
               preload="metadata"
             >
               Your browser does not support video playback.
             </video>
           </div>
 
-          <div className="mt-3 text-sm text-gray-600">
+          <div className="mt-3 text-sm text-gray-600 text-center">
             Duration: {videoService.formatDuration(recordingState.duration)} |
             Size: {videoService.formatFileSize(recordingState.size)}
+            <br />
+            <span className="text-blue-600">Opening preview window...</span>
           </div>
         </div>
       )}
@@ -356,8 +429,7 @@ export default function VideoRecorder({
               resources
             </li>
             <li>
-              • <strong>Storage:</strong> Videos will be uploaded to S3 after
-              recording
+              • <strong>Storage:</strong> Videos will be processed in a separate preview window
             </li>
           </ul>
         </div>

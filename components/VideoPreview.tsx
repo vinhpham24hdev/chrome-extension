@@ -1,4 +1,4 @@
-// components/VideoPreview.tsx - Video Preview and Upload Component
+// components/VideoPreview.tsx - Enhanced with case form interface like screenshot preview
 import React, { useState, useRef, useEffect } from "react";
 import { VideoResult } from "../services/videoService";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
@@ -43,7 +43,14 @@ export default function VideoPreview({
     result: null,
     error: null,
   });
-  const [autoSave, setAutoSave] = useState(false);
+
+  // Case form state
+  const [caseForm, setCaseForm] = useState({
+    name: `Video Recording - ${new Date().toLocaleDateString()}`,
+    description: "",
+    url: window.location.href || "",
+  });
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -52,12 +59,8 @@ export default function VideoPreview({
   const videoRef = useRef<HTMLVideoElement>(null);
   const fullscreenVideoRef = useRef<HTMLVideoElement>(null);
 
-  // Auto-save on mount if enabled
-  useEffect(() => {
-    if (autoSave && !uploadState.isUploading && !uploadState.result) {
-      handleUploadToS3();
-    }
-  }, [autoSave]);
+  // Generate unique snapshot ID based on timestamp
+  const snapshotId = `${Date.now().toString().slice(-8)}`;
 
   // Sync video controls
   useEffect(() => {
@@ -111,7 +114,6 @@ export default function VideoPreview({
               result,
             }));
 
-            // Update case metadata
             updateCaseMetadata(video.caseId);
           },
           onError: (error) => {
@@ -127,6 +129,9 @@ export default function VideoPreview({
             originalFilename: video.filename,
             duration: video.duration,
             captureType: "video-recording",
+            caseName: caseForm.name,
+            caseDescription: caseForm.description,
+            caseUrl: caseForm.url,
           },
         }
       );
@@ -233,174 +238,63 @@ export default function VideoPreview({
     URL.revokeObjectURL(url);
   };
 
+  const handleFormChange = (field: keyof typeof caseForm, value: string) => {
+    setCaseForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleAddToCase = async () => {
+    if (!caseForm.name.trim()) {
+      alert("Please enter a name for this video");
+      return;
+    }
+
+    // Automatically upload to S3 when adding to case
+    await handleUploadToS3();
+    
+    // Call the onSave callback
+    onSave();
+  };
+
   return (
     <>
-      {/* Main Preview Modal */}
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg overflow-y-auto shadow-xl max-w-5xl max-h-[90vh] w-full mx-4 flex flex-col">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">
-                Video Preview
-              </h2>
-              <p className="text-sm text-gray-500">{video.filename}</p>
-            </div>
-            <div className="flex items-center space-x-2">
-              {/* Auto-save toggle */}
-              <label className="flex items-center text-sm text-gray-600">
-                <input
-                  type="checkbox"
-                  checked={autoSave}
-                  onChange={(e) => setAutoSave(e.target.checked)}
-                  className="mr-2 rounded"
-                  disabled={uploadState.isUploading || !!uploadState.result}
-                />
-                Auto-save to S3
-              </label>
-
-              <button
-                onClick={onClose}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </div>
+      {/* Main Preview Window - Full Screen Layout */}
+      <div className="fixed inset-0 bg-gray-900 flex flex-col z-50">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center">
+            <h1 className="text-xl font-semibold text-gray-900">Video Preview</h1>
+            <span className="ml-4 text-sm text-gray-500">
+              Snapshot {snapshotId}
+            </span>
           </div>
+          <button
+            onClick={onClose}
+            className="flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
 
-          {/* Upload Status */}
-          {(uploadState.isUploading ||
-            uploadState.progress ||
-            uploadState.result ||
-            uploadState.error) && (
-            <div className="px-4 py-3 border-b bg-gray-50">
-              {uploadState.isUploading && uploadState.progress && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-blue-600 font-medium">
-                      Uploading to S3... {uploadState.progress.percentage}%
-                    </span>
-                    <span className="text-gray-500">
-                      {uploadState.progress.speed &&
-                        `${Math.round(uploadState.progress.speed / 1024)} KB/s`}
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${uploadState.progress.percentage}%` }}
-                    ></div>
-                  </div>
-                  {uploadState.progress.timeRemaining && (
-                    <div className="text-xs text-gray-500">
-                      {Math.round(uploadState.progress.timeRemaining)} seconds
-                      remaining
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {uploadState.result && (
-                <div className="flex items-center text-sm text-green-600">
-                  <svg
-                    className="w-4 h-4 mr-2"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                  <span className="font-medium">
-                    Successfully uploaded to S3
-                  </span>
-                  <button
-                    onClick={() =>
-                      window.open(uploadState.result!.fileUrl, "_blank")
-                    }
-                    className="ml-2 text-blue-600 hover:text-blue-800 underline"
-                  >
-                    View File
-                  </button>
-                </div>
-              )}
-
-              {uploadState.error && (
-                <div className="flex items-center justify-between text-sm text-red-600">
-                  <div className="flex items-center">
-                    <svg
-                      className="w-4 h-4 mr-2"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    <span>Upload failed: {uploadState.error}</span>
-                  </div>
-                  <button
-                    onClick={handleUploadToS3}
-                    className="text-blue-600 hover:text-blue-800 underline font-medium"
-                  >
-                    Retry
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Video Info */}
-          <div className="px-4 py-3 bg-gray-50 border-b">
-            <div className="flex flex-wrap gap-6 text-sm text-gray-600">
-              <div>
-                <span className="font-medium">Case:</span> {video.caseId}
-              </div>
-              <div>
-                <span className="font-medium">Duration:</span>{" "}
-                {formatDuration(video.duration)}
-              </div>
-              <div>
-                <span className="font-medium">Size:</span>{" "}
-                {formatFileSize(video.size)}
-              </div>
-              <div>
-                <span className="font-medium">Recorded:</span>{" "}
-                {formatTimestamp(video.timestamp)}
-              </div>
-            </div>
-          </div>
-
-          {/* Video Player */}
-          <div className="flex-1 p-4">
-            <div className="relative bg-black rounded-lg overflow-hidden group">
+        <div className="flex-1 flex">
+          {/* Video Preview Area */}
+          <div className="flex-1 bg-black flex items-center justify-center p-8">
+            <div className="relative w-[1000px] h-[800px] max-w-4xl">
               <video
                 ref={videoRef}
                 src={video.dataUrl}
-                className="w-full h-auto max-h-96 cursor-pointer"
+                className="w-full h-full object-contain cursor-pointer"
                 onClick={togglePlayPause}
                 preload="metadata"
               />
 
               {/* Custom Controls Overlay */}
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                <div className="space-y-2">
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-6 opacity-0 hover:opacity-100 transition-opacity">
+                <div className="space-y-3">
                   {/* Progress Bar */}
                   <input
                     type="range"
@@ -408,33 +302,32 @@ export default function VideoPreview({
                     max={video.duration}
                     value={currentTime}
                     onChange={handleSeek}
-                    className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
                   />
 
                   {/* Control Buttons */}
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-4">
                       <button
                         onClick={togglePlayPause}
-                        className="text-white hover:text-gray-300 text-lg"
+                        className="text-white hover:text-gray-300 text-2xl"
                       >
                         {isPlaying ? "⏸️" : "▶️"}
                       </button>
 
                       <span className="text-white text-sm">
-                        {formatDuration(currentTime)} /{" "}
-                        {formatDuration(video.duration)}
+                        {formatDuration(currentTime)} / {formatDuration(video.duration)}
                       </span>
                     </div>
 
-                    <div className="flex items-center space-x-3">
+                    <div className="flex items-center space-x-4">
                       {/* Playback Speed */}
                       <select
                         value={playbackRate}
                         onChange={(e) =>
                           handlePlaybackRateChange(parseFloat(e.target.value))
                         }
-                        className="bg-black/50 text-white text-xs border-gray-600 rounded"
+                        className="bg-black/50 text-white text-sm border-gray-600 rounded px-2 py-1"
                       >
                         <option value={0.5}>0.5x</option>
                         <option value={1}>1x</option>
@@ -444,8 +337,8 @@ export default function VideoPreview({
                       </select>
 
                       {/* Volume */}
-                      <div className="flex items-center space-x-1">
-                        <span className="text-white text-sm">🔊</span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-white text-lg">🔊</span>
                         <input
                           type="range"
                           min="0"
@@ -453,14 +346,14 @@ export default function VideoPreview({
                           step="0.1"
                           value={volume}
                           onChange={handleVolumeChange}
-                          className="w-16 h-1"
+                          className="w-20 h-1"
                         />
                       </div>
 
                       {/* Fullscreen */}
                       <button
                         onClick={toggleFullscreen}
-                        className="text-white hover:text-gray-300"
+                        className="text-white hover:text-gray-300 text-lg"
                       >
                         ⛶
                       </button>
@@ -471,108 +364,165 @@ export default function VideoPreview({
             </div>
           </div>
 
-          {/* Footer Actions */}
-          <div className="p-4 border-t bg-gray-50">
-            <div className="text-sm text-gray-600 mb-3">
-              Click video to play/pause • Use controls for advanced playback
-              options
+          {/* Details Panel */}
+          <div className="w-96 bg-white border-l border-gray-200 flex flex-col">
+            {/* Upload Status */}
+            {(uploadState.isUploading || uploadState.progress || uploadState.result || uploadState.error) && (
+              <div className="p-4 border-b border-gray-200 bg-gray-50">
+                {uploadState.isUploading && uploadState.progress && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-blue-600 font-medium">
+                        Uploading... {uploadState.progress.percentage}%
+                      </span>
+                      <span className="text-gray-500">
+                        {uploadState.progress.speed &&
+                          `${Math.round(uploadState.progress.speed / 1024)} KB/s`}
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${uploadState.progress.percentage}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+
+                {uploadState.result && (
+                  <div className="flex items-center text-sm text-green-600">
+                    <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    <span className="font-medium">Successfully uploaded</span>
+                  </div>
+                )}
+
+                {uploadState.error && (
+                  <div className="text-sm text-red-600">
+                    <span>Upload failed: {uploadState.error}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Details Form */}
+            <div className="flex-1 p-6 space-y-6">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Details</h3>
+                
+                <div className="space-y-4">
+                  {/* Name Field */}
+                  <div>
+                    <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+                      Name
+                    </label>
+                    <input
+                      type="text"
+                      id="name"
+                      value={caseForm.name}
+                      onChange={(e) => handleFormChange('name', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter video name"
+                    />
+                  </div>
+
+                  {/* Description Field */}
+                  <div>
+                    <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
+                      Description
+                    </label>
+                    <textarea
+                      id="description"
+                      rows={3}
+                      value={caseForm.description}
+                      onChange={(e) => handleFormChange('description', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter video description"
+                    />
+                  </div>
+
+                  {/* URL Field */}
+                  <div>
+                    <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-2">
+                      URL
+                    </label>
+                    <input
+                      type="url"
+                      id="url"
+                      value={caseForm.url}
+                      onChange={(e) => handleFormChange('url', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="https://..."
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Video Info */}
+              <div className="border-t border-gray-200 pt-6">
+                <h4 className="text-sm font-medium text-gray-900 mb-3">Video Information</h4>
+                <div className="space-y-2 text-sm text-gray-600">
+                  <div className="flex justify-between">
+                    <span>Case:</span>
+                    <span className="font-medium">{video.caseId}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Duration:</span>
+                    <span className="font-medium">{formatDuration(video.duration)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Size:</span>
+                    <span className="font-medium">{formatFileSize(video.size)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Recorded:</span>
+                    <span className="font-medium">{formatTimestamp(video.timestamp)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Filename:</span>
+                    <span className="font-medium truncate">{video.filename}</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <button
-                onClick={onRetake}
-                disabled={uploadState.isUploading}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                Record Again
-              </button>
-
-              <button
-                onClick={handleDownload}
-                disabled={uploadState.isUploading}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+            {/* Action Buttons */}
+            <div className="p-6 border-t border-gray-200 bg-gray-50">
+              <div className="space-y-3">
+                <button
+                  onClick={handleAddToCase}
+                  disabled={uploadState.isUploading || !caseForm.name.trim()}
+                  className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  />
-                </svg>
-                <span>Download</span>
-              </button>
+                  {uploadState.isUploading ? 'Adding to Case...' : 'Add to case'}
+                </button>
 
-              <button
-                onClick={onSave}
-                disabled={uploadState.isUploading || !!uploadState.result}
-                className="px-4 py-2 text-sm font-medium text-white bg-gray-600 border border-transparent rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={handleDownload}
+                    disabled={uploadState.isUploading}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                  >
+                    Download
+                  </button>
+
+                  <button
+                    onClick={onRetake}
+                    disabled={uploadState.isUploading}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                  >
+                    Retake
+                  </button>
+                </div>
+
+                <button
+                  onClick={onClose}
+                  className="w-full px-4 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"
-                  />
-                </svg>
-                <span>Save Local</span>
-              </button>
-
-              <button
-                onClick={handleUploadToS3}
-                disabled={uploadState.isUploading || !!uploadState.result}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
-              >
-                {uploadState.isUploading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>Uploading...</span>
-                  </>
-                ) : uploadState.result ? (
-                  <>
-                    <svg
-                      className="w-4 h-4"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    <span>Uploaded</span>
-                  </>
-                ) : (
-                  <>
-                    <svg
-                      className="w-4 h-4"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                      />
-                    </svg>
-                    <span>Upload to S3</span>
-                  </>
-                )}
-              </button>
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -595,18 +545,8 @@ export default function VideoPreview({
               onClick={toggleFullscreen}
               className="absolute top-4 right-4 bg-black bg-opacity-50 text-white p-3 rounded-full hover:bg-opacity-70 transition-all"
             >
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
 
@@ -614,17 +554,9 @@ export default function VideoPreview({
             <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 text-white px-3 py-2 rounded">
               <p className="text-sm">{video.filename}</p>
               <p className="text-xs opacity-75">
-                {formatDuration(video.duration)} • {formatFileSize(video.size)}{" "}
-                • {formatTimestamp(video.timestamp)}
+                {formatDuration(video.duration)} • {formatFileSize(video.size)} • {formatTimestamp(video.timestamp)}
               </p>
             </div>
-
-            {/* Upload status in fullscreen */}
-            {uploadState.result && (
-              <div className="absolute top-4 left-4 bg-green-600 text-white px-3 py-2 rounded">
-                <p className="text-sm font-medium">✓ Uploaded to S3</p>
-              </div>
-            )}
           </div>
         </div>
       )}

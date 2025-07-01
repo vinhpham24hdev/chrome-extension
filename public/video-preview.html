@@ -16,8 +16,8 @@
     html, body {
       height: 100%;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: #f3f4f6;
-      overflow: auto;
+      background: #111827;
+      overflow: hidden;
     }
 
     /* Loading styles */
@@ -62,44 +62,220 @@
       opacity: 0.7;
     }
 
-    /* Root container */
+    /* Root container - Full screen for video preview */
     #root {
-      width: 100%;
-      height: 100%;
       position: relative;
+      background: #111827;
     }
 
-    /* Scrollbar styles */
-    ::-webkit-scrollbar {
-      width: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: #f1f1f1;
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: #c1c1c1;
-      border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: #a8a8a8;
+    /* Remove scrollbars for video preview - it should be full screen */
+    body {
+      overflow: hidden;
     }
 
     /* Video element styles */
     video {
       background: #000;
-      border-radius: 8px;
+      border-radius: 0;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    /* Custom scrollbar for detail panel */
+    .detail-panel {
+      overflow-y: auto;
+    }
+
+    .detail-panel::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .detail-panel::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+
+    .detail-panel::-webkit-scrollbar-thumb {
+      background: #c1c1c1;
+      border-radius: 4px;
+    }
+
+    .detail-panel::-webkit-scrollbar-thumb:hover {
+      background: #a8a8a8;
+    }
+
+    /* Ensure video preview takes full advantage of screen space */
+    .video-container {
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      position: relative;
+    }
+
+    /* Loading animation improvements */
+    .loading-container {
+      background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .loading-content {
+      text-align: center;
+      padding: 2rem;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+      max-width: 400px;
+      width: 90%;
+    }
+
+    /* Enhanced spinner */
+    .enhanced-spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid #e5e7eb;
+      border-top: 4px solid #3b82f6;
+      border-radius: 50%;
+      animation: enhance-spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes enhance-spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Video preview specific styles */
+    .video-preview-container {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: #111827;
+    }
+
+    .video-header {
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .video-main {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+
+    .video-player-area {
+      flex: 1;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .video-details-panel {
+      width: 400px;
+      background: white;
+      border-left: 1px solid #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    /* Responsive design for smaller screens */
+    @media (max-width: 1200px) {
+      .video-details-panel {
+        width: 350px;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .video-main {
+        flex-direction: column;
+      }
+      
+      .video-details-panel {
+        width: 100%;
+        max-height: 40vh;
+        border-left: none;
+        border-top: 1px solid #e5e7eb;
+      }
+      
+      .video-player-area {
+        padding: 1rem;
+      }
+    }
+
+    /* Error state styling */
+    .error-container {
+      background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .error-content {
+      text-align: center;
+      padding: 2rem;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+      max-width: 500px;
+      width: 90%;
+      border: 1px solid #fecaca;
+    }
+
+    .error-icon {
+      font-size: 4rem;
+      margin-bottom: 1rem;
+      color: #dc2626;
+    }
+
+    .error-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #7f1d1d;
+      margin-bottom: 0.5rem;
+    }
+
+    .error-message {
+      color: #b91c1c;
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+
+    .error-button {
+      background: #dc2626;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.5rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .error-button:hover {
+      background: #b91c1c;
     }
   </style>
 </head>
 <body>
   <div id="loading">
-    <div>
-      <div class="spinner"></div>
+    <div class="loading-content">
+      <div class="enhanced-spinner"></div>
       <div class="loading-text">Loading video preview...</div>
-      <div class="loading-subtext">Please wait while we prepare your video...</div>
+      <div class="loading-subtext">Please wait while we prepare your video for review...</div>
     </div>
   </div>
   <div id="root"></div>
