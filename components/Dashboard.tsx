@@ -1,4 +1,4 @@
-// components/Dashboard.tsx - Updated to use video window service
+// components/Dashboard.tsx - Updated to use full-screen region selector
 import React, { useState, useEffect, useRef } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
@@ -10,11 +10,10 @@ import { useAuth } from "../contexts/AuthContext";
 import { screenshotService, ScreenshotResult } from "../services/screenshotService";
 import { videoService, VideoResult, VideoOptions } from "../services/videoService";
 import { screenshotWindowService } from "../services/screenshotWindowService";
-import { videoWindowService } from "../services/videoWindowService"; // Add this import
-import RegionSelector, { RegionSelection } from "./RegionSelector";
+import { videoWindowService } from "../services/videoWindowService";
+import { fullscreenWindowService, RegionSelection } from "../services/fullscreenWindowService";
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 import VideoRecorder from "./VideoRecorder";
-// Remove VideoPreview import as we'll use window service
 
 import logo from "@/assets/logo.png";
 
@@ -52,21 +51,34 @@ export default function Dashboard() {
   const [selectedCase, setSelectedCase] = useState<string>(mockCases[0].id);
   const [captureMode, setCaptureMode] = useState<"screenshot" | "video" | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [showRegionSelector, setShowRegionSelector] = useState(false);
-  const [fullScreenImage, setFullScreenImage] = useState<string>("");
   const [screenshotPreview, setScreenshotPreview] = useState<ScreenshotData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showVideoRecorder, setShowVideoRecorder] = useState(false);
   const [videoRecorderOptions, setVideoRecorderOptions] = useState<Partial<VideoOptions>>({});
-  // Remove videoPreview state as we'll use window service
   
   // User dropdown state
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Setup fullscreen window service listeners
+  useEffect(() => {
+    fullscreenWindowService.onRegionSelected((region) => {
+      handleRegionSelectFromService(region);
+    });
+
+    fullscreenWindowService.onCancelled(() => {
+      setIsCapturing(false);
+      setCaptureMode(null);
+      console.log('Region selection cancelled');
+    });
+
+    return () => {
+      // Cleanup handled by service
+    };
+  }, [selectedCase]);
+
   // Setup screenshot window service listeners
   useEffect(() => {
-    // Setup listeners for screenshot window events
     screenshotWindowService.addListener('window_closed', () => {
       setScreenshotPreview(null);
       setCaptureMode(null);
@@ -105,7 +117,6 @@ export default function Dashboard() {
     });
 
     return () => {
-      // Cleanup listeners
       screenshotWindowService.removeListener('window_closed');
       screenshotWindowService.removeListener('save_screenshot');
       screenshotWindowService.removeListener('retake_screenshot');
@@ -189,27 +200,28 @@ export default function Dashboard() {
     setCaptureMode("screenshot");
 
     try {
-      let result: ScreenshotResult;
-
       if (type === "region") {
-        result = await screenshotService.captureFullScreen({
-          type: "full",
-          format: "png",
-        });
-
-        if (result.success && result.dataUrl) {
-          setFullScreenImage(result.dataUrl);
-          setShowRegionSelector(true);
+        // Use fullscreen window service for macOS-style region selection
+        const result = await fullscreenWindowService.startRegionSelection();
+        
+        if (!result.success) {
+          alert(result.error || "Failed to start region selection");
           setIsCapturing(false);
+          setCaptureMode(null);
           return;
         }
-      } else {
-        const captureType = type === "screen" ? "visible" : "full";
-        result = await screenshotService.captureFullScreen({
-          type: captureType,
-          format: "png",
-        });
+        
+        // Region selection window is now open, wait for user interaction
+        // The result will be handled by the service listener
+        return;
       }
+
+      // Handle regular screenshot capture
+      const captureType = type === "screen" ? "visible" : "full";
+      const result = await screenshotService.captureFullScreen({
+        type: captureType,
+        format: "png",
+      });
 
       if (result.success && result.dataUrl && result.filename) {
         const screenshotData: ScreenshotData = {
@@ -246,8 +258,7 @@ export default function Dashboard() {
     setIsCapturing(false);
   };
 
-  const handleRegionSelect = async (region: RegionSelection) => {
-    setShowRegionSelector(false);
+  const handleRegionSelectFromService = async (region: RegionSelection) => {
     setIsCapturing(true);
 
     try {
@@ -288,7 +299,7 @@ export default function Dashboard() {
     }
 
     setIsCapturing(false);
-    setFullScreenImage("");
+    setCaptureMode(null);
   };
 
   const handleVideoCapture = (type: "video" | "r-video" = "video") => {
@@ -311,7 +322,6 @@ export default function Dashboard() {
     setShowVideoRecorder(true);
   };
 
-  // Updated to use video window service
   const handleVideoRecorded = async (result: VideoResult) => {
     if (result.success && result.blob && result.dataUrl && result.filename) {
       const videoData = {
@@ -326,10 +336,8 @@ export default function Dashboard() {
 
       console.log('Opening video preview in new window...');
       
-      // Use video window service to open preview in new window
       const windowResult = await videoWindowService.openVideoPreview(videoData, {
         centered: true
-        // Let the service calculate optimal size
       });
 
       if (windowResult.success) {
@@ -393,13 +401,6 @@ export default function Dashboard() {
 
   const handleRetakeScreenshot = () => {
     setScreenshotPreview(null);
-    setCaptureMode(null);
-  };
-
-  const handleCancelRegionSelection = () => {
-    setShowRegionSelector(false);
-    setFullScreenImage("");
-    setIsCapturing(false);
     setCaptureMode(null);
   };
 
@@ -576,17 +577,6 @@ export default function Dashboard() {
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
             <p className="text-gray-700">Capturing...</p>
           </div>
-        </div>
-      )}
-
-      {/* Modals - Only show if NOT opened in new window */}
-      {showRegionSelector && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-          <RegionSelector
-            imageUrl={fullScreenImage}
-            onRegionSelect={handleRegionSelect}
-            onCancel={handleCancelRegionSelection}
-          />
         </div>
       )}
 

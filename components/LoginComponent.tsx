@@ -199,7 +199,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
                       name="username"
                       value={credentials.username}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full bg-white/20 text-gray-800 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Enter username or email"
                       required
                       autoFocus
@@ -217,7 +217,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
                       name="password"
                       value={credentials.password}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full bg-white/20 text-gray-800 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Enter password"
                       required
                     />

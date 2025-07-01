@@ -20,7 +20,7 @@ export default defineConfig({
       default_title: "Cellebrite Capture Tool",
     },
     content_security_policy: {
-      extension_pages: "script-src 'self'; object-src 'self'",
+      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';",
     },
   },
 
