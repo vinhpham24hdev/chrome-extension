@@ -1,5 +1,14 @@
 // components/VideoPreview.tsx - Enhanced with larger video and better controls
 import React, { useState, useRef, useEffect } from "react";
+import {
+  FaPlay,
+  FaPause,
+  FaVolumeHigh,
+  FaVolumeLow,
+  FaVolumeXmark,
+} from "react-icons/fa6";
+import { FaExpandAlt } from "react-icons/fa";
+
 import { VideoResult } from "../services/videoService";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
 import { caseService } from "../services/caseService";
@@ -55,7 +64,9 @@ export default function VideoPreview({
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
   const [showControls, setShowControls] = useState(true);
-  const [controlsTimeout, setControlsTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [controlsTimeout, setControlsTimeout] = useState<NodeJS.Timeout | null>(
+    null
+  );
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const fullscreenVideoRef = useRef<HTMLVideoElement>(null);
@@ -65,8 +76,8 @@ export default function VideoPreview({
     const video = videoRef.current;
     if (video && video.src) {
       // Try to autoplay
-      video.play().catch(error => {
-        console.log('Autoplay prevented:', error);
+      video.play().catch((error) => {
+        console.log("Autoplay prevented:", error);
       });
     }
   }, [video.dataUrl]);
@@ -273,9 +284,9 @@ export default function VideoPreview({
   };
 
   const handleFormChange = (field: keyof typeof caseForm, value: string) => {
-    setCaseForm(prev => ({
+    setCaseForm((prev) => ({
       ...prev,
-      [field]: value
+      [field]: value,
     }));
   };
 
@@ -287,7 +298,7 @@ export default function VideoPreview({
 
     // Automatically upload to S3 when adding to case
     await handleUploadToS3();
-    
+
     // Call the onSave callback
     onSave();
   };
@@ -299,7 +310,9 @@ export default function VideoPreview({
         {/* Header - Compact */}
         <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center">
-            <h1 className="text-lg font-semibold text-gray-900">Video Preview</h1>
+            <h1 className="text-lg font-semibold text-gray-900">
+              Video Preview
+            </h1>
             <span className="ml-3 text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
               #{snapshotId}
             </span>
@@ -308,15 +321,25 @@ export default function VideoPreview({
             onClick={onClose}
             className="flex items-center text-gray-400 hover:text-gray-600 transition-colors p-1 rounded hover:bg-gray-100"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
 
         <div className="flex-1 flex min-h-0">
           {/* Video Preview Area - Much Larger */}
-          <div 
+          <div
             className="flex-1 bg-black flex items-center justify-center relative"
             onMouseMove={handleMouseActivity}
             onMouseEnter={() => setShowControls(true)}
@@ -338,9 +361,11 @@ export default function VideoPreview({
               />
 
               {/* Enhanced Control Overlay */}
-              <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/60 to-transparent p-6 transition-opacity duration-300 ${
-                showControls ? 'opacity-100' : 'opacity-0'
-              }`}>
+              <div
+                className={`w-full absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/60 to-transparent p-6 transition-opacity duration-300 ${
+                  showControls ? "opacity-100" : "opacity-0"
+                }`}
+              >
                 {/* Progress Bar */}
                 <div className="mb-4">
                   <div className="flex items-center justify-between text-sm text-white mb-2">
@@ -354,50 +379,36 @@ export default function VideoPreview({
                     value={currentTime}
                     onChange={handleSeek}
                     className="w-full h-2 bg-white/20 rounded-full appearance-none cursor-pointer 
-                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 
-                      [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white 
-                      [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg
-                      [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-blue-500
-                      [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full 
-                      [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-blue-500
-                      [&::-moz-range-thumb]:cursor-pointer"
+          [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 
+          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white 
+          [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg
+          [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-blue-500
+          [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full 
+          [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-blue-500
+          [&::-moz-range-thumb]:cursor-pointer"
                   />
                 </div>
 
                 {/* Control Buttons */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
-                    {/* Play/Pause Button - Larger and more prominent */}
-                    <button
-                      onClick={togglePlayPause}
-                      className="group flex items-center justify-center w-14 h-14 bg-white/20 hover:bg-white/30 
-                        backdrop-blur-sm text-white rounded-full transition-all duration-200 shadow-lg hover:shadow-xl
-                        border border-white/20 hover:border-white/40"
-                    >
+                    {/* Play/Pause Button - using react-icons */}
+                  
                       {isPlaying ? (
-                        <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                        </svg>
+                        <FaPause onClick={togglePlayPause} className="w-6 h-6 text-white" />
                       ) : (
-                        <svg className="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M8 5v14l11-7z"/>
-                        </svg>
+                        <FaPlay onClick={togglePlayPause} className="w-6 h-6 ml-1 text-white" />
                       )}
-                    </button>
 
                     {/* Volume Control */}
                     <div className="flex items-center space-x-2 bg-black/40 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
-                      <button onClick={() => setVolume(volume > 0 ? 0 : 1)} className="text-white hover:text-blue-400 transition-colors">
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                          {volume > 0.5 ? (
-                            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-                          ) : volume > 0 ? (
-                            <path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/>
-                          ) : (
-                            <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
-                          )}
-                        </svg>
-                      </button>
+                        {volume === 0 ? (
+                          <FaVolumeXmark onClick={() => setVolume(volume > 0 ? 0 : 1)} className="w-6 h-6 text-white" />
+                        ) : volume > 0.5 ? (
+                          <FaVolumeHigh onClick={() => setVolume(volume > 0 ? 0 : 1)} className="w-6 h-6 text-white" />
+                        ) : (
+                          <FaVolumeLow onClick={() => setVolume(volume > 0 ? 0 : 1)} className="w-6 h-6 text-white" />
+                        )}
                       <input
                         type="range"
                         min="0"
@@ -406,8 +417,8 @@ export default function VideoPreview({
                         value={volume}
                         onChange={handleVolumeChange}
                         className="w-20 h-1 bg-white/20 rounded-full appearance-none cursor-pointer
-                          [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 
-                          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 
+              [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
                       />
                     </div>
 
@@ -420,41 +431,20 @@ export default function VideoPreview({
                   {/* Right Side Controls */}
                   <div className="flex items-center space-x-3">
                     {/* Fullscreen Button */}
-                    <button
-                      onClick={toggleFullscreen}
-                      className="bg-black/40 backdrop-blur-sm hover:bg-black/60 text-white p-3 rounded-full 
-                        transition-all duration-200 border border-white/20 hover:border-white/40"
-                    >
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-                      </svg>
-                    </button>
+                    <FaExpandAlt onClick={toggleFullscreen} className="w-6 h-6 text-white" />
                   </div>
                 </div>
               </div>
-
-              {/* Center Play Button (when paused) */}
-              {!isPlaying && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <button
-                    onClick={togglePlayPause}
-                    className="w-20 h-20 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white rounded-full 
-                      transition-all duration-200 shadow-lg hover:shadow-xl border border-white/20 hover:border-white/40
-                      flex items-center justify-center"
-                  >
-                    <svg className="w-8 h-8 ml-1" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z"/>
-                    </svg>
-                  </button>
-                </div>
-              )}
             </div>
           </div>
 
           {/* Details Panel - Reduced Width */}
           <div className="w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
             {/* Upload Status */}
-            {(uploadState.isUploading || uploadState.progress || uploadState.result || uploadState.error) && (
+            {(uploadState.isUploading ||
+              uploadState.progress ||
+              uploadState.result ||
+              uploadState.error) && (
               <div className="p-4 border-b border-gray-200 bg-gray-50">
                 {uploadState.isUploading && uploadState.progress && (
                   <div className="space-y-2">
@@ -464,7 +454,9 @@ export default function VideoPreview({
                       </span>
                       <span className="text-gray-500">
                         {uploadState.progress.speed &&
-                          `${Math.round(uploadState.progress.speed / 1024)} KB/s`}
+                          `${Math.round(
+                            uploadState.progress.speed / 1024
+                          )} KB/s`}
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
@@ -478,8 +470,16 @@ export default function VideoPreview({
 
                 {uploadState.result && (
                   <div className="flex items-center text-sm text-green-600">
-                    <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    <svg
+                      className="w-4 h-4 mr-2"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                     <span className="font-medium">Successfully uploaded</span>
                   </div>
@@ -496,19 +496,24 @@ export default function VideoPreview({
             {/* Details Form */}
             <div className="flex-1 p-4 space-y-4 overflow-y-auto">
               <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Details</h3>
-                
+                <h3 className="text-lg font-medium text-gray-900 mb-4">
+                  Details
+                </h3>
+
                 <div className="space-y-4">
                   {/* Name Field */}
                   <div>
-                    <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label
+                      htmlFor="name"
+                      className="block text-sm font-medium text-gray-700 mb-1"
+                    >
                       Name
                     </label>
                     <input
                       type="text"
                       id="name"
                       value={caseForm.name}
-                      onChange={(e) => handleFormChange('name', e.target.value)}
+                      onChange={(e) => handleFormChange("name", e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       placeholder="Enter video name"
                     />
@@ -516,14 +521,19 @@ export default function VideoPreview({
 
                   {/* Description Field */}
                   <div>
-                    <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label
+                      htmlFor="description"
+                      className="block text-sm font-medium text-gray-700 mb-1"
+                    >
                       Description
                     </label>
                     <textarea
                       id="description"
                       rows={3}
                       value={caseForm.description}
-                      onChange={(e) => handleFormChange('description', e.target.value)}
+                      onChange={(e) =>
+                        handleFormChange("description", e.target.value)
+                      }
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       placeholder="Enter video description"
                     />
@@ -531,14 +541,17 @@ export default function VideoPreview({
 
                   {/* URL Field */}
                   <div>
-                    <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label
+                      htmlFor="url"
+                      className="block text-sm font-medium text-gray-700 mb-1"
+                    >
                       URL
                     </label>
                     <input
                       type="url"
                       id="url"
                       value={caseForm.url}
-                      onChange={(e) => handleFormChange('url', e.target.value)}
+                      onChange={(e) => handleFormChange("url", e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       placeholder="https://..."
                     />
@@ -548,27 +561,39 @@ export default function VideoPreview({
 
               {/* Video Info */}
               <div className="border-t border-gray-200 pt-4">
-                <h4 className="text-sm font-medium text-gray-900 mb-3">Video Information</h4>
+                <h4 className="text-sm font-medium text-gray-900 mb-3">
+                  Video Information
+                </h4>
                 <div className="space-y-2 text-sm text-gray-600">
                   <div className="flex justify-between">
                     <span>Case:</span>
-                    <span className="font-medium text-blue-600">{video.caseId}</span>
+                    <span className="font-medium text-blue-600">
+                      {video.caseId}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Duration:</span>
-                    <span className="font-medium">{formatDuration(video.duration)}</span>
+                    <span className="font-medium">
+                      {formatDuration(video.duration)}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Size:</span>
-                    <span className="font-medium">{formatFileSize(video.size)}</span>
+                    <span className="font-medium">
+                      {formatFileSize(video.size)}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Recorded:</span>
-                    <span className="font-medium">{formatTimestamp(video.timestamp)}</span>
+                    <span className="font-medium">
+                      {formatTimestamp(video.timestamp)}
+                    </span>
                   </div>
                   <div className="flex flex-col">
                     <span className="text-gray-500">Filename:</span>
-                    <span className="font-medium text-xs break-all">{video.filename}</span>
+                    <span className="font-medium text-xs break-all">
+                      {video.filename}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -580,9 +605,11 @@ export default function VideoPreview({
                 <button
                   onClick={handleAddToCase}
                   disabled={uploadState.isUploading || !caseForm.name.trim()}
-                  className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                  className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-md transition-colors font-medium"
                 >
-                  {uploadState.isUploading ? 'Adding to Case...' : 'Add to case'}
+                  {uploadState.isUploading
+                    ? "Adding to Case..."
+                    : "Add to case"}
                 </button>
 
                 <button
@@ -614,8 +641,18 @@ export default function VideoPreview({
               onClick={toggleFullscreen}
               className="absolute top-4 right-4 bg-black bg-opacity-50 text-white p-3 rounded-full hover:bg-opacity-70 transition-all"
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
               </svg>
             </button>
 
@@ -623,7 +660,8 @@ export default function VideoPreview({
             <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 text-white px-3 py-2 rounded">
               <p className="text-sm">{video.filename}</p>
               <p className="text-xs opacity-75">
-                {formatDuration(video.duration)} • {formatFileSize(video.size)} • {formatTimestamp(video.timestamp)}
+                {formatDuration(video.duration)} • {formatFileSize(video.size)}{" "}
+                • {formatTimestamp(video.timestamp)}
               </p>
             </div>
           </div>
