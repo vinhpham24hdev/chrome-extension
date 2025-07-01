@@ -1,4 +1,4 @@
-// components/VideoPreview.tsx - Enhanced with case form interface like screenshot preview
+// components/VideoPreview.tsx - Enhanced with larger video and better controls
 import React, { useState, useRef, useEffect } from "react";
 import { VideoResult } from "../services/videoService";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
@@ -54,7 +54,8 @@ export default function VideoPreview({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
-  const [playbackRate, setPlaybackRate] = useState(1);
+  const [showControls, setShowControls] = useState(true);
+  const [controlsTimeout, setControlsTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const fullscreenVideoRef = useRef<HTMLVideoElement>(null);
@@ -66,7 +67,6 @@ export default function VideoPreview({
       // Try to autoplay
       video.play().catch(error => {
         console.log('Autoplay prevented:', error);
-        // Autoplay was prevented, user will need to click play
       });
     }
   }, [video.dataUrl]);
@@ -83,19 +83,49 @@ export default function VideoPreview({
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
     const handleEnded = () => setIsPlaying(false);
+    const handleLoadedMetadata = () => {
+      // Auto-play when metadata is loaded
+      video.play().catch(() => {
+        // Ignore autoplay errors
+      });
+    };
 
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
     video.addEventListener("ended", handleEnded);
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
 
     return () => {
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
       video.removeEventListener("ended", handleEnded);
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
     };
   }, []);
+
+  // Auto-hide controls
+  const handleMouseActivity = () => {
+    setShowControls(true);
+    if (controlsTimeout) {
+      clearTimeout(controlsTimeout);
+    }
+    const timeout = setTimeout(() => {
+      if (isPlaying) {
+        setShowControls(false);
+      }
+    }, 3000);
+    setControlsTimeout(timeout);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (controlsTimeout) {
+        clearTimeout(controlsTimeout);
+      }
+    };
+  }, [controlsTimeout]);
 
   // Upload to S3
   const handleUploadToS3 = async () => {
@@ -227,14 +257,6 @@ export default function VideoPreview({
     setVolume(newVolume);
   };
 
-  const handlePlaybackRateChange = (rate: number) => {
-    const video = videoRef.current;
-    if (video) {
-      video.playbackRate = rate;
-    }
-    setPlaybackRate(rate);
-  };
-
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
   };
@@ -272,150 +294,165 @@ export default function VideoPreview({
 
   return (
     <>
-      {/* Main Preview Window - Full Screen Layout */}
+      {/* Main Preview Window - Enhanced Layout */}
       <div className="fixed inset-0 bg-gray-900 flex flex-col z-50">
-        {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        {/* Header - Compact */}
+        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center">
-            <h1 className="text-xl font-semibold text-gray-900">Video Preview</h1>
-            <span className="ml-4 text-sm text-gray-500">
-              Snapshot {snapshotId}
+            <h1 className="text-lg font-semibold text-gray-900">Video Preview</h1>
+            <span className="ml-3 text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
+              #{snapshotId}
             </span>
           </div>
           <button
             onClick={onClose}
-            className="flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+            className="flex items-center text-gray-400 hover:text-gray-600 transition-colors p-1 rounded hover:bg-gray-100"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="flex-1 flex">
-          {/* Video Preview Area */}
-          <div className="flex-1 bg-black flex items-center justify-center p-8">
-            <div className="relative w-full h-full max-w-4xl">
+        <div className="flex-1 flex min-h-0">
+          {/* Video Preview Area - Much Larger */}
+          <div 
+            className="flex-1 bg-black flex items-center justify-center relative"
+            onMouseMove={handleMouseActivity}
+            onMouseEnter={() => setShowControls(true)}
+            onMouseLeave={() => {
+              if (isPlaying) {
+                const timeout = setTimeout(() => setShowControls(false), 1000);
+                setControlsTimeout(timeout);
+              }
+            }}
+          >
+            <div className="relative w-full h-full max-w-none">
               <video
                 ref={videoRef}
                 src={video.dataUrl}
-                className="w-full h-full object-contain"
+                className="w-full h-full object-contain cursor-pointer"
                 controls={false}
                 preload="metadata"
                 onClick={togglePlayPause}
               />
 
-              {/* Modern Control Bar */}
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/90 to-transparent p-6">
-                <div className="space-y-4">
-                  {/* Progress Bar */}
-                  <div className="relative">
-                    <input
-                      type="range"
-                      min="0"
-                      max={video.duration}
-                      value={currentTime}
-                      onChange={handleSeek}
-                      className="w-full h-1 bg-gray-600 rounded-full appearance-none cursor-pointer 
-                        [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 
-                        [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 
-                        [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg
-                        [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full 
-                        [&::-moz-range-thumb]:bg-blue-500 [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:cursor-pointer"
-                    />
-                    <div className="absolute -top-8 left-0 text-xs text-gray-300">
-                      {formatDuration(currentTime)} / {formatDuration(video.duration)}
+              {/* Enhanced Control Overlay */}
+              <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/60 to-transparent p-6 transition-opacity duration-300 ${
+                showControls ? 'opacity-100' : 'opacity-0'
+              }`}>
+                {/* Progress Bar */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between text-sm text-white mb-2">
+                    <span>{formatDuration(currentTime)}</span>
+                    <span>{formatDuration(video.duration)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max={video.duration}
+                    value={currentTime}
+                    onChange={handleSeek}
+                    className="w-full h-2 bg-white/20 rounded-full appearance-none cursor-pointer 
+                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 
+                      [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white 
+                      [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg
+                      [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-blue-500
+                      [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full 
+                      [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-blue-500
+                      [&::-moz-range-thumb]:cursor-pointer"
+                  />
+                </div>
+
+                {/* Control Buttons */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    {/* Play/Pause Button - Larger and more prominent */}
+                    <button
+                      onClick={togglePlayPause}
+                      className="group flex items-center justify-center w-14 h-14 bg-white/20 hover:bg-white/30 
+                        backdrop-blur-sm text-white rounded-full transition-all duration-200 shadow-lg hover:shadow-xl
+                        border border-white/20 hover:border-white/40"
+                    >
+                      {isPlaying ? (
+                        <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                        </svg>
+                      ) : (
+                        <svg className="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M8 5v14l11-7z"/>
+                        </svg>
+                      )}
+                    </button>
+
+                    {/* Volume Control */}
+                    <div className="flex items-center space-x-2 bg-black/40 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
+                      <button onClick={() => setVolume(volume > 0 ? 0 : 1)} className="text-white hover:text-blue-400 transition-colors">
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                          {volume > 0.5 ? (
+                            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                          ) : volume > 0 ? (
+                            <path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/>
+                          ) : (
+                            <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+                          )}
+                        </svg>
+                      </button>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={volume}
+                        onChange={handleVolumeChange}
+                        className="w-20 h-1 bg-white/20 rounded-full appearance-none cursor-pointer
+                          [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 
+                          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                      />
+                    </div>
+
+                    {/* Video Info */}
+                    <div className="text-white text-sm bg-black/40 backdrop-blur-sm rounded-full px-3 py-2 border border-white/20">
+                      {formatFileSize(video.size)}
                     </div>
                   </div>
 
-                  {/* Control Buttons Row */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      {/* Play/Pause Button */}
-                      <button
-                        onClick={togglePlayPause}
-                        className="group flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white 
-                          px-4 py-2 rounded-full transition-all duration-200 shadow-lg hover:shadow-xl"
-                      >
-                        <div className="w-4 h-4 flex items-center justify-center">
-                          {isPlaying ? (
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                            </svg>
-                          ) : (
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M8 5v14l11-7z"/>
-                            </svg>
-                          )}
-                        </div>
-                        <span className="text-sm font-medium">
-                          {isPlaying ? "Pause" : "Play"}
-                        </span>
-                      </button>
-
-                      {/* Volume Control */}
-                      <div className="flex items-center space-x-2 bg-black/40 rounded-full px-3 py-2">
-                        <button onClick={() => setVolume(volume > 0 ? 0 : 1)}>
-                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                            {volume > 0.5 ? (
-                              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-                            ) : volume > 0 ? (
-                              <path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/>
-                            ) : (
-                              <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
-                            )}
-                          </svg>
-                        </button>
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.1"
-                          value={volume}
-                          onChange={handleVolumeChange}
-                          className="w-16 h-1 bg-gray-600 rounded-full appearance-none cursor-pointer
-                            [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 
-                            [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-3">
-                      {/* Speed Control */}
-                      <div className="bg-black/40 rounded-full px-3 py-2">
-                        <select
-                          value={playbackRate}
-                          onChange={(e) =>
-                            handlePlaybackRateChange(parseFloat(e.target.value))
-                          }
-                          className="bg-transparent text-white text-sm border-none outline-none cursor-pointer"
-                        >
-                          <option value={0.5} className="bg-gray-800">0.5x</option>
-                          <option value={1} className="bg-gray-800">1x</option>
-                          <option value={1.25} className="bg-gray-800">1.25x</option>
-                          <option value={1.5} className="bg-gray-800">1.5x</option>
-                          <option value={2} className="bg-gray-800">2x</option>
-                        </select>
-                      </div>
-
-                      {/* Fullscreen Button */}
-                      <button
-                        onClick={toggleFullscreen}
-                        className="bg-black/40 hover:bg-black/60 text-white p-2 rounded-full transition-all duration-200"
-                      >
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-                        </svg>
-                      </button>
-                    </div>
+                  {/* Right Side Controls */}
+                  <div className="flex items-center space-x-3">
+                    {/* Fullscreen Button */}
+                    <button
+                      onClick={toggleFullscreen}
+                      className="bg-black/40 backdrop-blur-sm hover:bg-black/60 text-white p-3 rounded-full 
+                        transition-all duration-200 border border-white/20 hover:border-white/40"
+                    >
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+                      </svg>
+                    </button>
                   </div>
                 </div>
               </div>
+
+              {/* Center Play Button (when paused) */}
+              {!isPlaying && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <button
+                    onClick={togglePlayPause}
+                    className="w-20 h-20 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white rounded-full 
+                      transition-all duration-200 shadow-lg hover:shadow-xl border border-white/20 hover:border-white/40
+                      flex items-center justify-center"
+                  >
+                    <svg className="w-8 h-8 ml-1" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z"/>
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Details Panel */}
-          <div className="w-80 bg-white border-l border-gray-200 flex flex-col">{/* Increased from w-96 to w-80 for better proportion */}
+          {/* Details Panel - Reduced Width */}
+          <div className="w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
             {/* Upload Status */}
             {(uploadState.isUploading || uploadState.progress || uploadState.result || uploadState.error) && (
               <div className="p-4 border-b border-gray-200 bg-gray-50">
@@ -457,14 +494,14 @@ export default function VideoPreview({
             )}
 
             {/* Details Form */}
-            <div className="flex-1 p-6 space-y-6">
+            <div className="flex-1 p-4 space-y-4 overflow-y-auto">
               <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Details</h3>
                 
                 <div className="space-y-4">
                   {/* Name Field */}
                   <div>
-                    <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
                       Name
                     </label>
                     <input
@@ -472,14 +509,14 @@ export default function VideoPreview({
                       id="name"
                       value={caseForm.name}
                       onChange={(e) => handleFormChange('name', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       placeholder="Enter video name"
                     />
                   </div>
 
                   {/* Description Field */}
                   <div>
-                    <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
                       Description
                     </label>
                     <textarea
@@ -487,14 +524,14 @@ export default function VideoPreview({
                       rows={3}
                       value={caseForm.description}
                       onChange={(e) => handleFormChange('description', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       placeholder="Enter video description"
                     />
                   </div>
 
                   {/* URL Field */}
                   <div>
-                    <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-1">
                       URL
                     </label>
                     <input
@@ -502,7 +539,7 @@ export default function VideoPreview({
                       id="url"
                       value={caseForm.url}
                       onChange={(e) => handleFormChange('url', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       placeholder="https://..."
                     />
                   </div>
@@ -510,12 +547,12 @@ export default function VideoPreview({
               </div>
 
               {/* Video Info */}
-              <div className="border-t border-gray-200 pt-6">
+              <div className="border-t border-gray-200 pt-4">
                 <h4 className="text-sm font-medium text-gray-900 mb-3">Video Information</h4>
                 <div className="space-y-2 text-sm text-gray-600">
                   <div className="flex justify-between">
                     <span>Case:</span>
-                    <span className="font-medium">{video.caseId}</span>
+                    <span className="font-medium text-blue-600">{video.caseId}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Duration:</span>
@@ -529,42 +566,24 @@ export default function VideoPreview({
                     <span>Recorded:</span>
                     <span className="font-medium">{formatTimestamp(video.timestamp)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Filename:</span>
-                    <span className="font-medium truncate">{video.filename}</span>
+                  <div className="flex flex-col">
+                    <span className="text-gray-500">Filename:</span>
+                    <span className="font-medium text-xs break-all">{video.filename}</span>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Action Buttons */}
-            <div className="p-6 border-t border-gray-200 bg-gray-50">
-              <div className="space-y-3">
+            <div className="p-4 border-t border-gray-200 bg-gray-50">
+              <div className="flex w-full justify-between">
                 <button
                   onClick={handleAddToCase}
                   disabled={uploadState.isUploading || !caseForm.name.trim()}
-                  className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                  className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                 >
                   {uploadState.isUploading ? 'Adding to Case...' : 'Add to case'}
                 </button>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={handleDownload}
-                    disabled={uploadState.isUploading}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                  >
-                    Download
-                  </button>
-
-                  <button
-                    onClick={onRetake}
-                    disabled={uploadState.isUploading}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                  >
-                    Retake
-                  </button>
-                </div>
 
                 <button
                   onClick={onClose}

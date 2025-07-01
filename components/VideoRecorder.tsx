@@ -260,7 +260,7 @@ export default function VideoRecorder({
               ></div>
               <div>
                 <div className="text-sm font-bold">
-                  {recordingState.isPaused ? <CiStop1 /> : "🎥"}
+                  {recordingState.isPaused ? <CiPause1 /> : "🎥"}
                 </div>
                 <div className="text-xs text-gray-300 mt-1">
                   {videoService.formatDuration(recordingState.duration)} |{" "}
@@ -270,7 +270,7 @@ export default function VideoRecorder({
             </div>
 
             <div className="text-xl">
-              {recordingState.isPaused ? <CiStop1 /> : "🎥"}
+              {recordingState.isPaused ? <CiPause1 /> : "🎥"}
             </div>
           </div>
 

@@ -1,4 +1,4 @@
-// services/videoService.ts - Video Recording Service
+// services/videoService.ts - Fixed Video Recording Service with proper pause/resume timing
 export interface VideoOptions {
   type: "tab" | "desktop" | "window";
   format: "webm" | "mp4";
@@ -45,8 +45,13 @@ export class VideoService {
   private mediaRecorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
   private recordedChunks: Blob[] = [];
-  private startTime: number = 0;
-  private pausedTime: number = 0;
+  
+  // Fixed timing tracking
+  private recordingStartTime: number = 0;
+  private totalPausedDuration: number = 0;
+  private pauseStartTime: number = 0;
+  private progressInterval: NodeJS.Timeout | null = null;
+  
   private onStateChange?: (state: RecordingState) => void;
   private onProgress?: (progress: { duration: number; size: number }) => void;
   private currentState: RecordingState = {
@@ -138,13 +143,16 @@ export class VideoService {
       this.mediaRecorder = new MediaRecorder(this.stream, mediaRecorderOptions);
       this.recordedChunks = [];
 
+      // Reset timing variables
+      this.recordingStartTime = Date.now();
+      this.totalPausedDuration = 0;
+      this.pauseStartTime = 0;
+
       // Setup event handlers
       this.setupMediaRecorderEvents(options);
 
       // Start recording
       this.mediaRecorder.start(1000); // Record in 1-second chunks
-      this.startTime = Date.now();
-      this.pausedTime = 0;
 
       this.updateState({
         isRecording: true,
@@ -191,6 +199,9 @@ export class VideoService {
 
       this.updateState({ status: "stopping" });
 
+      // Stop progress tracking
+      this.stopProgressTracking();
+
       // Setup one-time event listener for dataavailable
       const handleFinalData = () => {
         if (this.recordedChunks.length === 0) {
@@ -206,8 +217,10 @@ export class VideoService {
             type: this.mediaRecorder!.mimeType,
           });
           const dataUrl = URL.createObjectURL(blob);
-          const duration =
-            (Date.now() - this.startTime - this.pausedTime) / 1000;
+          
+          // Calculate final duration
+          const finalDuration = this.calculateCurrentDuration();
+          
           const filename = this.generateFilename(
             this.getFormatFromMimeType(this.mediaRecorder!.mimeType)
           );
@@ -218,7 +231,7 @@ export class VideoService {
             isRecording: false,
             isPaused: false,
             status: "completed",
-            duration: Math.round(duration),
+            duration: Math.round(finalDuration),
             size: blob.size,
           });
 
@@ -227,7 +240,7 @@ export class VideoService {
             blob,
             dataUrl,
             filename,
-            duration: Math.round(duration),
+            duration: Math.round(finalDuration),
             size: blob.size,
           });
         } catch (error) {
@@ -260,11 +273,14 @@ export class VideoService {
       !this.currentState.isPaused
     ) {
       this.mediaRecorder.pause();
-      this.pausedTime += Date.now() - this.startTime;
+      this.pauseStartTime = Date.now();
+      
       this.updateState({
         isPaused: true,
         status: "paused",
       });
+
+      console.log('🔴 Recording paused at:', this.formatDuration(this.currentState.duration));
     }
   }
 
@@ -278,11 +294,19 @@ export class VideoService {
       this.currentState.isPaused
     ) {
       this.mediaRecorder.resume();
-      this.startTime = Date.now();
+      
+      // Add the pause duration to total paused time
+      if (this.pauseStartTime > 0) {
+        this.totalPausedDuration += Date.now() - this.pauseStartTime;
+        this.pauseStartTime = 0;
+      }
+      
       this.updateState({
         isPaused: false,
         status: "recording",
       });
+
+      console.log('▶️ Recording resumed. Total paused time:', Math.round(this.totalPausedDuration / 1000), 'seconds');
     }
   }
 
@@ -290,6 +314,7 @@ export class VideoService {
    * Cancel recording
    */
   private cancelRecording(): void {
+    this.stopProgressTracking();
     this.cleanup();
     this.updateState({
       isRecording: false,
@@ -298,6 +323,26 @@ export class VideoService {
       duration: 0,
       size: 0,
     });
+  }
+
+  /**
+   * Calculate current recording duration excluding paused time
+   */
+  private calculateCurrentDuration(): number {
+    if (!this.recordingStartTime) return 0;
+    
+    const now = Date.now();
+    let totalElapsed = now - this.recordingStartTime;
+    
+    // Subtract total paused duration
+    totalElapsed -= this.totalPausedDuration;
+    
+    // If currently paused, subtract current pause duration
+    if (this.currentState.isPaused && this.pauseStartTime > 0) {
+      totalElapsed -= (now - this.pauseStartTime);
+    }
+    
+    return Math.max(0, totalElapsed / 1000); // Convert to seconds
   }
 
   /**
@@ -450,6 +495,7 @@ export class VideoService {
 
     this.mediaRecorder.addEventListener("error", (event) => {
       console.error("MediaRecorder error:", event);
+      this.stopProgressTracking();
       this.cleanup();
       this.updateState({ status: "error" });
     });
@@ -468,9 +514,11 @@ export class VideoService {
    * Start progress tracking
    */
   private startProgressTracking(): void {
-    const updateProgress = () => {
-      if (this.currentState.isRecording && !this.currentState.isPaused) {
-        const duration = (Date.now() - this.startTime - this.pausedTime) / 1000;
+    this.stopProgressTracking(); // Clear any existing interval
+    
+    this.progressInterval = setInterval(() => {
+      if (this.currentState.isRecording) {
+        const duration = this.calculateCurrentDuration();
         const totalSize = this.recordedChunks.reduce(
           (sum, chunk) => sum + chunk.size,
           0
@@ -483,11 +531,22 @@ export class VideoService {
 
         this.onProgress?.({ duration: Math.round(duration), size: totalSize });
 
-        setTimeout(updateProgress, 1000);
+        // Debug logging
+        if (Math.round(duration) % 5 === 0 && Math.round(duration) > 0) {
+          console.log(`📹 Recording progress: ${this.formatDuration(Math.round(duration))} | ${this.formatFileSize(totalSize)} | Paused: ${this.currentState.isPaused ? 'Yes' : 'No'}`);
+        }
       }
-    };
+    }, 1000);
+  }
 
-    setTimeout(updateProgress, 1000);
+  /**
+   * Stop progress tracking
+   */
+  private stopProgressTracking(): void {
+    if (this.progressInterval) {
+      clearInterval(this.progressInterval);
+      this.progressInterval = null;
+    }
   }
 
   /**
@@ -511,9 +570,11 @@ export class VideoService {
       this.mediaRecorder = null;
     }
 
+    this.stopProgressTracking();
     this.recordedChunks = [];
-    this.startTime = 0;
-    this.pausedTime = 0;
+    this.recordingStartTime = 0;
+    this.totalPausedDuration = 0;
+    this.pauseStartTime = 0;
   }
 
   /**
