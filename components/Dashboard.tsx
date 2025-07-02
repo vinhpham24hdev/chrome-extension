@@ -1,4 +1,4 @@
-// components/Dashboard.tsx - Updated to use full-screen region selector
+// components/Dashboard.tsx - Updated to use new tab video recorder like Loom
 import React, { useState, useEffect, useRef } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
@@ -11,9 +11,9 @@ import { screenshotService, ScreenshotResult } from "../services/screenshotServi
 import { videoService, VideoResult, VideoOptions } from "../services/videoService";
 import { screenshotWindowService } from "../services/screenshotWindowService";
 import { videoWindowService } from "../services/videoWindowService";
+import { videoRecorderWindowService } from "../services/videoRecorderWindowService";
 import { fullscreenWindowService, RegionSelection } from "../services/fullscreenWindowService";
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
-import VideoRecorder from "./VideoRecorder";
 
 import logo from "@/assets/logo.png";
 
@@ -53,8 +53,6 @@ export default function Dashboard() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [screenshotPreview, setScreenshotPreview] = useState<ScreenshotData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [showVideoRecorder, setShowVideoRecorder] = useState(false);
-  const [videoRecorderOptions, setVideoRecorderOptions] = useState<Partial<VideoOptions>>({});
   
   // User dropdown state
   const [showUserDropdown, setShowUserDropdown] = useState(false);
@@ -98,7 +96,15 @@ export default function Dashboard() {
       setCaptureMode(null);
     });
 
-    // Setup video window service listeners
+    return () => {
+      screenshotWindowService.removeListener('window_closed');
+      screenshotWindowService.removeListener('save_screenshot');
+      screenshotWindowService.removeListener('retake_screenshot');
+    };
+  }, [selectedCase]);
+
+  // Setup video window service listeners
+  useEffect(() => {
     videoWindowService.addListener('preview_window_closed', () => {
       console.log('Video preview window closed');
       setCaptureMode(null);
@@ -117,12 +123,61 @@ export default function Dashboard() {
     });
 
     return () => {
-      screenshotWindowService.removeListener('window_closed');
-      screenshotWindowService.removeListener('save_screenshot');
-      screenshotWindowService.removeListener('retake_screenshot');
       videoWindowService.removeListener('preview_window_closed');
       videoWindowService.removeListener('save_video');
       videoWindowService.removeListener('retake_video');
+    };
+  }, [selectedCase]);
+
+  // Setup video recorder window service listeners
+  useEffect(() => {
+    videoRecorderWindowService.addListener('recording_window_closed', () => {
+      console.log('Video recorder window closed');
+      setCaptureMode(null);
+    });
+
+    videoRecorderWindowService.addListener('video_recorded', async (videoResult: VideoResult) => {
+      if (videoResult.success && videoResult.blob && videoResult.dataUrl && videoResult.filename) {
+        console.log('Video recorded successfully, opening preview...');
+        
+        const videoData = {
+          blob: videoResult.blob,
+          dataUrl: videoResult.dataUrl,
+          filename: videoResult.filename,
+          duration: videoResult.duration || 0,
+          size: videoResult.size || videoResult.blob.size,
+          timestamp: new Date().toISOString(),
+          caseId: selectedCase,
+        };
+
+        // Open video preview window
+        const windowResult = await videoWindowService.openVideoPreview(videoData, {
+          centered: true
+        });
+
+        if (windowResult.success) {
+          console.log('Video preview window opened successfully:', windowResult.windowId);
+        } else {
+          console.error('Failed to open video preview window:', windowResult.error);
+          alert("Failed to open video preview");
+        }
+      } else {
+        console.error('Video recording failed:', videoResult.error);
+        alert(videoResult.error || "Video recording failed");
+      }
+      
+      setCaptureMode(null);
+    });
+
+    videoRecorderWindowService.addListener('recording_cancelled', () => {
+      console.log('Video recording cancelled');
+      setCaptureMode(null);
+    });
+
+    return () => {
+      videoRecorderWindowService.removeListener('recording_window_closed');
+      videoRecorderWindowService.removeListener('video_recorded');
+      videoRecorderWindowService.removeListener('recording_cancelled');
     };
   }, [selectedCase]);
 
@@ -302,14 +357,26 @@ export default function Dashboard() {
     setCaptureMode(null);
   };
 
-  const handleVideoCapture = (type: "video" | "r-video" = "video") => {
+  // Updated video capture handler - opens in new tab with auto-start like Loom
+  const handleVideoCapture = async (type: "video" | "r-video" = "video") => {
     if (!selectedCase) {
       alert("Please select a case first");
       return;
     }
 
+    // Check if recorder is already open
+    if (videoRecorderWindowService.isRecorderOpen()) {
+      // Focus existing recorder window/tab
+      const focused = await videoRecorderWindowService.focusRecorderWindow();
+      if (focused) {
+        console.log('🎯 Focused existing recorder window');
+        return;
+      }
+    }
+
     setCaptureMode("video");
     
+    // Prepare recorder options based on type - with auto-start enabled
     const defaultOptions: Partial<VideoOptions> = {
       type: type === "video" ? "desktop" : "tab",
       format: "webm",
@@ -318,47 +385,33 @@ export default function Dashboard() {
       includeAudio: false,
     };
     
-    setVideoRecorderOptions(defaultOptions);
-    setShowVideoRecorder(true);
-  };
+    const recorderData = {
+      caseId: selectedCase,
+      options: defaultOptions,
+      autoStart: true // Auto-start recording immediately
+    };
 
-  const handleVideoRecorded = async (result: VideoResult) => {
-    if (result.success && result.blob && result.dataUrl && result.filename) {
-      const videoData = {
-        blob: result.blob,
-        dataUrl: result.dataUrl,
-        filename: result.filename,
-        duration: result.duration || 0,
-        size: result.size || result.blob.size,
-        timestamp: new Date().toISOString(),
-        caseId: selectedCase,
-      };
-
-      console.log('Opening video preview in new window...');
-      
-      const windowResult = await videoWindowService.openVideoPreview(videoData, {
+    console.log('🎬 Opening video recorder with auto-start...');
+    
+    try {
+      // Open recorder in new tab (Loom-style) with immediate screen selection
+      const result = await videoRecorderWindowService.openVideoRecorder(recorderData, {
         centered: true
       });
-
-      if (windowResult.success) {
-        console.log('Video preview window opened successfully:', windowResult.windowId);
-        setShowVideoRecorder(false);
-        setCaptureMode(null);
+      
+      if (result.success) {
+        console.log('✅ Video recorder opened with auto-start:', result.tabId || result.windowId);
+        // Keep capture mode set - will be cleared when recorder closes or completes
       } else {
-        console.error('Failed to open video preview window:', windowResult.error);
-        alert("Failed to open video preview");
+        console.error('❌ Failed to open video recorder:', result.error);
+        alert(result.error || "Failed to open video recorder");
+        setCaptureMode(null);
       }
-    } else {
-      alert(result.error || "Video recording failed");
-      setShowVideoRecorder(false);
+    } catch (error) {
+      console.error('❌ Video recorder error:', error);
+      alert("Failed to open video recorder");
       setCaptureMode(null);
     }
-  };
-
-  const handleCloseVideoRecorder = () => {
-    setShowVideoRecorder(false);
-    setCaptureMode(null);
-    setVideoRecorderOptions({});
   };
 
   const handleSaveScreenshot = async () => {
@@ -524,32 +577,34 @@ export default function Dashboard() {
           {/* Divider */}
           <div className="w-px h-8 bg-gray-300"></div>
 
-          {/* Video Recording - Auto Start */}
+          {/* Video Recording - Opens in New Tab with Auto Screen Selection */}
           <button
             onClick={() => handleVideoCapture("video")}
             disabled={isCapturing || !selectedCase}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
-            title="Start recording immediately"
+            title="Record screen - choose what to share"
           >
             <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
               <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
             </div>
             <span className="text-xs text-gray-700">Video</span>
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            {/* Loom-style indicator */}
+            <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
           </button>
 
-          {/* Region Video - Auto Start */}
+          {/* Region Video - Opens in New Tab with Auto Screen Selection */}
           <button
             onClick={() => handleVideoCapture("r-video")}
             disabled={isCapturing || !selectedCase}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
-            title="Record selected screen area immediately"
+            title="Record screen - choose what to share"
           >
             <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm flex items-center justify-center">
               <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
             </div>
             <span className="text-xs text-gray-700">R.Video</span>
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            {/* Loom-style indicator */}
+            <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
           </button>
 
           {/* More Options */}
@@ -575,7 +630,9 @@ export default function Dashboard() {
         <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
           <div className="bg-white rounded-lg p-6 flex flex-col items-center">
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-gray-700">Capturing...</p>
+            <p className="text-gray-700">
+              {captureMode === "video" ? "Opening recorder & choosing screen..." : "Capturing..."}
+            </p>
           </div>
         </div>
       )}
@@ -590,21 +647,6 @@ export default function Dashboard() {
           onClose={() => setScreenshotPreview(null)}
           isUploading={isUploading}
         />
-      )}
-
-      {/* Video Recorder Modal with Auto-Start */}
-      {showVideoRecorder && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] w-full mx-4 overflow-auto">
-            <VideoRecorder
-              caseId={selectedCase}
-              autoStart={true}
-              defaultOptions={videoRecorderOptions}
-              onVideoCapture={handleVideoRecorded}
-              onClose={handleCloseVideoRecorder}
-            />
-          </div>
-        </div>
       )}
     </div>
   );
