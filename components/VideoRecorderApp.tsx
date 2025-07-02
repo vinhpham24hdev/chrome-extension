@@ -452,6 +452,22 @@ function VideoRecorderWindow() {
         max-width: 500px;
         width: 90%;
       }
+      
+      .relative {
+        position: relative !important;
+      }
+
+      .absolute {
+        position: absolute !important;
+      }
+
+      .top-0 {
+        top: 0 !important;
+      }
+
+      .right-4 {
+        right: 1rem !important;
+      }
     `;
 
     const styleElement = document.createElement('style');
@@ -615,7 +631,7 @@ function VideoRecorderWindow() {
 
         {/* Main recorder area */}
         <div className="recorder-main">
-          <div className="recorder-card">
+          <div className="recorder-card p-6">
             <VideoRecorder
               caseId={state.caseId}
               autoStart={state.autoStart}

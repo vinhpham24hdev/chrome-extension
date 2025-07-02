@@ -1,6 +1,6 @@
 // components/VideoRecorder.tsx - Simple & clean like Loom
 import React, { useState, useEffect, useRef } from "react";
-import { FaCircle, FaPlay, FaPause, FaStop, FaTimes } from "react-icons/fa";
+import { FaPlay, FaPause, FaStop, FaTimes, FaCircle } from "react-icons/fa";
 
 import {
   videoService,
@@ -41,8 +41,31 @@ export default function VideoRecorder({
   const [error, setError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(true);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [videoForm, setVideoForm] = useState({
+    name: "",
+    description: "",
+    url: window.location.href || "",
+  });
   const [videoResult, setVideoResult] = useState<VideoResult | null>(null);
   const hasAutoStarted = useRef(false);
+
+  const handleFormChange = (field: keyof typeof videoForm, value: string) => {
+    setVideoForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  useEffect(() => {
+    // Set default video name when video result is available
+    if (videoResult && videoResult.filename && !videoForm.name) {
+      const defaultName = videoResult.filename.replace(/\.[^/.]+$/, ""); // Remove extension
+      setVideoForm((prev) => ({
+        ...prev,
+        name: defaultName,
+      }));
+    }
+  }, [videoResult, videoForm.name]);
 
   useEffect(() => {
     setIsSupported(videoService.isSupported());
@@ -98,7 +121,9 @@ export default function VideoRecorder({
       }
       setRecordingControls(null);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to stop recording");
+      setError(
+        error instanceof Error ? error.message : "Failed to stop recording"
+      );
     }
   };
 
@@ -111,16 +136,28 @@ export default function VideoRecorder({
   };
 
   const handleSaveVideo = () => {
-    if (videoResult) {
+    if (videoResult && videoForm.name.trim()) {
+      // Enhance video result with form data
+      const enhancedResult = {
+        ...videoResult,
+        metadata: {
+          name: videoForm.name.trim(),
+          description: videoForm.description.trim(),
+          url: videoForm.url.trim(),
+          caseId: caseId,
+          savedAt: new Date().toISOString(),
+        },
+      };
+
       // Call original callback to save to case
-      onVideoCapture?.(videoResult);
+      onVideoCapture?.(enhancedResult);
     }
   };
 
   const handleDownloadVideo = () => {
     if (videoResult && videoResult.blob && videoResult.filename) {
       const url = URL.createObjectURL(videoResult.blob);
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = url;
       link.download = videoResult.filename;
       document.body.appendChild(link);
@@ -175,7 +212,8 @@ export default function VideoRecorder({
             Choose what to share
           </h3>
           <p className="text-gray-600 max-w-md">
-            Select your entire screen, a window, or a browser tab in the popup, then click Share
+            Select your entire screen, a window, or a browser tab in the popup,
+            then click Share
           </p>
         </div>
       </div>
@@ -214,7 +252,7 @@ export default function VideoRecorder({
   // Recording State - Clean minimal design like real Loom
   if (recordingState.isRecording) {
     return (
-       <div className="min-h-screen p-6 bg-gray-50 relative flex-col items-center justify-center">
+      <div className="min-h-screen p-6 bg-gray-50 relative flex-col items-center justify-center">
         {/* Floating Control Bar */}
         <div className="flex justify-center left-1/2 transform -translate-x-1/2 z-50 animate-fade-in">
           <div className="bg-white backdrop-blur-sm border border-gray-200 rounded-full px-4 py-2 shadow-xl flex items-center space-x-3 transition-all duration-300 ease-in-out">
@@ -285,74 +323,104 @@ export default function VideoRecorder({
   // Video Preview State - Show result in same tab
   if (videoResult && videoResult.success && videoResult.dataUrl) {
     return (
-      <div className="min-h-screen bg-gray-50 p-6">
-        <div className="max-w-4xl mx-auto">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-medium text-gray-900">Recording Complete</h2>
-              <p className="text-gray-600">
-                {videoService.formatDuration(videoResult.duration || 0)} • {videoService.formatFileSize(videoResult.size || 0)}
-              </p>
+      <div className="relative items-center justify-center p-4 z-50">
+        <button
+          onClick={onClose}
+          className="flex items-center text-gray-400 hover:text-gray-600 absolute top-0 right-4"
+        >
+          <FaTimes className="w-4 h-4" />
+        </button>
+        <div className="bg-white rounded-lg w-full max-w-6xl flex">
+          <div className="flex-1 flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <div>
+                <h2 className="text-2xl font-medium text-gray-900">
+                  Snapshot 65890983
+                </h2>
+                <p className="text-sm text-gray-600">
+                  {videoService.formatDuration(videoResult.duration || 0)} •{" "}
+                  {videoService.formatFileSize(videoResult.size || 0)}
+                </p>
+              </div>
             </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              <FaTimes className="w-6 h-6" />
-            </button>
+
+            {/* Video Player */}
+            <div className="p-6 flex-1 bg-gray-50">
+              <div className="bg-white rounded-lg shadow-lg overflow-hidden h-full flex items-center justify-center">
+                <video
+                  src={videoResult.dataUrl}
+                  controls
+                  className="w-full h-auto"
+                  style={{ maxHeight: "70vh" }}
+                >
+                  Your browser does not support video playback.
+                </video>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="px-6 py-4 border-t flex space-x-3">
+              <button
+                onClick={handleSaveVideo}
+                className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Save to Case
+              </button>
+              <button
+                onClick={handleDownloadVideo}
+                className="flex-1 px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Download
+              </button>
+              <button
+                onClick={handleRetakeVideo}
+                className="flex-1 px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium transition-colors"
+              >
+                Record Again
+              </button>
+            </div>
           </div>
 
-          {/* Video Player */}
-          <div className="bg-white rounded-lg shadow-lg overflow-hidden mb-6">
-            <video
-              src={videoResult.dataUrl}
-              controls
-              className="w-full h-auto"
-              style={{ maxHeight: '70vh' }}
-            >
-              Your browser does not support video playback.
-            </video>
-          </div>
+          {/* Phần phải: Details form */}
+          <div className="w-80 bg-gray-50 p-6 flex flex-col">
+            <h3 className="text-lg font-medium text-gray-900 mb-6">Details</h3>
 
-          {/* Action Buttons */}
-          <div className="flex items-center justify-center space-x-4">
-            <button
-              onClick={handleSaveVideo}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
-            >
-              Save to Case
-            </button>
-            <button
-              onClick={handleDownloadVideo}
-              className="px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-            >
-              Download
-            </button>
-            <button
-              onClick={handleRetakeVideo}
-              className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium transition-colors"
-            >
-              Record Again
-            </button>
-          </div>
+            <label className="text-sm font-medium text-gray-700">Name</label>
+            <input
+              type="text"
+              placeholder="Enter a name…"
+              className="mt-1 mb-4 w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
 
-          {/* Video Info */}
-          <div className="mt-6 bg-gray-100 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-900 mb-2">Recording Details</h3>
-            <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
-              <div>
-                <span className="font-medium">Case:</span> {caseId}
-              </div>
-              <div>
-                <span className="font-medium">Filename:</span> {videoResult.filename}
-              </div>
-              <div>
-                <span className="font-medium">Duration:</span> {videoService.formatDuration(videoResult.duration || 0)}
-              </div>
-              <div>
-                <span className="font-medium">Size:</span> {videoService.formatFileSize(videoResult.size || 0)}
-              </div>
+            <label className="text-sm font-medium text-gray-700">
+              Description
+            </label>
+            <textarea
+              placeholder="Add a description…"
+              rows={4}
+              className="mt-1 mb-4 w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            <label className="text-sm font-medium text-gray-700">URL</label>
+            <p className="mt-1 mb-6 text-sm text-blue-600 break-all">
+              https://www.washingtonpost.com/
+            </p>
+
+            {/* Nút Cancel / Add */}
+            <div className="mt-auto flex justify-end space-x-2 pt-6 border-t">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveVideo}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
+              >
+                Add to case
+              </button>
             </div>
           </div>
         </div>
@@ -370,7 +438,8 @@ export default function VideoRecorder({
             Processing video...
           </h3>
           <p className="text-gray-600 mb-4">
-            {videoService.formatDuration(recordingState.duration)} • {videoService.formatFileSize(recordingState.size)}
+            {videoService.formatDuration(recordingState.duration)} •{" "}
+            {videoService.formatFileSize(recordingState.size)}
           </p>
           <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
         </div>
