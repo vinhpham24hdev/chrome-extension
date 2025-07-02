@@ -1,4 +1,4 @@
-// wxt.config.ts - Revert CSP to secure settings
+// wxt.config.ts - Updated CSP for region selector
 import { defineConfig } from "wxt";
 
 export default defineConfig({
@@ -14,6 +14,7 @@ export default defineConfig({
       "scripting",
       "tabCapture",
       "desktopCapture",
+      "system.display", // Add for getting display info
     ],
     host_permissions: ["<all_urls>"],
     action: {
@@ -22,6 +23,22 @@ export default defineConfig({
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';",
     },
+    // Add web accessible resources for region selector
+    web_accessible_resources: [
+      {
+        resources: [
+          "region-selector.html",
+          "region-selector.js",
+          "screenshot-preview.html", 
+          "screenshot-preview.js",
+          "video-preview.html",
+          "video-preview.js",
+          "video-recorder.html",
+          "video-recorder.js"
+        ],
+        matches: ["<all_urls>"]
+      }
+    ]
   },
 
   webExt: {

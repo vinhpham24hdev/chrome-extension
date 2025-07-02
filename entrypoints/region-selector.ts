@@ -7,7 +7,7 @@ export default defineUnlistedScript(() => {
   let startPoint: { x: number; y: number } | null = null;
   let currentRegion: { x: number; y: number; width: number; height: number } | null = null;
   let screenshotLoaded = false;
-  let instructionsVisible = true; // Renamed to avoid conflict
+  let instructionsVisible = true;
 
   // DOM elements
   interface Elements {
@@ -21,8 +21,10 @@ export default defineUnlistedScript(() => {
     instructions: HTMLElement | null;
     coordinates: HTMLElement | null;
     confirmBtn: HTMLButtonElement | null;
+    cancelBtn: HTMLButtonElement | null;
     error: HTMLElement | null;
     errorMessage: HTMLElement | null;
+    errorCloseBtn: HTMLButtonElement | null;
   }
 
   let elements: Elements = {
@@ -36,8 +38,10 @@ export default defineUnlistedScript(() => {
     instructions: null,
     coordinates: null,
     confirmBtn: null,
+    cancelBtn: null,
     error: null,
-    errorMessage: null
+    errorMessage: null,
+    errorCloseBtn: null
   };
 
   // Initialize when DOM is ready
@@ -56,8 +60,10 @@ export default defineUnlistedScript(() => {
       instructions: document.getElementById('instructions'),
       coordinates: document.getElementById('coordinates'),
       confirmBtn: document.getElementById('confirm-btn') as HTMLButtonElement,
+      cancelBtn: document.getElementById('cancel-btn') as HTMLButtonElement,
       error: document.getElementById('error'),
-      errorMessage: document.getElementById('error-message')
+      errorMessage: document.getElementById('error-message'),
+      errorCloseBtn: document.getElementById('error-close-btn') as HTMLButtonElement
     };
     
     setupEventListeners();
@@ -79,52 +85,87 @@ export default defineUnlistedScript(() => {
     // Keyboard events
     document.addEventListener('keydown', handleKeyDown);
 
+    // Button events
+    if (elements.confirmBtn) {
+      elements.confirmBtn.addEventListener('click', confirmSelection);
+    }
+    
+    if (elements.cancelBtn) {
+      elements.cancelBtn.addEventListener('click', cancelSelection);
+    }
+    
+    if (elements.errorCloseBtn) {
+      elements.errorCloseBtn.addEventListener('click', cancelSelection);
+    }
+
     // Window events
     window.addEventListener('beforeunload', () => {
       // Notify extension that window is closing
-      chrome.runtime.sendMessage({
-        type: 'REGION_CANCELLED'
-      }).catch(() => {
-        // Ignore errors if extension context is gone
-      });
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        chrome.runtime.sendMessage({
+          type: 'REGION_CANCELLED'
+        }).catch(() => {
+          // Ignore errors if extension context is gone
+        });
+      }
     });
 
     // Prevent context menu
     document.addEventListener('contextmenu', (e) => {
       e.preventDefault();
     });
-
-    // Global functions for button clicks
-    (window as any).confirmSelection = confirmSelection;
-    (window as any).cancelSelection = cancelSelection;
   }
 
   // Request screenshot data from extension
   function requestScreenshotData() {
     console.log('📡 Requesting screenshot data...');
     
-    // Notify extension that window is ready
-    chrome.runtime.sendMessage({
-      type: 'REGION_WINDOW_READY'
-    }).catch(error => {
-      console.error('Failed to notify extension:', error);
-      showError('Failed to communicate with extension');
-    });
-
-    // Listen for screenshot data
+    // Enhanced debugging
+    if (typeof chrome === 'undefined') {
+      console.error('❌ Chrome API not available');
+      showError('Chrome extension API not available');
+      return;
+    }
+    
+    if (!chrome.runtime) {
+      console.error('❌ Chrome runtime not available');
+      showError('Chrome runtime not available');
+      return;
+    }
+    
+    console.log('✅ Chrome APIs available, setting up communication...');
+    
+    // Listen for screenshot data FIRST
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      console.log('📨 Received message:', message);
+      
       if (message.type === 'REGION_SELECTOR_DATA') {
         console.log('📸 Received screenshot data');
         loadScreenshot(message.data.screenshot);
         sendResponse({ success: true });
+        return true; // Keep message channel open
       }
+      
+      sendResponse({ success: false, error: 'Unknown message type' });
       return true;
     });
+    
+    // Then notify extension that window is ready
+    console.log('📤 Notifying extension window is ready...');
+    chrome.runtime.sendMessage({
+      type: 'REGION_WINDOW_READY'
+    }).then(response => {
+      console.log('✅ Extension notified successfully:', response);
+    }).catch(error => {
+      console.error('❌ Failed to notify extension:', error);
+      showError(`Failed to communicate with extension: ${error.message}`);
+    });
 
-    // Timeout if no data received
+    // Timeout with more detailed error
     setTimeout(() => {
       if (!screenshotLoaded) {
-        showError('Timeout waiting for screenshot data');
+        console.error('⏰ Timeout - no screenshot data received');
+        showError('Timeout waiting for screenshot data.\n\nPossible issues:\n• Extension popup closed\n• Permission denied\n• Tab capture failed');
       }
     }, 5000);
   }
@@ -347,7 +388,7 @@ export default defineUnlistedScript(() => {
     
     elements.instructions.style.display = 'block';
     elements.instructions.style.opacity = '1';
-    instructionsVisible = true; // Updated variable name
+    instructionsVisible = true;
   }
 
   function hideInstructions() {
@@ -359,11 +400,11 @@ export default defineUnlistedScript(() => {
         elements.instructions.style.display = 'none';
       }
     }, 300);
-    instructionsVisible = false; // Updated variable name
+    instructionsVisible = false;
   }
 
   function toggleInstructions() {
-    if (instructionsVisible) { // Updated variable name
+    if (instructionsVisible) {
       hideInstructions();
     } else {
       showInstructions();
@@ -398,27 +439,35 @@ export default defineUnlistedScript(() => {
     console.log('✅ Confirming region selection:', currentRegion);
 
     // Send result back to extension
-    chrome.runtime.sendMessage({
-      type: 'REGION_SELECTED',
-      data: currentRegion
-    }).then(() => {
-      console.log('📤 Region data sent to extension');
-      window.close();
-    }).catch(error => {
-      console.error('❌ Failed to send region data:', error);
-      showError('Failed to send selection data');
-    });
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.sendMessage({
+        type: 'REGION_SELECTED',
+        data: currentRegion
+      }).then(() => {
+        console.log('📤 Region data sent to extension');
+        window.close();
+      }).catch(error => {
+        console.error('❌ Failed to send region data:', error);
+        showError('Failed to send selection data');
+      });
+    } else {
+      showError('Chrome extension API not available');
+    }
   }
 
   // Cancel selection
   function cancelSelection() {
     console.log('❌ Cancelling region selection');
     
-    chrome.runtime.sendMessage({
-      type: 'REGION_CANCELLED'
-    }).finally(() => {
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.sendMessage({
+        type: 'REGION_CANCELLED'
+      }).finally(() => {
+        window.close();
+      });
+    } else {
       window.close();
-    });
+    }
   }
 
   // Start when DOM is ready

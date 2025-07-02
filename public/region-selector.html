@@ -290,7 +290,7 @@
   <div id="error">
     <div class="error-title">Region Selector Error</div>
     <div class="error-message" id="error-message">Something went wrong</div>
-    <button class="btn btn-cancel" onclick="cancelSelection()">Close</button>
+    <button class="btn btn-cancel" id="error-close-btn">Close</button>
   </div>
 
   <!-- Main Container -->
@@ -327,27 +327,14 @@
 
     <!-- Controls -->
     <div id="controls">
-      <button class="btn btn-cancel" onclick="cancelSelection()">Cancel</button>
-      <button class="btn btn-confirm" id="confirm-btn" onclick="confirmSelection()" disabled>
+      <button class="btn btn-cancel" id="cancel-btn">Cancel</button>
+      <button class="btn btn-confirm" id="confirm-btn" disabled>
         Capture Region
       </button>
     </div>
   </div>
 
-  <script src="region-selector.js"></script>
-  
-  <!-- Debug script to check if main script loads -->
-  <script>
-    console.log('🌐 region-selector.html loaded');
-    
-    // Check if main script loaded
-    setTimeout(() => {
-      if (typeof chrome !== 'undefined' && chrome.runtime) {
-        console.log('✅ Chrome runtime available');
-      } else {
-        console.error('❌ Chrome runtime not available');
-      }
-    }, 100);
-  </script>
+  <!-- Load WXT compiled script -->
+  <script type="module" src="region-selector.js"></script>
 </body>
 </html>
