@@ -1,4 +1,4 @@
-// services/fullscreenWindowService.ts - macOS style fullscreen window overlay
+// services/fullscreenWindowService.ts - Fixed with better error handling
 export interface RegionSelection {
   x: number;
   y: number;
@@ -13,6 +13,7 @@ export class FullscreenWindowService {
   private screenshotData: string | null = null;
   private onRegionSelectedCallback: ((region: RegionSelection) => void) | null = null;
   private onCancelledCallback: (() => void) | null = null;
+  private timeoutId: NodeJS.Timeout | null = null;
 
   private constructor() {
     this.setupMessageListener();
@@ -33,10 +34,19 @@ export class FullscreenWindowService {
     error?: string;
   }> {
     try {
+      console.log('🎯 Starting region selection...');
+
+      // Set timeout to prevent infinite loading
+      this.timeoutId = setTimeout(() => {
+        console.error('⏰ Region selection timeout');
+        this.handleRegionCancelled();
+      }, 10000); // 10 seconds timeout
+
       // Step 1: Capture current tab screenshot
       const screenshot = await this.captureCurrentTab();
       
       if (!screenshot.success) {
+        this.clearTimeout();
         return {
           success: false,
           error: screenshot.error || 'Failed to capture screenshot'
@@ -49,6 +59,7 @@ export class FullscreenWindowService {
       const windowResult = await this.openFullscreenOverlay();
       
       if (!windowResult.success) {
+        this.clearTimeout();
         return {
           success: false,
           error: windowResult.error || 'Failed to open overlay window'
@@ -58,10 +69,22 @@ export class FullscreenWindowService {
       return { success: true };
 
     } catch (error) {
+      this.clearTimeout();
+      console.error('❌ Region selection failed:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Region selection failed'
       };
+    }
+  }
+
+  /**
+   * Clear timeout
+   */
+  private clearTimeout(): void {
+    if (this.timeoutId) {
+      clearTimeout(this.timeoutId);
+      this.timeoutId = null;
     }
   }
 
@@ -74,6 +97,8 @@ export class FullscreenWindowService {
     error?: string;
   }> {
     try {
+      console.log('📸 Attempting to capture current tab...');
+
       if (typeof chrome === 'undefined' || !chrome.tabs) {
         return {
           success: false,
@@ -91,25 +116,76 @@ export class FullscreenWindowService {
         };
       }
 
-      // Capture visible tab
-      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
-        format: 'png',
-        quality: 100
-      });
+      console.log('📋 Current tab:', { id: tab.id, url: tab.url, windowId: tab.windowId });
 
-      if (!dataUrl) {
+      // Check for restricted URLs
+      if (tab.url && (
+        tab.url.startsWith('chrome://') ||
+        tab.url.startsWith('chrome-extension://') ||
+        tab.url.startsWith('moz-extension://') ||
+        tab.url.startsWith('about:')
+      )) {
         return {
           success: false,
-          error: 'Failed to capture tab'
+          error: 'Cannot capture restricted pages (chrome://, extension pages, etc.)'
         };
       }
 
-      return {
-        success: true,
-        dataUrl
-      };
+      // Try to capture with detailed error handling
+      try {
+        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+          format: 'png',
+          quality: 100
+        });
+
+        if (!dataUrl) {
+          return {
+            success: false,
+            error: 'Failed to capture tab - no data returned'
+          };
+        }
+
+        console.log('✅ Tab captured successfully');
+        return {
+          success: true,
+          dataUrl
+        };
+
+      } catch (captureError) {
+        console.error('❌ Capture error details:', captureError);
+        
+        // Check for specific permission errors
+        const errorMessage = captureError instanceof Error ? captureError.message : String(captureError);
+        
+        if (errorMessage.includes('activeTab')) {
+          return {
+            success: false,
+            error: 'Permission denied. Please click the extension icon first, then try Region capture.'
+          };
+        }
+
+        if (errorMessage.includes('all_urls')) {
+          return {
+            success: false,
+            error: 'Insufficient permissions. Extension needs to be invoked by user action.'
+          };
+        }
+
+        if (errorMessage.includes('Cannot access contents')) {
+          return {
+            success: false,
+            error: 'Cannot access this page. Try on a regular webpage (not chrome:// or extension pages).'
+          };
+        }
+
+        return {
+          success: false,
+          error: `Capture failed: ${errorMessage}`
+        };
+      }
 
     } catch (error) {
+      console.error('❌ Tab capture error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Tab capture failed'
@@ -125,6 +201,8 @@ export class FullscreenWindowService {
     error?: string;
   }> {
     try {
+      console.log('🪟 Opening overlay window...');
+
       // Close existing window if any
       await this.closeOverlayWindow();
 
@@ -153,7 +231,7 @@ export class FullscreenWindowService {
         }
       } catch (displayError) {
         console.warn('⚠️ Could not get display info, using fallback:', displayError);
-        // Use screen API fallback - use globalThis to avoid naming conflict
+        // Use screen API fallback
         displayInfo = {
           left: 0,
           top: 0,
@@ -164,13 +242,12 @@ export class FullscreenWindowService {
 
       console.log('📐 Using display info:', displayInfo);
 
-      // Create fullscreen window with WXT-generated URL
-      // Note: Can't use explicit dimensions with state: 'fullscreen' 
+      // Create fullscreen window
       const overlayWindow = await chrome.windows.create({
         url: chrome.runtime.getURL('region-selector.html'),
         type: 'popup',
         focused: true,
-        state: 'maximized'  // Use maximized instead of fullscreen to avoid conflicts
+        state: 'maximized'
       });
 
       if (!overlayWindow || !overlayWindow.id) {
@@ -183,6 +260,8 @@ export class FullscreenWindowService {
       this.regionWindow = overlayWindow;
       this.regionWindowId = overlayWindow.id;
 
+      console.log('✅ Overlay window created:', overlayWindow.id);
+
       // Setup window close listener
       this.setupWindowCloseListener();
 
@@ -194,6 +273,7 @@ export class FullscreenWindowService {
       return { success: true };
 
     } catch (error) {
+      console.error('❌ Failed to create overlay window:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to create overlay'
@@ -205,7 +285,12 @@ export class FullscreenWindowService {
    * Send screenshot data to overlay window
    */
   private sendDataToOverlayWindow(): void {
-    if (!this.screenshotData || !this.regionWindowId) return;
+    if (!this.screenshotData || !this.regionWindowId) {
+      console.warn('⚠️ Cannot send data: missing screenshot or window ID');
+      return;
+    }
+
+    console.log('📤 Sending screenshot data to overlay window...');
 
     chrome.runtime.sendMessage({
       type: 'REGION_SELECTOR_DATA',
@@ -215,7 +300,7 @@ export class FullscreenWindowService {
       },
       target: 'region-selector-window'
     }).catch(error => {
-      console.warn('Failed to send data to overlay window:', error);
+      console.warn('❌ Failed to send data to overlay window:', error);
     });
   }
 
@@ -225,19 +310,22 @@ export class FullscreenWindowService {
   private setupMessageListener(): void {
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        console.log('📨 Received message:', message.type);
+
         if (message.type === 'REGION_SELECTED' && sender.tab === undefined) {
-          // Message from extension window (not content script)
+          this.clearTimeout();
           this.handleRegionSelected(message.data);
           sendResponse({ success: true });
         }
 
         if (message.type === 'REGION_CANCELLED' && sender.tab === undefined) {
+          this.clearTimeout();
           this.handleRegionCancelled();
           sendResponse({ success: true });
         }
 
         if (message.type === 'REGION_WINDOW_READY' && sender.tab === undefined) {
-          // Window is ready, send screenshot data
+          console.log('🪟 Region window ready, sending data...');
           this.sendDataToOverlayWindow();
           sendResponse({ success: true });
         }
@@ -255,6 +343,8 @@ export class FullscreenWindowService {
 
     const handleWindowRemoved = (windowId: number) => {
       if (windowId === this.regionWindowId) {
+        console.log('🪟 Region window closed');
+        this.clearTimeout();
         this.cleanup();
         chrome.windows.onRemoved.removeListener(handleWindowRemoved);
       }
@@ -267,6 +357,7 @@ export class FullscreenWindowService {
    * Handle region selection from overlay window
    */
   private handleRegionSelected(region: RegionSelection): void {
+    console.log('✅ Region selected:', region);
     if (this.onRegionSelectedCallback) {
       this.onRegionSelectedCallback(region);
     }
@@ -277,6 +368,7 @@ export class FullscreenWindowService {
    * Handle region selection cancellation
    */
   private handleRegionCancelled(): void {
+    console.log('❌ Region selection cancelled');
     if (this.onCancelledCallback) {
       this.onCancelledCallback();
     }
@@ -290,8 +382,9 @@ export class FullscreenWindowService {
     if (this.regionWindowId) {
       try {
         await chrome.windows.remove(this.regionWindowId);
+        console.log('🪟 Overlay window closed');
       } catch (error) {
-        console.warn('Failed to close overlay window:', error);
+        console.warn('⚠️ Failed to close overlay window:', error);
       }
     }
     this.cleanup();
@@ -301,6 +394,7 @@ export class FullscreenWindowService {
    * Cleanup resources
    */
   private cleanup(): void {
+    this.clearTimeout();
     this.regionWindow = null;
     this.regionWindowId = null;
     this.screenshotData = null;
