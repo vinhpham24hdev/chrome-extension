@@ -45,13 +45,13 @@ export class VideoService {
   private mediaRecorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
   private recordedChunks: Blob[] = [];
-  
+
   // Fixed timing tracking
   private recordingStartTime: number = 0;
   private totalPausedDuration: number = 0;
   private pauseStartTime: number = 0;
   private progressInterval: NodeJS.Timeout | null = null;
-  
+
   private onStateChange?: (state: RecordingState) => void;
   private onProgress?: (progress: { duration: number; size: number }) => void;
   private currentState: RecordingState = {
@@ -217,10 +217,10 @@ export class VideoService {
             type: this.mediaRecorder!.mimeType,
           });
           const dataUrl = URL.createObjectURL(blob);
-          
+
           // Calculate final duration
           const finalDuration = this.calculateCurrentDuration();
-          
+
           const filename = this.generateFilename(
             this.getFormatFromMimeType(this.mediaRecorder!.mimeType)
           );
@@ -274,13 +274,16 @@ export class VideoService {
     ) {
       this.mediaRecorder.pause();
       this.pauseStartTime = Date.now();
-      
+
       this.updateState({
         isPaused: true,
         status: "paused",
       });
 
-      console.log('🔴 Recording paused at:', this.formatDuration(this.currentState.duration));
+      console.log(
+        "🔴 Recording paused at:",
+        this.formatDuration(this.currentState.duration)
+      );
     }
   }
 
@@ -294,19 +297,23 @@ export class VideoService {
       this.currentState.isPaused
     ) {
       this.mediaRecorder.resume();
-      
+
       // Add the pause duration to total paused time
       if (this.pauseStartTime > 0) {
         this.totalPausedDuration += Date.now() - this.pauseStartTime;
         this.pauseStartTime = 0;
       }
-      
+
       this.updateState({
         isPaused: false,
         status: "recording",
       });
 
-      console.log('▶️ Recording resumed. Total paused time:', Math.round(this.totalPausedDuration / 1000), 'seconds');
+      console.log(
+        "▶️ Recording resumed. Total paused time:",
+        Math.round(this.totalPausedDuration / 1000),
+        "seconds"
+      );
     }
   }
 
@@ -330,18 +337,18 @@ export class VideoService {
    */
   private calculateCurrentDuration(): number {
     if (!this.recordingStartTime) return 0;
-    
+
     const now = Date.now();
     let totalElapsed = now - this.recordingStartTime;
-    
+
     // Subtract total paused duration
     totalElapsed -= this.totalPausedDuration;
-    
+
     // If currently paused, subtract current pause duration
     if (this.currentState.isPaused && this.pauseStartTime > 0) {
-      totalElapsed -= (now - this.pauseStartTime);
+      totalElapsed -= now - this.pauseStartTime;
     }
-    
+
     return Math.max(0, totalElapsed / 1000); // Convert to seconds
   }
 
@@ -515,7 +522,7 @@ export class VideoService {
    */
   private startProgressTracking(): void {
     this.stopProgressTracking(); // Clear any existing interval
-    
+
     this.progressInterval = setInterval(() => {
       if (this.currentState.isRecording) {
         const duration = this.calculateCurrentDuration();
@@ -533,7 +540,13 @@ export class VideoService {
 
         // Debug logging
         if (Math.round(duration) % 5 === 0 && Math.round(duration) > 0) {
-          console.log(`📹 Recording progress: ${this.formatDuration(Math.round(duration))} | ${this.formatFileSize(totalSize)} | Paused: ${this.currentState.isPaused ? 'Yes' : 'No'}`);
+          console.log(
+            `📹 Recording progress: ${this.formatDuration(
+              Math.round(duration)
+            )} | ${this.formatFileSize(totalSize)} | Paused: ${
+              this.currentState.isPaused ? "Yes" : "No"
+            }`
+          );
         }
       }
     }, 1000);
@@ -618,6 +631,24 @@ export class VideoService {
   private generateFilename(format: string): string {
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     return `video-recording-${timestamp}.${format}`;
+  }
+
+  /**
+   * Convert dataURL (base64) → Blob
+   */
+  public dataURLtoBlob(dataUrl: string): Blob {
+    const [header, base64] = dataUrl.split(",");
+    if (!base64) throw new Error("Invalid dataURL");
+
+    const mimeMatch = header.match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : "image/png";
+
+    const binary = atob(base64);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+
+    return new Blob([bytes], { type: mime });
   }
 
   /**
