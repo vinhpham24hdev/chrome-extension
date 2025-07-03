@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Region Selector - Cellebrite</title>
+  <title>Select Region - Cellebrite Screen Capture</title>
   <style>
     /* Reset and fullscreen setup */
     * {
@@ -22,6 +22,23 @@
       user-select: none;
     }
 
+    /* Tab indicator - Loom style */
+    #tab-indicator {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+      z-index: 1001;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
     /* Loading state */
     #loading {
       position: fixed;
@@ -29,7 +46,7 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.9);
+      background: rgba(0, 0, 0, 0.95);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -38,19 +55,36 @@
       text-align: center;
     }
 
+    .loading-content {
+      max-width: 400px;
+    }
+
     .spinner {
-      width: 50px;
-      height: 50px;
-      border: 3px solid rgba(255, 255, 255, 0.3);
-      border-top: 3px solid white;
+      width: 60px;
+      height: 60px;
+      border: 4px solid rgba(59, 130, 246, 0.3);
+      border-top: 4px solid #3b82f6;
       border-radius: 50%;
       animation: spin 1s linear infinite;
-      margin-bottom: 20px;
+      margin: 0 auto 24px;
     }
 
     @keyframes spin {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
+    }
+
+    .loading-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #f3f4f6;
+    }
+
+    .loading-text {
+      font-size: 16px;
+      color: #9ca3af;
+      line-height: 1.5;
     }
 
     /* Main container */
@@ -85,6 +119,7 @@
       pointer-events: none;
       z-index: 10;
       display: none;
+      box-shadow: 0 0 4px rgba(239, 68, 68, 0.5);
     }
 
     .crosshair-h {
@@ -97,63 +132,80 @@
       pointer-events: none;
       z-index: 10;
       display: none;
+      box-shadow: 0 0 4px rgba(239, 68, 68, 0.5);
     }
 
     /* Selection box */
     #selection-box {
       position: absolute;
       border: 2px solid #3b82f6;
-      background: rgba(59, 130, 246, 0.1);
+      background: rgba(59, 130, 246, 0.15);
       pointer-events: none;
       z-index: 20;
       display: none;
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8), inset 0 0 0 1px rgba(59, 130, 246, 0.8);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8), 
+                  inset 0 0 0 1px rgba(59, 130, 246, 0.8),
+                  0 0 20px rgba(59, 130, 246, 0.3);
+      animation: selectionPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes selectionPulse {
+      0%, 100% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8), 
+                            inset 0 0 0 1px rgba(59, 130, 246, 0.8),
+                            0 0 20px rgba(59, 130, 246, 0.3); }
+      50% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8), 
+                        inset 0 0 0 1px rgba(59, 130, 246, 0.8),
+                        0 0 30px rgba(59, 130, 246, 0.5); }
     }
 
     /* Corner handles */
     .corner-handle {
       position: absolute;
-      width: 8px;
-      height: 8px;
+      width: 10px;
+      height: 10px;
       background: #3b82f6;
-      border: 1px solid white;
+      border: 2px solid white;
+      border-radius: 2px;
     }
 
-    .corner-handle.top-left { top: -4px; left: -4px; }
-    .corner-handle.top-right { top: -4px; right: -4px; }
-    .corner-handle.bottom-left { bottom: -4px; left: -4px; }
-    .corner-handle.bottom-right { bottom: -4px; right: -4px; }
+    .corner-handle.top-left { top: -5px; left: -5px; }
+    .corner-handle.top-right { top: -5px; right: -5px; }
+    .corner-handle.bottom-left { bottom: -5px; left: -5px; }
+    .corner-handle.bottom-right { bottom: -5px; right: -5px; }
 
     /* Size display */
     #size-display {
       position: absolute;
-      top: -35px;
+      top: -40px;
       left: 0;
-      background: rgba(0, 0, 0, 0.8);
+      background: rgba(0, 0, 0, 0.9);
       color: white;
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-family: monospace;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: 'SF Mono', Monaco, monospace;
       font-size: 14px;
+      font-weight: 500;
       white-space: nowrap;
       backdrop-filter: blur(10px);
+      border: 1px solid rgba(59, 130, 246, 0.3);
     }
 
     /* Instructions */
     #instructions {
       position: fixed;
-      top: 50px;
+      top: 60px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.85);
+      background: rgba(0, 0, 0, 0.9);
       color: white;
-      padding: 20px 30px;
-      border-radius: 12px;
+      padding: 24px 32px;
+      border-radius: 16px;
       text-align: center;
       z-index: 100;
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(20px);
       border: 1px solid rgba(255, 255, 255, 0.1);
       animation: fadeIn 0.3s ease-out;
+      max-width: 500px;
     }
 
     @keyframes fadeIn {
@@ -162,44 +214,51 @@
     }
 
     .instructions-title {
-      font-size: 20px;
+      font-size: 22px;
       font-weight: 600;
-      margin-bottom: 15px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
     }
 
     .instructions-text {
-      font-size: 14px;
-      line-height: 1.6;
+      font-size: 15px;
+      line-height: 1.8;
       opacity: 0.9;
     }
 
     kbd {
       background: #374151;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.3);
     }
 
     /* Coordinates display */
     #coordinates {
       position: fixed;
-      top: 20px;
-      right: 20px;
-      background: rgba(0, 0, 0, 0.8);
+      top: 24px;
+      right: 24px;
+      background: rgba(0, 0, 0, 0.9);
       color: white;
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-family: monospace;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-family: 'SF Mono', Monaco, monospace;
       font-size: 14px;
       z-index: 100;
       backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     /* Dark mask areas */
     .mask {
       position: absolute;
-      background: rgba(0, 0, 0, 0.6);
+      background: rgba(0, 0, 0, 0.7);
       pointer-events: none;
       z-index: 5;
     }
@@ -207,22 +266,24 @@
     /* Buttons */
     #controls {
       position: fixed;
-      bottom: 30px;
+      bottom: 40px;
       left: 50%;
       transform: translateX(-50%);
       display: flex;
-      gap: 15px;
+      gap: 16px;
       z-index: 100;
     }
 
     .btn {
-      padding: 12px 24px;
+      padding: 14px 28px;
       border: none;
-      border-radius: 8px;
-      font-weight: 500;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.2s ease;
       backdrop-filter: blur(10px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }
 
     .btn-cancel {
@@ -231,7 +292,9 @@
     }
 
     .btn-cancel:hover {
-      background: rgba(220, 38, 38, 0.9);
+      background: rgba(220, 38, 38, 0.95);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
     }
 
     .btn-confirm {
@@ -240,12 +303,15 @@
     }
 
     .btn-confirm:hover {
-      background: rgba(37, 99, 235, 0.9);
+      background: rgba(37, 99, 235, 0.95);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
     }
 
     .btn-confirm:disabled {
       background: rgba(107, 114, 128, 0.5);
       cursor: not-allowed;
+      transform: none;
     }
 
     /* Error state */
@@ -256,41 +322,59 @@
       transform: translate(-50%, -50%);
       background: rgba(220, 38, 38, 0.95);
       color: white;
-      padding: 30px;
-      border-radius: 12px;
+      padding: 32px;
+      border-radius: 16px;
       text-align: center;
       z-index: 1000;
       display: none;
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(20px);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
     }
 
     .error-title {
-      font-size: 18px;
+      font-size: 20px;
       font-weight: 600;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
 
     .error-message {
-      margin-bottom: 20px;
+      margin-bottom: 24px;
       opacity: 0.9;
+      white-space: pre-line;
+    }
+
+    /* Logo/Brand */
+    .brand {
+      position: fixed;
+      bottom: 40px;
+      right: 40px;
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 14px;
+      z-index: 100;
     }
   </style>
 </head>
 <body>
+  <!-- Tab indicator -->
+  <div id="tab-indicator"></div>
+
   <!-- Loading State -->
   <div id="loading">
-    <div>
+    <div class="loading-content">
       <div class="spinner"></div>
-      <div style="font-size: 18px; margin-bottom: 8px;">Preparing region selector...</div>
-      <div style="font-size: 14px; opacity: 0.7;">Click and drag to select an area</div>
+      <div class="loading-title">Preparing Region Selector</div>
+      <div class="loading-text">
+        Loading screenshot...<br>
+        Click and drag to select an area
+      </div>
     </div>
   </div>
 
   <!-- Error State -->
   <div id="error">
-    <div class="error-title">Region Selector Error</div>
+    <div class="error-title">⚠️ Region Selector Error</div>
     <div class="error-message" id="error-message">Something went wrong</div>
-    <button class="btn btn-cancel" id="error-close-btn">Close</button>
+    <button class="btn btn-cancel" id="error-close-btn">Close Tab</button>
   </div>
 
   <!-- Main Container -->
@@ -313,12 +397,15 @@
 
     <!-- Instructions -->
     <div id="instructions">
-      <div class="instructions-title">📸 Select Region to Capture</div>
+      <div class="instructions-title">
+        <span>📸</span>
+        <span>Select Region to Capture</span>
+      </div>
       <div class="instructions-text">
         • Click and drag to select an area<br>
         • Press <kbd>Enter</kbd> to confirm selection<br>
         • Press <kbd>Esc</kbd> to cancel<br>
-        • Press <kbd>Space</kbd> to toggle help
+        • Press <kbd>Space</kbd> to toggle this help
       </div>
     </div>
 
@@ -332,6 +419,9 @@
         Capture Region
       </button>
     </div>
+
+    <!-- Brand -->
+    <div class="brand">Cellebrite Capture</div>
   </div>
 
   <!-- Load WXT compiled script -->
