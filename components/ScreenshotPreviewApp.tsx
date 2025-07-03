@@ -149,6 +149,7 @@ function ScreenshotPreviewWindow() {
       
       /* Borders */
       .border { border-width: 1px !important; }
+      .border-blue-600 { border-color: #2563eb !important; }
       .border-gray-200 { border-color: #e5e7eb !important; }
       .border-gray-300 { border-color: #d1d5db !important; }
       .border-blue-200 { border-color: #bfdbfe !important; }
@@ -367,7 +368,7 @@ function ScreenshotPreviewWindow() {
           <div className="text-sm text-gray-300 mb-6">{state.error}</div>
           <button
             onClick={() => window.close()}
-            className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors btn-hover-scale"
+            className="px-6 py-2 bg-blue-600 border-blue-600  text-white rounded hover:bg-blue-700 transition-colors btn-hover-scale"
           >
             Close Window
           </button>

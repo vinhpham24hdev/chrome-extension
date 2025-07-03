@@ -592,7 +592,7 @@ function VideoRecorderWindow() {
           <div className="space-x-4">
             <button
               onClick={() => window.location.reload()}
-              className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+              className="px-6 py-2 bg-blue-600 border-blue-600  text-white rounded hover:bg-blue-700 transition-colors"
             >
               Retry
             </button>

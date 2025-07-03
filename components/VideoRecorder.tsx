@@ -233,7 +233,7 @@ export default function VideoRecorder({
           <div className="space-x-4">
             <button
               onClick={handleStartRecording}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-6 py-2 bg-blue-600 border-blue-600  text-white rounded-lg hover:bg-blue-700"
             >
               Try again
             </button>
@@ -388,7 +388,7 @@ export default function VideoRecorder({
               </button>
               <button
                 onClick={handleSaveVideo}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border-blue-600  rounded hover:bg-blue-700"
               >
                 Add to case
               </button>

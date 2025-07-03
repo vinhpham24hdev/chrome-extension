@@ -155,7 +155,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
             <button
               onClick={handleLoginClick}
               disabled={state.isLoading}
-              className="w-[176px] mx-auto block bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed mb-8"
+              className="w-[176px] mx-auto block bg-blue-600 border-blue-600  hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed mb-8"
             >
               {state.isLoading ? (
                 <span className="flex items-center justify-center gap-2">
@@ -232,7 +232,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
                   <button
                     type="button"
                     disabled
-                    className="w-[176px] bg-blue-600 text-white py-3 px-4 rounded-md font-medium opacity-70 cursor-not-allowed"
+                    className="w-[176px] bg-blue-600 border-blue-600  text-white py-3 px-4 rounded-md font-medium opacity-70 cursor-not-allowed"
                   >
                     <span className="flex items-center justify-center gap-2">
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -253,7 +253,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
                   <button
                     type="submit"
                     disabled={!credentials.username.trim() || !credentials.password.trim()}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
+                    className="flex-1 bg-blue-600 border-blue-600  hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
                   >
                     Sign In
                   </button>
