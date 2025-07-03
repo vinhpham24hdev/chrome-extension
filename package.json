@@ -51,7 +51,7 @@
     "postcss": "^8.5.4",
     "tailwindcss": "3",
     "typescript": "^5.8.3",
-    "wxt": "^0.20.6"
+    "wxt": "^0.20.7"
   },
   "engines": {
     "node": ">=18.0.0"
