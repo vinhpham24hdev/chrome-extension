@@ -333,7 +333,7 @@ export default function VideoRecorder({
         <div className="bg-white rounded-lg w-full max-w-6xl flex">
           <div className="flex-1 flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b">
+            <div className="flex items-center justify-between py-4 border-b">
               <div>
                 <h2 className="text-2xl font-medium text-gray-900">
                   Snapshot 65890983
@@ -346,7 +346,7 @@ export default function VideoRecorder({
             </div>
 
             {/* Video Player */}
-            <div className="p-6 flex-1 bg-gray-50">
+            <div className="py-6 flex-1">
               <div className="bg-white rounded-lg shadow-lg overflow-hidden h-full flex items-center justify-center">
                 <video
                   src={videoResult.dataUrl}
@@ -361,7 +361,7 @@ export default function VideoRecorder({
           </div>
 
           {/* Phần phải: Details form */}
-          <div className="w-80 bg-gray-50 p-6 flex flex-col">
+          <div className="w-80 p-6 flex flex-col">
             <h3 className="text-lg font-medium text-gray-900 mb-6">Details</h3>
             <input
               type="text"
