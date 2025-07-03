@@ -131,7 +131,7 @@ function VideoRecorderWindow() {
 
       /* Header bar for tab mode */
       .recorder-header {
-        background: rgba(255, 255, 255, 0.95);
+        background: #ffff;
         backdrop-filter: blur(10px);
         padding: 1rem 2rem;
         display: flex;
@@ -180,7 +180,7 @@ function VideoRecorderWindow() {
       }
 
       .recorder-card {
-        background: rgba(255, 255, 255, 0.95);
+        background: #ffff;
         backdrop-filter: blur(20px);
         border-radius: 20px;
         box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
@@ -413,7 +413,7 @@ function VideoRecorderWindow() {
       }
 
       .loading-card {
-        background: rgba(255, 255, 255, 0.95);
+        background: #ffff;
         backdrop-filter: blur(20px);
         padding: 3rem;
         border-radius: 20px;
@@ -442,7 +442,7 @@ function VideoRecorderWindow() {
       }
 
       .error-card {
-        background: rgba(255, 255, 255, 0.95);
+        background: #ffff;
         backdrop-filter: blur(20px);
         padding: 3rem;
         border-radius: 20px;

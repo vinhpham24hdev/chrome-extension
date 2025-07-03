@@ -323,7 +323,7 @@ export default function VideoRecorder({
   // Video Preview State - Show result in same tab
   if (videoResult && videoResult.success && videoResult.dataUrl) {
     return (
-      <div className="relative items-center justify-center p-4 z-50">
+      <div className="relative items-center justify-center z-50">
         <button
           onClick={onClose}
           className="flex items-center text-gray-400 hover:text-gray-600 absolute top-0 right-4"
@@ -358,56 +358,27 @@ export default function VideoRecorder({
                 </video>
               </div>
             </div>
-
-            {/* Action Buttons */}
-            <div className="px-6 py-4 border-t flex space-x-3">
-              <button
-                onClick={handleSaveVideo}
-                className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
-              >
-                Save to Case
-              </button>
-              <button
-                onClick={handleDownloadVideo}
-                className="flex-1 px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-              >
-                Download
-              </button>
-              <button
-                onClick={handleRetakeVideo}
-                className="flex-1 px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium transition-colors"
-              >
-                Record Again
-              </button>
-            </div>
           </div>
 
           {/* Phần phải: Details form */}
           <div className="w-80 bg-gray-50 p-6 flex flex-col">
             <h3 className="text-lg font-medium text-gray-900 mb-6">Details</h3>
-
-            <label className="text-sm font-medium text-gray-700">Name</label>
             <input
               type="text"
-              placeholder="Enter a name…"
+              placeholder="Name"
               className="mt-1 mb-4 w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-
-            <label className="text-sm font-medium text-gray-700">
-              Description
-            </label>
             <textarea
-              placeholder="Add a description…"
+              placeholder="Description"
               rows={4}
               className="mt-1 mb-4 w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-
-            <label className="text-sm font-medium text-gray-700">URL</label>
-            <p className="mt-1 mb-6 text-sm text-blue-600 break-all">
-              https://www.washingtonpost.com/
-            </p>
-
-            {/* Nút Cancel / Add */}
+            <div className="py-2">
+              <label className="text-sm font-medium text-gray-700">URL</label>
+              <p className="mt-1 mb-6 text-sm text-blue-600 break-all">
+                https://www.washingtonpost.com/
+              </p>
+            </div>
             <div className="mt-auto flex justify-end space-x-2 pt-6 border-t">
               <button
                 onClick={onClose}

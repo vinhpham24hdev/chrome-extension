@@ -494,37 +494,20 @@ export default function VideoPreview({
             {/* Details Form */}
             <div className="flex-1 p-4 space-y-4 overflow-y-auto">
               <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">
-                  Details
-                </h3>
-
                 <div className="space-y-4">
-                  {/* Name Field */}
                   <div>
-                    <label
-                      htmlFor="name"
-                      className="block text-sm font-medium text-gray-700 mb-1"
-                    >
-                      Name
-                    </label>
                     <input
                       type="text"
                       id="name"
                       value={caseForm.name}
                       onChange={(e) => handleFormChange("name", e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                      placeholder="Enter video name"
+                      placeholder="Name"
                     />
                   </div>
 
                   {/* Description Field */}
                   <div>
-                    <label
-                      htmlFor="description"
-                      className="block text-sm font-medium text-gray-700 mb-1"
-                    >
-                      Description
-                    </label>
                     <textarea
                       id="description"
                       rows={3}
@@ -533,12 +516,12 @@ export default function VideoPreview({
                         handleFormChange("description", e.target.value)
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                      placeholder="Enter video description"
+                      placeholder="Description"
                     />
                   </div>
 
                   {/* URL Field */}
-                  <div>
+                  <div className="space-y-1">
                     <label
                       htmlFor="url"
                       className="block text-sm font-medium text-gray-700 mb-1"
