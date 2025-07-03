@@ -1,4 +1,4 @@
-// entrypoints/region-selector.ts - Updated for tab mode like Loom
+// entrypoints/region-selector.ts - Fixed communication with multiple fallback methods
 export default defineUnlistedScript(() => {
   console.log('🎯 Region selector tab initializing...');
   
@@ -9,6 +9,8 @@ export default defineUnlistedScript(() => {
   let screenshotLoaded = false;
   let instructionsVisible = true;
   let caseId: string | null = null;
+  let communicationAttempts = 0;
+  let maxCommunicationAttempts = 5;
 
   // DOM elements interface
   interface Elements {
@@ -47,7 +49,7 @@ export default defineUnlistedScript(() => {
 
   // Initialize when DOM is ready
   function init() {
-    console.log('🎯 Region selector tab initializing...');
+    console.log('🎯 Region selector tab DOM ready...');
     
     // Get DOM elements
     elements = {
@@ -68,12 +70,12 @@ export default defineUnlistedScript(() => {
     };
     
     setupEventListeners();
-    requestScreenshotData();
+    setupMultipleDataRequestMethods();
     
-    // Auto-hide instructions after 5 seconds
+    // Auto-hide instructions after 6 seconds
     setTimeout(() => {
       hideInstructions();
-    }, 5000);
+    }, 6000);
 
     // Update page title
     document.title = 'Select Region to Capture - Cellebrite';
@@ -111,58 +113,172 @@ export default defineUnlistedScript(() => {
     document.addEventListener('contextmenu', (e) => {
       e.preventDefault();
     });
-
-    // Message listener for data from extension
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        console.log('📨 Tab received message:', message.type);
-        
-        if (message.type === 'REGION_SELECTOR_DATA') {
-          console.log('📸 Received screenshot data in tab');
-          if (message.data.screenshot) {
-            loadScreenshot(message.data.screenshot);
-            caseId = message.data.caseId || null;
-          }
-          sendResponse({ success: true });
-          return true;
-        }
-        
-        sendResponse({ success: false, error: 'Unknown message type' });
-        return true;
-      });
-    }
   }
 
-  // Request screenshot data from extension
-  function requestScreenshotData() {
-    console.log('📡 Tab requesting screenshot data...');
+  // Setup multiple methods to request screenshot data with enhanced error handling
+  function setupMultipleDataRequestMethods() {
+    console.log('📡 Setting up communication methods...');
     
     if (typeof chrome === 'undefined' || !chrome.runtime) {
       console.error('❌ Chrome runtime not available in tab');
       showError('Chrome extension API not available');
       return;
     }
-    
-    console.log('✅ Chrome APIs available in tab, requesting data...');
-    
-    // Notify extension that tab is ready
-    chrome.runtime.sendMessage({
-      type: 'REGION_TAB_READY',
-      timestamp: Date.now()
-    }).then(response => {
-      console.log('✅ Extension notified from tab:', response);
-    }).catch(error => {
-      console.error('❌ Failed to notify extension from tab:', error);
-      showError(`Failed to communicate with extension: ${error.message}`);
+
+    // Method 1: Message listener for direct communication
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      console.log('📨 Tab received message:', message.type);
+      
+      if (message.type === 'REGION_SELECTOR_DATA') {
+        console.log('📸 Received screenshot data via direct message');
+        if (message.data.screenshot) {
+          loadScreenshot(message.data.screenshot);
+          caseId = message.data.caseId || null;
+        }
+        sendResponse({ success: true });
+        return true;
+      }
+      
+      if (message.type === 'REGION_DATA_IN_STORAGE') {
+        console.log('📦 Notified about storage data, retrieving...');
+        retrieveDataFromStorage(message.key);
+        sendResponse({ success: true });
+        return true;
+      }
+      
+      sendResponse({ success: false, error: 'Unknown message type' });
+      return true;
     });
 
-    // Timeout with detailed error
+    // Method 2: Request data immediately
+    requestScreenshotDataImmediate();
+    
+    // Method 3: Retry mechanism with increasing delays
+    retryDataRequest();
+    
+    // Method 4: Check storage periodically as fallback
     setTimeout(() => {
       if (!screenshotLoaded) {
-        console.error('⏰ Timeout - no screenshot data received in tab');
-        showError('Timeout waiting for screenshot data.\n\nPossible issues:\n• Extension popup closed\n• Permission denied\n• Tab capture failed');
+        checkStorageForData();
       }
-    }, 8000);
+    }, 3000);
+  }
+
+  // Method 2: Request data immediately
+  function requestScreenshotDataImmediate() {
+    console.log('📤 Requesting screenshot data immediately...');
+    
+    chrome.runtime.sendMessage({
+      type: 'REGION_TAB_READY',
+      target: 'region-selector-service',
+      timestamp: Date.now()
+    }).then(response => {
+      console.log('✅ Immediate request sent:', response);
+    }).catch(error => {
+      console.warn('⚠️ Immediate request failed:', error);
+    });
+  }
+
+  // Method 3: Retry mechanism with exponential backoff
+  function retryDataRequest() {
+    const retryIntervals = [1000, 2000, 3000, 5000, 7000]; // ms
+    
+    retryIntervals.forEach((delay, index) => {
+      setTimeout(() => {
+        if (!screenshotLoaded && communicationAttempts < maxCommunicationAttempts) {
+          communicationAttempts++;
+          console.log(`🔄 Retry attempt ${communicationAttempts}/${maxCommunicationAttempts}`);
+          
+          chrome.runtime.sendMessage({
+            type: 'REGION_TAB_READY',
+            target: 'region-selector-service',
+            attempt: communicationAttempts,
+            timestamp: Date.now()
+          }).then(response => {
+            console.log(`✅ Retry ${communicationAttempts} response:`, response);
+          }).catch(error => {
+            console.warn(`⚠️ Retry ${communicationAttempts} failed:`, error);
+          });
+        }
+      }, delay);
+    });
+  }
+
+  // Method 4: Check storage for data as fallback
+  function checkStorageForData() {
+    console.log('📦 Checking storage for screenshot data...');
+    
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.get(['region_selector_data']).then(result => {
+        if (result.region_selector_data) {
+          const data = result.region_selector_data;
+          console.log('📦 Found data in storage:', data.timestamp);
+          
+          if (data.screenshot) {
+            loadScreenshot(data.screenshot);
+            caseId = data.caseId || null;
+            
+            // Clean up storage after use
+            chrome.storage.local.remove(['region_selector_data']);
+          }
+        } else {
+          console.warn('📦 No data found in storage');
+          // Final timeout error
+          setTimeout(() => {
+            if (!screenshotLoaded) {
+              showDetailedTimeoutError();
+            }
+          }, 2000);
+        }
+      }).catch(error => {
+        console.error('❌ Storage check failed:', error);
+        showDetailedTimeoutError();
+      });
+    }
+  }
+
+  // Method 4b: Retrieve data from storage when notified
+  function retrieveDataFromStorage(key: string) {
+    console.log('📦 Retrieving data from storage:', key);
+    
+    chrome.storage.local.get([key]).then(result => {
+      if (result[key]) {
+        const data = result[key];
+        console.log('📦 Retrieved screenshot data from storage');
+        
+        if (data.screenshot) {
+          loadScreenshot(data.screenshot);
+          caseId = data.caseId || null;
+        }
+        
+        // Clean up storage
+        chrome.storage.local.remove([key]);
+      }
+    }).catch(error => {
+      console.error('❌ Failed to retrieve from storage:', error);
+    });
+  }
+
+  // Show detailed timeout error with troubleshooting
+  function showDetailedTimeoutError() {
+    const errorDetails = `
+Communication timeout - no screenshot data received.
+
+Possible causes:
+• Extension popup was closed before capture completed
+• Permission was denied for the current page  
+• Tab capture failed due to restrictions
+• Network or extension loading issue
+
+Troubleshooting steps:
+1. Make sure you're on a regular website (not chrome:// pages)
+2. Click the extension icon to ensure permissions
+3. Try refreshing and capturing again
+4. Check if popup blockers are enabled
+5. Try using 'Screen' capture instead of 'Region'
+    `;
+    
+    showError(errorDetails.trim());
   }
 
   // Load screenshot into tab
@@ -180,7 +296,7 @@ export default defineUnlistedScript(() => {
 
     elements.screenshot.onerror = () => {
       console.error('❌ Failed to load screenshot in tab');
-      showError('Failed to load screenshot');
+      showError('Failed to load screenshot image. The image data may be corrupted.');
     };
 
     elements.screenshot.src = dataUrl;
@@ -248,7 +364,7 @@ export default defineUnlistedScript(() => {
       // Small delay then auto-confirm for better UX
       setTimeout(() => {
         confirmSelection();
-      }, 500);
+      }, 800); // Slightly longer delay for user to see selection
     } else {
       // Selection too small
       resetSelection();
@@ -338,7 +454,7 @@ export default defineUnlistedScript(() => {
         mask.style.left = maskStyle.left;
         mask.style.width = maskStyle.width;
         mask.style.height = maskStyle.height;
-        mask.style.background = 'rgba(0, 0, 0, 0.6)';
+        mask.style.background = 'rgba(0, 0, 0, 0.7)';
         mask.style.pointerEvents = 'none';
         mask.style.zIndex = '5';
         if (elements.container) {
@@ -412,7 +528,7 @@ export default defineUnlistedScript(() => {
     }
   }
 
-  // Show error
+  // Show error with enhanced display
   function showError(message: string) {
     console.error('❌ Region selector tab error:', message);
     
@@ -439,7 +555,13 @@ export default defineUnlistedScript(() => {
 
     console.log('✅ Confirming region selection in tab:', currentRegion);
 
-    // Send result back to extension
+    // Show confirmation feedback
+    if (elements.confirmBtn) {
+      elements.confirmBtn.textContent = 'Capturing...';
+      elements.confirmBtn.disabled = true;
+    }
+
+    // Send result back to extension with enhanced error handling
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({
         type: 'REGION_SELECTED',
@@ -454,7 +576,38 @@ export default defineUnlistedScript(() => {
         }, 300);
       }).catch(error => {
         console.error('❌ Failed to send region data from tab:', error);
-        showError('Failed to send selection data');
+        
+        // Try alternative method: storage
+        if (chrome.storage) {
+          chrome.storage.local.set({
+            'region_selection_result': {
+              type: 'REGION_SELECTED',
+              data: currentRegion,
+              caseId: caseId,
+              timestamp: Date.now()
+            }
+          }).then(() => {
+            console.log('📦 Region data stored as fallback');
+            window.close();
+          }).catch(storageError => {
+            console.error('❌ Storage fallback failed:', storageError);
+            showError('Failed to send selection data. Please try again.');
+            
+            // Reset button state
+            if (elements.confirmBtn) {
+              elements.confirmBtn.textContent = 'Capture Selected Region';
+              elements.confirmBtn.disabled = false;
+            }
+          });
+        } else {
+          showError('Failed to send selection data. Please try again.');
+          
+          // Reset button state
+          if (elements.confirmBtn) {
+            elements.confirmBtn.textContent = 'Capture Selected Region';
+            elements.confirmBtn.disabled = false;
+          }
+        }
       });
     } else {
       showError('Chrome extension API not available');
@@ -488,5 +641,5 @@ export default defineUnlistedScript(() => {
     init();
   }
 
-  console.log('🚀 Region selector tab script loaded');
+  console.log('🚀 Region selector tab script loaded with enhanced communication');
 });

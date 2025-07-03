@@ -1,4 +1,4 @@
-// services/regionSelectorService.ts - Tab-based region selector like Loom
+// services/regionSelectorService.ts - Fixed communication and timeout issues
 export interface RegionSelection {
   x: number;
   y: number;
@@ -21,9 +21,10 @@ export class RegionSelectorService {
   private onRegionSelectedCallback: ((region: RegionSelection) => void) | null = null;
   private onCancelledCallback: (() => void) | null = null;
   private timeoutId: NodeJS.Timeout | null = null;
+  private messageListener: ((message: any, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => void) | null = null;
 
   private constructor() {
-    this.setupMessageListener();
+    this.setupGlobalMessageListener();
     this.setupTabCloseListener();
   }
 
@@ -43,13 +44,17 @@ export class RegionSelectorService {
 
       this.currentCaseId = caseId;
 
+      // Clear any existing timeout
+      this.clearTimeout();
+
       // Set timeout to prevent infinite loading
       this.timeoutId = setTimeout(() => {
         console.error('⏰ Region selection timeout');
         this.handleRegionCancelled();
       }, 15000); // 15 seconds timeout
 
-      // Step 1: Capture current tab screenshot
+      // Step 1: Capture current tab screenshot FIRST
+      console.log('📸 Capturing current tab for region selection...');
       const screenshot = await this.captureCurrentTab();
       
       if (!screenshot.success) {
@@ -61,6 +66,7 @@ export class RegionSelectorService {
       }
 
       this.screenshotData = screenshot.dataUrl!;
+      console.log('✅ Screenshot captured, data length:', this.screenshotData.length);
 
       // Step 2: Open region selector in new tab
       const tabResult = await this.openRegionSelectorTab();
@@ -72,6 +78,14 @@ export class RegionSelectorService {
           error: tabResult.error || 'Failed to open region selector tab'
         };
       }
+
+      // Step 3: Wait for tab to be ready, then send data
+      setTimeout(() => {
+        if (this.screenshotData && this.selectorTabId) {
+          console.log('📤 Sending screenshot data to tab (delayed)...');
+          this.sendDataToSelectorTab();
+        }
+      }, 2000); // Increased delay to ensure tab is fully loaded
 
       return { success: true };
 
@@ -123,7 +137,7 @@ export class RegionSelectorService {
         };
       }
 
-      console.log('📋 Current tab:', { id: tab.id, url: tab.url, windowId: tab.windowId });
+      console.log('📋 Current tab for region selection:', { id: tab.id, url: tab.url?.substring(0, 50) + '...' });
 
       // Check for restricted URLs
       if (tab.url && (
@@ -134,7 +148,7 @@ export class RegionSelectorService {
       )) {
         return {
           success: false,
-          error: 'Cannot capture restricted pages (chrome://, extension pages, etc.)'
+          error: `Cannot capture restricted pages.\n\nCurrent page: ${this.getPageTypeDescription(tab.url)}\n\nPlease navigate to a regular website (like google.com, youtube.com, etc.) and try again.`
         };
       }
 
@@ -186,6 +200,17 @@ export class RegionSelectorService {
   }
 
   /**
+   * Get user-friendly description of page type
+   */
+  private getPageTypeDescription(url: string): string {
+    if (url.startsWith('chrome://')) return 'Chrome internal page';
+    if (url.startsWith('chrome-extension://')) return 'Extension page';
+    if (url.startsWith('moz-extension://')) return 'Firefox extension page';
+    if (url.startsWith('about:')) return 'Browser about page';
+    return 'Restricted page';
+  }
+
+  /**
    * Open region selector in new tab (Loom-style)
    */
   private async openRegionSelectorTab(): Promise<{
@@ -216,11 +241,6 @@ export class RegionSelectorService {
 
       console.log('✅ Region selector tab created:', selectorTab.id);
 
-      // Wait a bit for tab to load, then send data
-      setTimeout(() => {
-        this.sendDataToSelectorTab();
-      }, 1000);
-
       return { success: true };
 
     } catch (error) {
@@ -233,79 +253,133 @@ export class RegionSelectorService {
   }
 
   /**
-   * Send screenshot data to selector tab
+   * Send screenshot data to selector tab with multiple retry attempts
    */
-  private sendDataToSelectorTab(): void {
+  private async sendDataToSelectorTab(): Promise<void> {
     if (!this.screenshotData || !this.selectorTabId) {
       console.warn('⚠️ Cannot send data: missing screenshot or tab ID');
       return;
     }
 
-    console.log('📤 Sending screenshot data to selector tab...');
-
-    // Send message to the specific tab
-    chrome.tabs.sendMessage(this.selectorTabId, {
+    const data = {
       type: 'REGION_SELECTOR_DATA',
       data: {
         screenshot: this.screenshotData,
         caseId: this.currentCaseId,
         timestamp: Date.now()
       }
-    }).catch(error => {
-      console.warn('❌ Failed to send data to selector tab:', error);
-      // Try via runtime message as fallback
-      chrome.runtime.sendMessage({
-        type: 'REGION_SELECTOR_DATA',
-        data: {
+    };
+
+    console.log('📤 Sending screenshot data to selector tab...');
+
+    // Try method 1: Direct tab message
+    try {
+      await chrome.tabs.sendMessage(this.selectorTabId, data);
+      console.log('✅ Screenshot data sent via tabs.sendMessage');
+      return;
+    } catch (error) {
+      console.warn('⚠️ tabs.sendMessage failed:', error);
+    }
+
+    // Try method 2: Runtime message with target
+    try {
+      await chrome.runtime.sendMessage({
+        ...data,
+        target: 'region-selector-tab',
+        tabId: this.selectorTabId
+      });
+      console.log('✅ Screenshot data sent via runtime.sendMessage');
+      return;
+    } catch (error) {
+      console.warn('⚠️ runtime.sendMessage failed:', error);
+    }
+
+    // Try method 3: Storage-based communication as fallback
+    try {
+      await chrome.storage.local.set({
+        'region_selector_data': {
           screenshot: this.screenshotData,
           caseId: this.currentCaseId,
-          timestamp: Date.now()
-        },
-        target: 'region-selector-tab'
-      }).catch(fallbackError => {
-        console.warn('❌ Fallback message also failed:', fallbackError);
+          timestamp: Date.now(),
+          tabId: this.selectorTabId
+        }
       });
-    });
+      
+      // Notify tab about storage update
+      chrome.tabs.sendMessage(this.selectorTabId, {
+        type: 'REGION_DATA_IN_STORAGE',
+        key: 'region_selector_data'
+      }).catch(() => {
+        console.warn('⚠️ Failed to notify tab about storage data');
+      });
+      
+      console.log('✅ Screenshot data stored and tab notified');
+    } catch (error) {
+      console.error('❌ All communication methods failed:', error);
+    }
   }
 
   /**
-   * Setup message listener for communication with selector tab
+   * Setup global message listener for communication with selector tab
    */
-  private setupMessageListener(): void {
+  private setupGlobalMessageListener(): void {
     if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        // Only handle messages from our selector tab
-        if (sender.tab?.id !== this.selectorTabId) {
-          return;
+      // Remove existing listener if any
+      if (this.messageListener) {
+        chrome.runtime.onMessage.removeListener(this.messageListener);
+      }
+
+      this.messageListener = (message, sender, sendResponse) => {
+        console.log('📨 Global message received:', message.type, 'from tab:', sender.tab?.id);
+
+        // Handle messages from our selector tab
+        if (sender.tab?.id === this.selectorTabId) {
+          switch (message.type) {
+            case 'REGION_SELECTED':
+              this.clearTimeout();
+              this.handleRegionSelected(message.data);
+              sendResponse({ success: true });
+              return true;
+
+            case 'REGION_CANCELLED':
+              this.clearTimeout();
+              this.handleRegionCancelled();
+              sendResponse({ success: true });
+              return true;
+
+            case 'REGION_TAB_READY':
+              console.log('🆕 Region selector tab ready, sending data...');
+              // Small delay to ensure tab is fully ready
+              setTimeout(() => {
+                this.sendDataToSelectorTab();
+              }, 500);
+              sendResponse({ success: true });
+              return true;
+
+            default:
+              sendResponse({ success: false, error: 'Unknown message type' });
+              return true;
+          }
         }
 
-        console.log('📨 Received message from selector tab:', message.type);
-
-        switch (message.type) {
-          case 'REGION_SELECTED':
-            this.clearTimeout();
-            this.handleRegionSelected(message.data);
-            sendResponse({ success: true });
-            break;
-
-          case 'REGION_CANCELLED':
-            this.clearTimeout();
-            this.handleRegionCancelled();
-            sendResponse({ success: true });
-            break;
-
-          case 'REGION_TAB_READY':
-            console.log('🆕 Region selector tab ready, sending data...');
-            this.sendDataToSelectorTab();
-            sendResponse({ success: true });
-            break;
-
-          default:
-            sendResponse({ success: false, error: 'Unknown message type' });
+        // Handle messages without tab context (from extension pages)
+        if (!sender.tab && message.target === 'region-selector-service') {
+          switch (message.type) {
+            case 'REGION_TAB_READY':
+              console.log('🆕 Region selector ready (no tab context), sending data...');
+              setTimeout(() => {
+                this.sendDataToSelectorTab();
+              }, 500);
+              sendResponse({ success: true });
+              return true;
+          }
         }
 
-        return true; // Keep message channel open for async response
-      });
+        return false; // Don't keep message channel open for other messages
+      };
+
+      chrome.runtime.onMessage.addListener(this.messageListener);
+      console.log('✅ Global message listener setup for region selector');
     }
   }
 
@@ -340,7 +414,7 @@ export class RegionSelectorService {
    * Handle region selection cancellation
    */
   private handleRegionCancelled(): void {
-    console.log('❌ Region selection cancelled');
+    console.log('❌ Region selection cancelled or timeout');
     if (this.onCancelledCallback) {
       this.onCancelledCallback();
     }
@@ -373,6 +447,13 @@ export class RegionSelectorService {
     this.currentCaseId = null;
     this.onRegionSelectedCallback = null;
     this.onCancelledCallback = null;
+    
+    // Clean up storage
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.remove(['region_selector_data']).catch(() => {
+        // Ignore cleanup errors
+      });
+    }
   }
 
   /**

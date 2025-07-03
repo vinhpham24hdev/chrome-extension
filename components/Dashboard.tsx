@@ -1,4 +1,4 @@
-// components/Dashboard.tsx - Updated to use tab-based region selector
+// components/Dashboard.tsx - Enhanced error handling for restricted pages
 import React, { useState, useEffect, useRef } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
@@ -17,6 +17,76 @@ import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 
 import logo from "@/assets/logo.png";
 
+// Error Modal Component for better UX
+const ErrorModal = ({ 
+  isOpen, 
+  onClose, 
+  title, 
+  message, 
+  suggestions = [] 
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  message: string;
+  suggestions?: string[];
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+              <span className="text-red-600 text-lg">⚠️</span>
+            </div>
+            <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-6">
+          <p className="text-gray-700 mb-4 whitespace-pre-line">{message}</p>
+          
+          {suggestions.length > 0 && (
+            <div className="bg-blue-50 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-blue-900 mb-2">💡 What you can do:</h3>
+              <ul className="text-sm text-blue-800 space-y-1">
+                {suggestions.map((suggestion, index) => (
+                  <li key={index} className="flex items-start space-x-2">
+                    <span className="text-blue-600 mt-0.5">•</span>
+                    <span>{suggestion}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t bg-gray-50 rounded-b-lg">
+          <button
+            onClick={onClose}
+            className="w-full bg-blue-600 border-blue-600  text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+          >
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 interface CaseItem {
   id: string;
   title: string;
@@ -24,7 +94,6 @@ interface CaseItem {
   createdAt: string;
 }
 
-// Updated mock cases to match Figma format
 const mockCases: CaseItem[] = [
   {
     id: "Case-120320240830",
@@ -54,11 +123,41 @@ export default function Dashboard() {
   const [screenshotPreview, setScreenshotPreview] = useState<ScreenshotData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   
+  // Error modal state
+  const [errorModal, setErrorModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    suggestions: string[];
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    suggestions: []
+  });
+  
   // User dropdown state
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Setup region selector service listeners (NEW - Tab based)
+  // Show enhanced error modal
+  const showError = (title: string, message: string, suggestions: string[] = []) => {
+    setErrorModal({
+      isOpen: true,
+      title,
+      message,
+      suggestions
+    });
+    setIsCapturing(false);
+    setCaptureMode(null);
+  };
+
+  // Close error modal
+  const closeError = () => {
+    setErrorModal(prev => ({ ...prev, isOpen: false }));
+  };
+
+  // Setup region selector service listeners
   useEffect(() => {
     regionSelectorService.onRegionSelected((region) => {
       handleRegionSelectFromService(region);
@@ -150,7 +249,6 @@ export default function Dashboard() {
           caseId: selectedCase,
         };
 
-        // Open video preview window
         const windowResult = await videoWindowService.openVideoPreview(videoData, {
           centered: true
         });
@@ -159,11 +257,19 @@ export default function Dashboard() {
           console.log('Video preview window opened successfully:', windowResult.windowId);
         } else {
           console.error('Failed to open video preview window:', windowResult.error);
-          alert("Failed to open video preview");
+          showError(
+            "Video Preview Error",
+            "Failed to open video preview window.",
+            ["Please try recording again", "Check if popup blockers are disabled"]
+          );
         }
       } else {
         console.error('Video recording failed:', videoResult.error);
-        alert(videoResult.error || "Video recording failed");
+        showError(
+          "Video Recording Failed",
+          videoResult.error || "Video recording failed",
+          ["Try recording again", "Check microphone/camera permissions", "Ensure you have enough disk space"]
+        );
       }
       
       setCaptureMode(null);
@@ -214,14 +320,22 @@ export default function Dashboard() {
         console.log("Screenshot saved successfully from preview window!");
         setScreenshotPreview(null);
         setCaptureMode(null);
-        alert("Screenshot saved successfully!");
+        // Could show success message here
       } else {
         console.error("Failed to save screenshot from preview window");
-        alert("Failed to save screenshot");
+        showError(
+          "Save Failed",
+          "Failed to save screenshot to storage.",
+          ["Check your internet connection", "Try saving again", "Download the screenshot as backup"]
+        );
       }
     } catch (error) {
       console.error("Save error from preview window:", error);
-      alert("Failed to save screenshot");
+      showError(
+        "Save Error",
+        "An error occurred while saving the screenshot.",
+        ["Try saving again", "Check your storage permissions", "Download as local file instead"]
+      );
     }
 
     setIsUploading(false);
@@ -247,7 +361,11 @@ export default function Dashboard() {
 
   const handleScreenshot = async (type: "screen" | "full" | "region" = "screen") => {
     if (!selectedCase) {
-      alert("Please select a case first");
+      showError(
+        "No Case Selected",
+        "Please select a case before taking a screenshot.",
+        ["Select a case from the dropdown above"]
+      );
       return;
     }
 
@@ -256,12 +374,9 @@ export default function Dashboard() {
 
     try {
       if (type === "region") {
-        // Use NEW tab-based region selector service (Loom-style)
         console.log('🎯 Starting tab-based region selection...');
         
-        // Check if region selector is already open
         if (regionSelectorService.isActive()) {
-          // Focus existing selector tab
           const focused = await regionSelectorService.focusSelectorTab();
           if (focused) {
             console.log('🎯 Focused existing region selector tab');
@@ -273,14 +388,21 @@ export default function Dashboard() {
         const result = await regionSelectorService.startRegionSelection(selectedCase);
         
         if (!result.success) {
-          alert(result.error || "Failed to start region selection");
+          showError(
+            "Region Selection Failed",
+            result.error || "Failed to start region selection",
+            [
+              "Navigate to a regular website (google.com, youtube.com, etc.)",
+              "Try using 'Screen' capture instead",
+              "Refresh the page and try again"
+            ]
+          );
           setIsCapturing(false);
           setCaptureMode(null);
           return;
         }
         
         console.log('✅ Region selector tab opened successfully');
-        // Keep capturing state - will be cleared when region is selected or cancelled
         return;
       }
 
@@ -316,11 +438,45 @@ export default function Dashboard() {
           console.log('Preview window opened successfully:', windowResult.windowId);
         }
       } else {
-        alert(result.error || "Screenshot capture failed");
+        // Enhanced error handling with suggestions
+        const errorMsg = result.error || "Screenshot capture failed";
+        let suggestions = [
+          "Try refreshing the page and capture again",
+          "Check if you're on a regular website",
+          "Try using a different capture mode"
+        ];
+
+        if (errorMsg.includes("restricted") || errorMsg.includes("chrome://") || errorMsg.includes("extension")) {
+          suggestions = [
+            "Navigate to a regular website (google.com, youtube.com, github.com)",
+            "Open a new tab with any website",
+            "Browser internal pages cannot be captured for security reasons"
+          ];
+        } else if (errorMsg.includes("permission") || errorMsg.includes("activeTab")) {
+          suggestions = [
+            "Click the extension icon first to grant permissions",
+            "Refresh the page and try again",
+            "Make sure you're on an active tab"
+          ];
+        }
+
+        showError(
+          "Screenshot Failed",
+          errorMsg,
+          suggestions
+        );
       }
     } catch (error) {
       console.error("Screenshot error:", error);
-      alert("Screenshot capture failed");
+      showError(
+        "Screenshot Error",
+        "An unexpected error occurred while taking the screenshot.",
+        [
+          "Refresh the page and try again",
+          "Check browser permissions",
+          "Try a different capture mode"
+        ]
+      );
     }
 
     setIsCapturing(false);
@@ -361,11 +517,27 @@ export default function Dashboard() {
           console.log('Region preview window opened successfully:', windowResult.windowId);
         }
       } else {
-        alert(result.error || "Region capture failed");
+        showError(
+          "Region Capture Failed",
+          result.error || "Failed to capture the selected region",
+          [
+            "Try selecting a larger region",
+            "Make sure the page is fully loaded",
+            "Try regular screenshot instead"
+          ]
+        );
       }
     } catch (error) {
       console.error("Region capture error:", error);
-      alert("Region capture failed");
+      showError(
+        "Region Capture Error",
+        "An error occurred while capturing the selected region.",
+        [
+          "Try selecting the region again",
+          "Check if the page content has changed",
+          "Use full screen capture instead"
+        ]
+      );
     }
 
     setIsCapturing(false);
@@ -375,7 +547,11 @@ export default function Dashboard() {
   // Updated video capture handler - opens in new tab with auto-start like Loom
   const handleVideoCapture = async (type: "video" | "r-video" = "video") => {
     if (!selectedCase) {
-      alert("Please select a case first");
+      showError(
+        "No Case Selected",
+        "Please select a case before starting video recording.",
+        ["Select a case from the dropdown above"]
+      );
       return;
     }
 
@@ -419,12 +595,28 @@ export default function Dashboard() {
         // Keep capture mode set - will be cleared when recorder closes or completes
       } else {
         console.error('❌ Failed to open video recorder:', result.error);
-        alert(result.error || "Failed to open video recorder");
+        showError(
+          "Video Recorder Failed",
+          result.error || "Failed to open video recorder",
+          [
+            "Check popup blocker settings",
+            "Try again in a few seconds",
+            "Refresh the page and retry"
+          ]
+        );
         setCaptureMode(null);
       }
     } catch (error) {
       console.error('❌ Video recorder error:', error);
-      alert("Failed to open video recorder");
+      showError(
+        "Video Recorder Error",
+        "An error occurred while opening the video recorder.",
+        [
+          "Check browser permissions",
+          "Disable popup blockers",
+          "Try refreshing and recording again"
+        ]
+      );
       setCaptureMode(null);
     }
   };
@@ -445,15 +637,32 @@ export default function Dashboard() {
       const saved = await screenshotService.saveToStorage(result, selectedCase);
 
       if (saved) {
-        alert("Screenshot saved successfully!");
+        console.log("Screenshot saved successfully!");
         setScreenshotPreview(null);
         setCaptureMode(null);
+        // Could show success notification here
       } else {
-        alert("Failed to save screenshot");
+        showError(
+          "Save Failed",
+          "Failed to save screenshot to storage.",
+          [
+            "Check your internet connection",
+            "Try saving again",
+            "Download the screenshot as backup"
+          ]
+        );
       }
     } catch (error) {
       console.error("Save error:", error);
-      alert("Failed to save screenshot");
+      showError(
+        "Save Error",
+        "An error occurred while saving the screenshot.",
+        [
+          "Try saving again",
+          "Check storage permissions",
+          "Download as local file instead"
+        ]
+      );
     }
 
     setIsUploading(false);
@@ -474,6 +683,15 @@ export default function Dashboard() {
 
   return (
     <div className="w-[402px] h-[380px] bg-white flex flex-col relative">
+      {/* Enhanced Error Modal */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={closeError}
+        title={errorModal.title}
+        message={errorModal.message}
+        suggestions={errorModal.suggestions}
+      />
+
       {/* Header with Cellebrite Logo */}
       <div className="bg-white p-4 flex items-start justify-between">
         <div className="flex justify-center items-center flex-1">
@@ -487,7 +705,7 @@ export default function Dashboard() {
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={handleUserAvatarClick}
-            className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            className="w-8 h-8 bg-blue-600 border-blue-600  rounded-full flex items-center justify-center text-white text-sm font-medium hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
             {state.user?.username?.substring(0, 2).toUpperCase() || "JD"}
           </button>
@@ -638,7 +856,7 @@ export default function Dashboard() {
 
       {/* View Report Button */}
       <div className="flex justify-center">
-        <button className="w-[176px] bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed">
+        <button className="w-[176px] bg-blue-600 border-blue-600  hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed">
           View Report
         </button>
       </div>

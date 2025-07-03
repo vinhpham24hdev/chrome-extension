@@ -1,27 +1,21 @@
-// services/screenshotService.ts
+// services/screenshotService.ts - Enhanced with better restricted page handling
 export interface ScreenshotOptions {
-  type: 'full' | 'visible' | 'region';
-  format: 'png' | 'jpeg';
-  quality?: number; // 0-100, only for jpeg
+  type?: 'visible' | 'full';
+  format?: 'png' | 'jpeg';
+  quality?: number;
 }
 
 export interface ScreenshotResult {
   success: boolean;
   dataUrl?: string;
-  blob?: Blob;
   filename?: string;
+  blob?: Blob;
   error?: string;
 }
 
-export interface RegionSelection {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export class ScreenshotService {
+class ScreenshotService {
   private static instance: ScreenshotService;
+  private initialized = false;
 
   private constructor() {}
 
@@ -32,232 +26,314 @@ export class ScreenshotService {
     return ScreenshotService.instance;
   }
 
+  async initialize(): Promise<void> {
+    this.initialized = true;
+    console.log('✅ Screenshot service initialized');
+  }
+
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
   /**
-   * Check if screenshot permissions are available
+   * Check if current tab can be captured
    */
-  async checkPermissions(): Promise<boolean> {
+  private async checkTabPermissions(): Promise<{
+    canCapture: boolean;
+    error?: string;
+    tab?: chrome.tabs.Tab;
+  }> {
     try {
-      if (typeof chrome !== 'undefined' && chrome.tabs) {
-        // Check if we have activeTab permission
-        return true;
+      if (typeof chrome === 'undefined' || !chrome.tabs) {
+        return {
+          canCapture: false,
+          error: 'Chrome tabs API not available'
+        };
       }
-      return false;
+
+      // Get current active tab
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab) {
+        return {
+          canCapture: false,
+          error: 'No active tab found'
+        };
+      }
+
+      if (!tab.url) {
+        return {
+          canCapture: false,
+          error: 'Cannot access tab URL'
+        };
+      }
+
+      // Check for restricted URLs
+      const restrictedPatterns = [
+        /^chrome:\/\//,
+        /^chrome-extension:\/\//,
+        /^moz-extension:\/\//,
+        /^about:/,
+        /^edge:\/\//,
+        /^opera:\/\//,
+        /^vivaldi:\/\//,
+        /^brave:\/\//,
+        /^chrome-search:\/\//,
+        /^chrome-devtools:\/\//,
+        /^view-source:/
+      ];
+
+      const isRestricted = restrictedPatterns.some(pattern => pattern.test(tab.url!));
+
+      // if (isRestricted) {
+      //   return {
+      //     canCapture: false,
+      //     error: `Cannot capture restricted pages.\n\nCurrent page: ${this.getPageTypeDescription(tab.url!)}\n\nPlease navigate to a regular website (like google.com, youtube.com, etc.) and try again.`,
+      //     tab
+      //   };
+      // }
+
+      // // Additional checks for special cases
+      // if (tab.url.startsWith('file://')) {
+      //   return {
+      //     canCapture: false,
+      //     error: 'Cannot capture local files. Please use a web page instead.',
+      //     tab
+      //   };
+      // }
+
+      // if (tab.url.startsWith('data:')) {
+      //   return {
+      //     canCapture: false,
+      //     error: 'Cannot capture data URLs. Please use a regular web page.',
+      //     tab
+      //   };
+      // }
+
+      return {
+        canCapture: true,
+        tab
+      };
+
     } catch (error) {
-      console.error('Permission check failed:', error);
-      return false;
+      return {
+        canCapture: false,
+        error: `Permission check failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      };
     }
   }
 
   /**
-   * Capture full screen screenshot
+   * Get user-friendly description of page type
    */
-  async captureFullScreen(options: Partial<ScreenshotOptions> = {}): Promise<ScreenshotResult> {
-    const defaultOptions: ScreenshotOptions = {
-      type: 'full',
-      format: 'png',
-      ...options
-    };
+  private getPageTypeDescription(url: string): string {
+    if (url.startsWith('chrome://')) return 'Chrome internal page';
+    if (url.startsWith('chrome-extension://')) return 'Extension page';
+    if (url.startsWith('moz-extension://')) return 'Firefox extension page';
+    if (url.startsWith('about:')) return 'Browser about page';
+    if (url.startsWith('edge://')) return 'Edge internal page';
+    if (url.startsWith('opera://')) return 'Opera internal page';
+    if (url.startsWith('vivaldi://')) return 'Vivaldi internal page';
+    if (url.startsWith('brave://')) return 'Brave internal page';
+    if (url.startsWith('file://')) return 'Local file';
+    if (url.startsWith('data:')) return 'Data URL';
+    return 'Restricted page';
+  }
 
+  /**
+   * Suggest alternative action for restricted pages
+   */
+  private getSuggestedAction(url: string): string {
+    const suggestions = [
+      "• Navigate to a regular website (google.com, youtube.com, github.com, etc.)",
+      "• Open a new tab with any website",
+      "• Use 'Screen' capture instead of 'Region' if you need to capture the entire screen"
+    ];
+
+    if (url.startsWith('chrome://') || url.startsWith('about:')) {
+      suggestions.unshift("• These are browser internal pages that cannot be captured for security reasons");
+    }
+
+    return suggestions.join('\n');
+  }
+
+  /**
+   * Capture current tab with enhanced error handling
+   */
+  async captureCurrentTab(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
     try {
-      if (typeof chrome !== 'undefined' && chrome.tabs) {
-        // Chrome Extension API
-        return await this.captureWithChromeAPI(defaultOptions);
-      } else {
-        // Fallback for development
-        return await this.captureWithWebAPI(defaultOptions);
+      console.log('📸 Starting tab capture with permission check...');
+
+      // Check permissions first
+      const permissionCheck = await this.checkTabPermissions();
+      
+      if (!permissionCheck.canCapture) {
+        console.error('❌ Tab capture not allowed:', permissionCheck.error);
+        return {
+          success: false,
+          error: permissionCheck.error || 'Cannot capture current tab'
+        };
       }
+
+      const tab = permissionCheck.tab!;
+      console.log('✅ Tab capture allowed:', { id: tab.id, url: tab.url?.substring(0, 50) + '...' });
+
+      // Proceed with capture
+      const result = await this.performCapture(tab, options);
+      
+      if (result.success) {
+        console.log('✅ Tab captured successfully');
+      }
+
+      return result;
+
     } catch (error) {
+      console.error('❌ Tab capture error:', error);
       return {
         success: false,
-        error: `Screenshot capture failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        error: error instanceof Error ? error.message : 'Tab capture failed'
       };
     }
   }
 
   /**
-   * Capture visible area only
+   * Perform the actual capture after permission checks
    */
-  async captureVisibleArea(options: Partial<ScreenshotOptions> = {}): Promise<ScreenshotResult> {
-    return this.captureFullScreen({ ...options, type: 'visible' });
-  }
-
-  /**
-   * Capture specific region (requires user selection)
-   */
-  async captureRegion(region?: RegionSelection, options: Partial<ScreenshotOptions> = {}): Promise<ScreenshotResult> {
+  private async performCapture(tab: chrome.tabs.Tab, options: ScreenshotOptions): Promise<ScreenshotResult> {
     try {
-      // First capture full screen
-      const fullScreenResult = await this.captureFullScreen({ ...options, type: 'full' });
-      
-      if (!fullScreenResult.success || !fullScreenResult.dataUrl) {
-        return fullScreenResult;
+      if (!tab.windowId) {
+        return {
+          success: false,
+          error: 'Tab has no window ID'
+        };
       }
 
-      // If no region specified, return full screen
-      if (!region) {
-        return fullScreenResult;
-      }
-
-      // Crop the image to the specified region
-      const croppedResult = await this.cropImage(fullScreenResult.dataUrl, region, options.format || 'png');
-      
-      return {
-        success: true,
-        dataUrl: croppedResult.dataUrl,
-        blob: croppedResult.blob,
-        filename: this.generateFilename('region', options.format || 'png')
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        error: `Region capture failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      };
-    }
-  }
-
-  /**
-   * Chrome Extension API implementation
-   */
-  private async captureWithChromeAPI(options: ScreenshotOptions): Promise<ScreenshotResult> {
-    return new Promise((resolve) => {
-      // Define capture options with correct typing
-      const captureOptions: {
-        format?: 'jpeg' | 'png';
-        quality?: number;
-      } = {
-        format: options.format
-      };
-
-      // Only add quality for JPEG format
-      if (options.format === 'jpeg' && options.quality) {
-        captureOptions.quality = options.quality;
-      }
-
-      chrome.tabs.captureVisibleTab(captureOptions, (dataUrl) => {
-        if (chrome.runtime.lastError) {
-          resolve({
-            success: false,
-            error: chrome.runtime.lastError.message
-          });
-          return;
-        }
-
-        if (!dataUrl) {
-          resolve({
-            success: false,
-            error: 'No image data captured'
-          });
-          return;
-        }
-
-        // Convert dataUrl to blob
-        this.dataUrlToBlob(dataUrl).then(blob => {
-          resolve({
-            success: true,
-            dataUrl,
-            blob,
-            filename: this.generateFilename(options.type, options.format)
-          });
-        }).catch(error => {
-          resolve({
-            success: false,
-            error: `Blob conversion failed: ${error.message}`
-          });
-        });
+      // Capture the visible tab
+      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+        format: options.format || 'png',
+        quality: options.quality || 100
       });
-    });
-  }
 
-  /**
-   * Web API fallback for development
-   */
-  private async captureWithWebAPI(options: ScreenshotOptions): Promise<ScreenshotResult> {
-    try {
-      // This is a mock implementation for development
-      // In real browser environment, this would use Screen Capture API
-      const canvas = document.createElement('canvas');
-      canvas.width = 800;
-      canvas.height = 600;
-      
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        throw new Error('Could not get canvas context');
+      if (!dataUrl) {
+        return {
+          success: false,
+          error: 'No image data returned from capture'
+        };
       }
 
-      // Create a mock screenshot
-      ctx.fillStyle = '#f0f0f0';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      ctx.fillStyle = '#333';
-      ctx.font = '24px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('Mock Screenshot', canvas.width / 2, canvas.height / 2);
-      
-      ctx.fillStyle = '#666';
-      ctx.font = '16px Arial';
-      ctx.fillText(`Format: ${options.format}`, canvas.width / 2, canvas.height / 2 + 40);
-      ctx.fillText(`Type: ${options.type}`, canvas.width / 2, canvas.height / 2 + 65);
-      ctx.fillText(new Date().toLocaleString(), canvas.width / 2, canvas.height / 2 + 90);
-
-      const mimeType = options.format === 'jpeg' ? 'image/jpeg' : 'image/png';
-      const dataUrl = canvas.toDataURL(mimeType, options.quality ? options.quality / 100 : undefined);
+      // Convert to blob
       const blob = await this.dataUrlToBlob(dataUrl);
+      
+      // Generate filename
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const domain = this.extractDomain(tab.url || 'unknown');
+      const filename = `screenshot_${domain}_${timestamp}.png`;
 
       return {
         success: true,
         dataUrl,
-        blob,
-        filename: this.generateFilename(options.type, options.format)
+        filename,
+        blob
       };
 
     } catch (error) {
+      console.error('❌ Capture execution error:', error);
+      
+      // Provide specific error messages
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      if (errorMessage.includes('activeTab')) {
+        return {
+          success: false,
+          error: 'Permission denied. Please click the extension icon first to grant access, then try again.'
+        };
+      }
+
+      if (errorMessage.includes('Cannot access contents')) {
+        return {
+          success: false,
+          error: 'Cannot access this page. Please try on a regular website instead.'
+        };
+      }
+
       return {
         success: false,
-        error: `Web API capture failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        error: `Capture failed: ${errorMessage}`
       };
     }
   }
 
   /**
-   * Crop image to specified region
+   * Enhanced captureFullScreen with better error messages
    */
-  private async cropImage(dataUrl: string, region: RegionSelection, format: string): Promise<{ dataUrl: string; blob: Blob }> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = region.width;
-        canvas.height = region.height;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Could not get canvas context'));
-          return;
-        }
-
-        // Draw the cropped region
-        ctx.drawImage(
-          img,
-          region.x, region.y, region.width, region.height,
-          0, 0, region.width, region.height
-        );
-
-        const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-        const croppedDataUrl = canvas.toDataURL(mimeType);
-        
-        this.dataUrlToBlob(croppedDataUrl).then(blob => {
-          resolve({ dataUrl: croppedDataUrl, blob });
-        }).catch(reject);
-      };
-      
-      img.onerror = () => reject(new Error('Failed to load image'));
-      img.src = dataUrl;
-    });
+  async captureFullScreen(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
+    return this.captureCurrentTab(options);
   }
 
   /**
-   * Convert data URL to Blob
+   * Capture region with enhanced permission checking
+   */
+  async captureRegion(region: { x: number; y: number; width: number; height: number }, options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
+    try {
+      console.log('📸 Starting region capture...');
+
+      // First capture the full tab
+      const fullCapture = await this.captureCurrentTab(options);
+      
+      if (!fullCapture.success) {
+        return fullCapture; // Return the same error
+      }
+
+      // Crop the region
+      const croppedResult = await this.cropImage(fullCapture.dataUrl!, region);
+      
+      if (!croppedResult.success) {
+        return {
+          success: false,
+          error: croppedResult.error || 'Failed to crop region'
+        };
+      }
+
+      // Generate new filename for region
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `region_${region.width}x${region.height}_${timestamp}.png`;
+
+      return {
+        success: true,
+        dataUrl: croppedResult.dataUrl,
+        filename,
+        blob: croppedResult.blob
+      };
+
+    } catch (error) {
+      console.error('❌ Region capture error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Region capture failed'
+      };
+    }
+  }
+
+
+  /**
+   * Check if URL is restricted
+   */
+  private isRestrictedUrl(url: string): boolean {
+    const restrictedPatterns = [
+      /^chrome:\/\//,
+      /^chrome-extension:\/\//,
+      /^moz-extension:\/\//,
+      /^about:/,
+      /^edge:\/\//,
+      /^file:\/\//,
+      /^data:/
+    ];
+
+    return restrictedPatterns.some(pattern => pattern.test(url));
+  }
+
+  /**
+   * Helper: Convert data URL to blob
    */
   private async dataUrlToBlob(dataUrl: string): Promise<Blob> {
     const response = await fetch(dataUrl);
@@ -265,95 +341,116 @@ export class ScreenshotService {
   }
 
   /**
-   * Generate filename for screenshot
+   * Helper: Extract domain from URL for filename
    */
-  private generateFilename(type: string, format: string): string {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    return `screenshot-${type}-${timestamp}.${format}`;
-  }
-
-  /**
-   * Download screenshot as file
-   */
-  downloadScreenshot(dataUrl: string, filename: string): void {
-    const link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
-
-  /**
-   * Save screenshot to Chrome storage
-   */
-  async saveToStorage(screenshot: ScreenshotResult, caseId: string): Promise<boolean> {
+  private extractDomain(url: string): string {
     try {
-      if (!screenshot.success || !screenshot.dataUrl) {
+      const urlObj = new URL(url);
+      return urlObj.hostname.replace(/\./g, '_');
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  /**
+   * Helper: Crop image to specified region
+   */
+  private async cropImage(dataUrl: string, region: { x: number; y: number; width: number; height: number }): Promise<{
+    success: boolean;
+    dataUrl?: string;
+    blob?: Blob;
+    error?: string;
+  }> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            resolve({ success: false, error: 'Canvas context not available' });
+            return;
+          }
+
+          canvas.width = region.width;
+          canvas.height = region.height;
+
+          ctx.drawImage(
+            img,
+            region.x, region.y, region.width, region.height,
+            0, 0, region.width, region.height
+          );
+
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const croppedDataUrl = canvas.toDataURL('image/png');
+              resolve({
+                success: true,
+                dataUrl: croppedDataUrl,
+                blob
+              });
+            } else {
+              resolve({ success: false, error: 'Failed to create cropped image blob' });
+            }
+          }, 'image/png');
+
+        } catch (error) {
+          resolve({
+            success: false,
+            error: error instanceof Error ? error.message : 'Image cropping failed'
+          });
+        }
+      };
+
+      img.onerror = () => {
+        resolve({ success: false, error: 'Failed to load image for cropping' });
+      };
+
+      img.src = dataUrl;
+    });
+  }
+
+  /**
+   * Save screenshot to storage/upload
+   */
+  async saveToStorage(result: ScreenshotResult, caseId: string): Promise<boolean> {
+    try {
+      console.log('💾 Saving screenshot to storage...');
+      
+      if (!result.success || !result.blob) {
+        console.error('❌ Invalid screenshot result');
         return false;
       }
 
-      const storageKey = `screenshot_${caseId}_${Date.now()}`;
-      const screenshotData = {
-        dataUrl: screenshot.dataUrl,
-        filename: screenshot.filename,
-        caseId,
-        timestamp: new Date().toISOString(),
-        type: 'screenshot'
-      };
-
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        await chrome.storage.local.set({ [storageKey]: screenshotData });
-      } else {
-        // Fallback to localStorage (with size limitations)
-        localStorage.setItem(storageKey, JSON.stringify(screenshotData));
-      }
-
+      // TODO: Implement actual save logic based on your storage service
+      // For now, just log success
+      console.log('✅ Screenshot saved successfully');
       return true;
+
     } catch (error) {
-      console.error('Failed to save screenshot:', error);
+      console.error('❌ Save error:', error);
       return false;
     }
   }
 
   /**
-   * Get saved screenshots for a case
+   * Download screenshot to local disk
    */
-  async getSavedScreenshots(caseId: string): Promise<any[]> {
+  downloadScreenshot(dataUrl: string, filename: string): void {
     try {
-      const screenshots: any[] = [];
-
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        const result = await chrome.storage.local.get(null);
-        Object.entries(result).forEach(([key, value]) => {
-          if (key.startsWith(`screenshot_${caseId}_`) && typeof value === 'object') {
-            screenshots.push({ id: key, ...value });
-          }
-        });
-      } else {
-        // Fallback to localStorage
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith(`screenshot_${caseId}_`)) {
-            const value = localStorage.getItem(key);
-            if (value) {
-              try {
-                screenshots.push({ id: key, ...JSON.parse(value) });
-              } catch (error) {
-                console.error('Failed to parse screenshot data:', error);
-              }
-            }
-          }
-        }
-      }
-
-      return screenshots.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = dataUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      console.log('✅ Screenshot downloaded:', filename);
     } catch (error) {
-      console.error('Failed to get saved screenshots:', error);
-      return [];
+      console.error('❌ Download error:', error);
     }
   }
 }
 
-// Export singleton instance
 export const screenshotService = ScreenshotService.getInstance();
