@@ -1,8 +1,14 @@
-// services/serviceManager.ts - Real Backend Integration
+// services/serviceManager.ts - Real Backend Integration + Region Selector
 import { s3Service } from './s3Service';
 import { caseService } from './caseService';
 import { authService } from './authService';
 import { awsConfigManager } from '../config/aws';
+import { screenshotService } from './screenshotService';
+import { videoService } from './videoService';
+import { screenshotWindowService } from './screenshotWindowService';
+import { videoWindowService } from './videoWindowService';
+import { videoRecorderWindowService } from './videoRecorderWindowService';
+import { regionSelectorService } from './regionSelectorService'; // NEW: Add region selector
 
 export interface ServiceInitializationResult {
   success: boolean;
@@ -12,6 +18,7 @@ export interface ServiceInitializationResult {
   authReady: boolean;
   s3Ready: boolean;
   casesReady: boolean;
+  captureServicesReady: boolean; // NEW: Track capture services status
 }
 
 export class ServiceManager {
@@ -52,6 +59,7 @@ export class ServiceManager {
     let authReady = false;
     let s3Ready = false;
     let casesReady = false;
+    let captureServicesReady = false; // NEW: Track capture services
 
     try {
       console.log('🚀 Initializing services with real backend...');
@@ -179,7 +187,43 @@ export class ServiceManager {
         console.error('❌', errorMsg);
       }
 
-      // 6. Test Authenticated Endpoints (if backend connected)
+      // 6. Initialize Capture Services (NEW)
+      console.log('📸 Initializing capture services...');
+      try {
+        // Check Chrome APIs availability for capture services
+        if (typeof chrome === 'undefined') {
+          warnings.push('Chrome extension APIs not available - capture features may not work');
+        } else {
+          // Check specific APIs needed for capture
+          const chromeAPIs = {
+            tabs: !!chrome.tabs,
+            windows: !!chrome.windows,
+            runtime: !!chrome.runtime,
+            storage: !!chrome.storage
+          };
+
+          const missingAPIs = Object.entries(chromeAPIs)
+            .filter(([, available]) => !available)
+            .map(([api]) => api);
+
+          if (missingAPIs.length > 0) {
+            warnings.push(`Chrome APIs missing: ${missingAPIs.join(', ')}`);
+          } else {
+            console.log('✅ All required Chrome APIs available');
+          }
+        }
+
+        captureServicesReady = true;
+        console.log('✅ All capture services initialized');
+
+      } catch (error) {
+        captureServicesReady = false;
+        const errorMsg = `Capture services initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        errors.push(errorMsg);
+        console.error('❌', errorMsg);
+      }
+
+      // 7. Test Authenticated Endpoints (if backend connected)
       if (backendConnected && !enableMockMode) {
         console.log('🔒 Testing authenticated endpoints...');
         try {
@@ -213,7 +257,8 @@ export class ServiceManager {
         backendConnected,
         authReady,
         s3Ready,
-        casesReady 
+        casesReady,
+        captureServicesReady // NEW: Include capture services status
       };
 
     } catch (error) {
@@ -228,7 +273,8 @@ export class ServiceManager {
         backendConnected: false,
         authReady: false,
         s3Ready: false,
-        casesReady: false
+        casesReady: false,
+        captureServicesReady: false // NEW
       };
     } finally {
       this.initializationPromise = null;
@@ -314,6 +360,28 @@ export class ServiceManager {
       authReady: true,
       s3Ready: this.isInitialized,
       casesReady: this.isInitialized,
+      captureServicesReady: this.isInitialized, // NEW
+    };
+  }
+
+  /**
+   * Get capture services status (NEW)
+   */
+  public getCaptureServicesStatus() {
+    return {
+      screenshot: !!screenshotService,
+      video: !!videoService,
+      screenshotWindow: !!screenshotWindowService,
+      videoWindow: !!videoWindowService,
+      videoRecorder: !!videoRecorderWindowService,
+      regionSelector: !!regionSelectorService, // NEW
+      chromeAPIs: typeof chrome !== 'undefined',
+      activeCaptures: {
+        screenshot: screenshotWindowService?.isPreviewWindowOpen?.() || false,
+        video: videoWindowService?.isPreviewWindowOpen?.() || false,
+        recording: videoRecorderWindowService?.isRecorderOpen?.() || false,
+        regionSelection: regionSelectorService?.isActive?.() || false // NEW
+      }
     };
   }
 
@@ -383,8 +451,39 @@ export class ServiceManager {
         console.log('✅ Case service switched to mock mode');
       }
 
+      // Close any open capture windows/tabs (NEW)
+      try {
+        if (regionSelectorService?.isActive()) {
+          await regionSelectorService.forceClose();
+          console.log('✅ Closed region selector on logout');
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to close capture windows on logout:', error);
+      }
+
     } catch (error) {
       console.error('❌ Failed to update services after logout:', error);
+    }
+  }
+
+  /**
+   * Force close all capture services (NEW)
+   */
+  public async closeAllCaptureServices(): Promise<void> {
+    try {
+      console.log('🔄 Closing all capture services...');
+      
+      const closeTasks = [];
+
+      if (regionSelectorService?.isActive()) {
+        closeTasks.push(regionSelectorService.forceClose());
+      }
+      
+      await Promise.allSettled(closeTasks);
+      console.log('✅ All capture services closed');
+
+    } catch (error) {
+      console.error('❌ Failed to close capture services:', error);
     }
   }
 }

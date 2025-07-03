@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Select Region - Cellebrite Screen Capture</title>
+  <title>Select Region to Capture - Cellebrite</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📸</text></svg>">
   <style>
     /* Reset and fullscreen setup */
     * {
@@ -17,26 +18,9 @@
       height: 100vh;
       overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #000;
+      background: #1a1a1a;
       cursor: crosshair;
       user-select: none;
-    }
-
-    /* Tab indicator - Loom style */
-    #tab-indicator {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 4px;
-      background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
-      z-index: 1001;
-      animation: pulse 2s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.7; }
     }
 
     /* Loading state */
@@ -46,7 +30,7 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.95);
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -55,18 +39,14 @@
       text-align: center;
     }
 
-    .loading-content {
-      max-width: 400px;
-    }
-
     .spinner {
       width: 60px;
       height: 60px;
-      border: 4px solid rgba(59, 130, 246, 0.3);
-      border-top: 4px solid #3b82f6;
+      border: 4px solid rgba(255, 255, 255, 0.2);
+      border-top: 4px solid white;
       border-radius: 50%;
       animation: spin 1s linear infinite;
-      margin: 0 auto 24px;
+      margin-bottom: 30px;
     }
 
     @keyframes spin {
@@ -77,14 +57,19 @@
     .loading-title {
       font-size: 24px;
       font-weight: 600;
-      margin-bottom: 12px;
-      color: #f3f4f6;
+      margin-bottom: 10px;
     }
 
-    .loading-text {
+    .loading-subtitle {
       font-size: 16px;
-      color: #9ca3af;
-      line-height: 1.5;
+      opacity: 0.8;
+      margin-bottom: 20px;
+    }
+
+    .loading-hint {
+      font-size: 14px;
+      opacity: 0.6;
+      font-style: italic;
     }
 
     /* Main container */
@@ -92,7 +77,7 @@
       position: relative;
       width: 100vw;
       height: 100vh;
-      background: rgba(0, 0, 0, 0.3);
+      background: rgba(0, 0, 0, 0.4);
       display: none; /* Hidden until screenshot loads */
     }
 
@@ -115,11 +100,11 @@
       bottom: 0;
       width: 1px;
       background: #ef4444;
-      opacity: 0.8;
+      opacity: 0.9;
       pointer-events: none;
       z-index: 10;
       display: none;
-      box-shadow: 0 0 4px rgba(239, 68, 68, 0.5);
+      box-shadow: 0 0 2px rgba(239, 68, 68, 0.8);
     }
 
     .crosshair-h {
@@ -128,11 +113,11 @@
       right: 0;
       height: 1px;
       background: #ef4444;
-      opacity: 0.8;
+      opacity: 0.9;
       pointer-events: none;
       z-index: 10;
       display: none;
-      box-shadow: 0 0 4px rgba(239, 68, 68, 0.5);
+      box-shadow: 0 0 2px rgba(239, 68, 68, 0.8);
     }
 
     /* Selection box */
@@ -143,19 +128,11 @@
       pointer-events: none;
       z-index: 20;
       display: none;
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8), 
-                  inset 0 0 0 1px rgba(59, 130, 246, 0.8),
-                  0 0 20px rgba(59, 130, 246, 0.3);
-      animation: selectionPulse 2s ease-in-out infinite;
-    }
-
-    @keyframes selectionPulse {
-      0%, 100% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8), 
-                            inset 0 0 0 1px rgba(59, 130, 246, 0.8),
-                            0 0 20px rgba(59, 130, 246, 0.3); }
-      50% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8), 
-                        inset 0 0 0 1px rgba(59, 130, 246, 0.8),
-                        0 0 30px rgba(59, 130, 246, 0.5); }
+      box-shadow: 
+        0 0 0 1px rgba(255, 255, 255, 0.9), 
+        inset 0 0 0 1px rgba(59, 130, 246, 0.8),
+        0 4px 20px rgba(59, 130, 246, 0.3);
+      border-radius: 2px;
     }
 
     /* Corner handles */
@@ -165,7 +142,8 @@
       height: 10px;
       background: #3b82f6;
       border: 2px solid white;
-      border-radius: 2px;
+      border-radius: 50%;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     }
 
     .corner-handle.top-left { top: -5px; left: -5px; }
@@ -182,12 +160,13 @@
       color: white;
       padding: 8px 16px;
       border-radius: 8px;
-      font-family: 'SF Mono', Monaco, monospace;
+      font-family: -apple-system, BlinkMacSystemFont, monospace;
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 600;
       white-space: nowrap;
       backdrop-filter: blur(10px);
-      border: 1px solid rgba(59, 130, 246, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     }
 
     /* Instructions */
@@ -203,40 +182,47 @@
       text-align: center;
       z-index: 100;
       backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      animation: fadeIn 0.3s ease-out;
-      max-width: 500px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      animation: fadeInSlide 0.4s ease-out;
+      max-width: 90vw;
     }
 
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
-      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    @keyframes fadeInSlide {
+      from { 
+        opacity: 0; 
+        transform: translateX(-50%) translateY(-20px) scale(0.95); 
+      }
+      to { 
+        opacity: 1; 
+        transform: translateX(-50%) translateY(0) scale(1); 
+      }
     }
 
     .instructions-title {
       font-size: 22px;
-      font-weight: 600;
+      font-weight: 700;
       margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
 
     .instructions-text {
       font-size: 15px;
-      line-height: 1.8;
+      line-height: 1.6;
       opacity: 0.9;
     }
 
     kbd {
       background: #374151;
-      padding: 3px 10px;
+      padding: 3px 8px;
       border-radius: 6px;
-      font-family: 'SF Mono', Monaco, monospace;
-      font-size: 13px;
-      font-weight: 500;
-      box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.3);
+      font-family: monospace;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid #4b5563;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
     }
 
     /* Coordinates display */
@@ -248,11 +234,13 @@
       color: white;
       padding: 10px 16px;
       border-radius: 8px;
-      font-family: 'SF Mono', Monaco, monospace;
+      font-family: -apple-system, BlinkMacSystemFont, monospace;
       font-size: 14px;
+      font-weight: 600;
       z-index: 100;
       backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }
 
     /* Dark mask areas */
@@ -261,9 +249,10 @@
       background: rgba(0, 0, 0, 0.7);
       pointer-events: none;
       z-index: 5;
+      transition: all 0.1s ease-out;
     }
 
-    /* Buttons */
+    /* Controls */
     #controls {
       position: fixed;
       bottom: 40px;
@@ -277,13 +266,24 @@
     .btn {
       padding: 14px 28px;
       border: none;
-      border-radius: 10px;
-      font-size: 16px;
+      border-radius: 12px;
       font-weight: 600;
+      font-size: 16px;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.3s ease;
       backdrop-filter: blur(10px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+      min-width: 140px;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .btn:active {
+      transform: translateY(0);
     }
 
     .btn-cancel {
@@ -293,8 +293,6 @@
 
     .btn-cancel:hover {
       background: rgba(220, 38, 38, 0.95);
-      transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
     }
 
     .btn-confirm {
@@ -304,14 +302,18 @@
 
     .btn-confirm:hover {
       background: rgba(37, 99, 235, 0.95);
-      transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
     }
 
     .btn-confirm:disabled {
-      background: rgba(107, 114, 128, 0.5);
+      background: rgba(107, 114, 128, 0.6);
       cursor: not-allowed;
       transform: none;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    }
+
+    .btn-confirm:disabled:hover {
+      transform: none;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
     }
 
     /* Error state */
@@ -322,57 +324,108 @@
       transform: translate(-50%, -50%);
       background: rgba(220, 38, 38, 0.95);
       color: white;
-      padding: 32px;
+      padding: 40px;
       border-radius: 16px;
       text-align: center;
       z-index: 1000;
       display: none;
       backdrop-filter: blur(20px);
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 8px 32px rgba(220, 38, 38, 0.4);
+      max-width: 90vw;
+      max-height: 90vh;
+      overflow-y: auto;
     }
 
     .error-title {
-      font-size: 20px;
-      font-weight: 600;
-      margin-bottom: 12px;
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 16px;
     }
 
     .error-message {
       margin-bottom: 24px;
       opacity: 0.9;
+      line-height: 1.6;
       white-space: pre-line;
     }
 
-    /* Logo/Brand */
-    .brand {
-      position: fixed;
-      bottom: 40px;
-      right: 40px;
-      color: rgba(255, 255, 255, 0.5);
-      font-size: 14px;
-      z-index: 100;
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      #instructions {
+        top: 30px;
+        padding: 20px 24px;
+        max-width: 95vw;
+      }
+      
+      .instructions-title {
+        font-size: 20px;
+      }
+      
+      .instructions-text {
+        font-size: 14px;
+      }
+      
+      #controls {
+        bottom: 30px;
+        flex-direction: column;
+        align-items: center;
+      }
+      
+      .btn {
+        padding: 12px 24px;
+        font-size: 14px;
+        min-width: 120px;
+      }
+      
+      #coordinates {
+        top: 16px;
+        right: 16px;
+        padding: 8px 12px;
+        font-size: 12px;
+      }
+    }
+
+    /* Smooth transitions */
+    #container {
+      transition: opacity 0.3s ease-in-out;
+    }
+
+    #screenshot {
+      transition: opacity 0.3s ease-in-out;
+    }
+
+    /* Focus indicators for accessibility */
+    .btn:focus {
+      outline: 3px solid rgba(59, 130, 246, 0.5);
+      outline-offset: 2px;
+    }
+
+    /* Loading animation enhancements */
+    .loading-content {
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.8; }
     }
   </style>
 </head>
 <body>
-  <!-- Tab indicator -->
-  <div id="tab-indicator"></div>
-
   <!-- Loading State -->
   <div id="loading">
     <div class="loading-content">
       <div class="spinner"></div>
-      <div class="loading-title">Preparing Region Selector</div>
-      <div class="loading-text">
-        Loading screenshot...<br>
-        Click and drag to select an area
-      </div>
+      <div class="loading-title">🎯 Preparing Region Selector</div>
+      <div class="loading-subtitle">Get ready to select your capture area</div>
+      <div class="loading-hint">This will open in full screen for precise selection</div>
     </div>
   </div>
 
   <!-- Error State -->
   <div id="error">
-    <div class="error-title">⚠️ Region Selector Error</div>
+    <div class="error-title">❌ Region Selector Error</div>
     <div class="error-message" id="error-message">Something went wrong</div>
     <button class="btn btn-cancel" id="error-close-btn">Close Tab</button>
   </div>
@@ -380,7 +433,7 @@
   <!-- Main Container -->
   <div id="container">
     <!-- Screenshot Background -->
-    <img id="screenshot" alt="Screenshot for region selection">
+    <img id="screenshot" alt="Screenshot for region selection" draggable="false">
 
     <!-- Crosshair -->
     <div class="crosshair-v" id="crosshair-v"></div>
@@ -392,19 +445,16 @@
       <div class="corner-handle top-right"></div>
       <div class="corner-handle bottom-left"></div>
       <div class="corner-handle bottom-right"></div>
-      <div id="size-display"></div>
+      <div id="size-display">0 × 0</div>
     </div>
 
     <!-- Instructions -->
     <div id="instructions">
-      <div class="instructions-title">
-        <span>📸</span>
-        <span>Select Region to Capture</span>
-      </div>
+      <div class="instructions-title">📸 Select Region to Capture</div>
       <div class="instructions-text">
-        • Click and drag to select an area<br>
+        • <strong>Click and drag</strong> to select an area<br>
         • Press <kbd>Enter</kbd> to confirm selection<br>
-        • Press <kbd>Esc</kbd> to cancel<br>
+        • Press <kbd>Esc</kbd> to cancel or reset<br>
         • Press <kbd>Space</kbd> to toggle this help
       </div>
     </div>
@@ -416,12 +466,9 @@
     <div id="controls">
       <button class="btn btn-cancel" id="cancel-btn">Cancel</button>
       <button class="btn btn-confirm" id="confirm-btn" disabled>
-        Capture Region
+        Select an area
       </button>
     </div>
-
-    <!-- Brand -->
-    <div class="brand">Cellebrite Capture</div>
   </div>
 
   <!-- Load WXT compiled script -->

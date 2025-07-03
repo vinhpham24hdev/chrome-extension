@@ -1,4 +1,4 @@
-// components/Dashboard.tsx - Updated to use new tab video recorder like Loom
+// components/Dashboard.tsx - Updated to use tab-based region selector
 import React, { useState, useEffect, useRef } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
@@ -7,22 +7,12 @@ import FormControl from "@mui/material/FormControl";
 import Select, { SelectChangeEvent } from "@mui/material/Select";
 
 import { useAuth } from "../contexts/AuthContext";
-import {
-  screenshotService,
-  ScreenshotResult,
-} from "../services/screenshotService";
-import {
-  videoService,
-  VideoResult,
-  VideoOptions,
-} from "../services/videoService";
+import { screenshotService, ScreenshotResult } from "../services/screenshotService";
+import { videoService, VideoResult, VideoOptions } from "../services/videoService";
 import { screenshotWindowService } from "../services/screenshotWindowService";
 import { videoWindowService } from "../services/videoWindowService";
 import { videoRecorderWindowService } from "../services/videoRecorderWindowService";
-import {
-  fullscreenWindowService,
-  RegionSelection,
-} from "../services/fullscreenWindowService";
+import { regionSelectorService, RegionSelection } from "../services/regionSelectorService";
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 
 import logo from "@/assets/logo.png";
@@ -43,14 +33,14 @@ const mockCases: CaseItem[] = [
     createdAt: "2024-06-10",
   },
   {
-    id: "Case-120320240829",
+    id: "Case-120320240829", 
     title: "Performance Issue Analysis",
     status: "pending",
     createdAt: "2024-06-09",
   },
   {
     id: "Case-120320240828",
-    title: "User Experience Review",
+    title: "User Experience Review", 
     status: "active",
     createdAt: "2024-06-08",
   },
@@ -59,28 +49,25 @@ const mockCases: CaseItem[] = [
 export default function Dashboard() {
   const { state, logout } = useAuth();
   const [selectedCase, setSelectedCase] = useState<string>(mockCases[0].id);
-  const [captureMode, setCaptureMode] = useState<"screenshot" | "video" | null>(
-    null
-  );
+  const [captureMode, setCaptureMode] = useState<"screenshot" | "video" | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [screenshotPreview, setScreenshotPreview] =
-    useState<ScreenshotData | null>(null);
+  const [screenshotPreview, setScreenshotPreview] = useState<ScreenshotData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-
+  
   // User dropdown state
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Setup fullscreen window service listeners
+  // Setup region selector service listeners (NEW - Tab based)
   useEffect(() => {
-    fullscreenWindowService.onRegionSelected((region) => {
+    regionSelectorService.onRegionSelected((region) => {
       handleRegionSelectFromService(region);
     });
 
-    fullscreenWindowService.onCancelled(() => {
+    regionSelectorService.onCancelled(() => {
       setIsCapturing(false);
       setCaptureMode(null);
-      console.log("Region selection cancelled");
+      console.log('Region selection cancelled in tab');
     });
 
     return () => {
@@ -90,155 +77,130 @@ export default function Dashboard() {
 
   // Setup screenshot window service listeners
   useEffect(() => {
-    screenshotWindowService.addListener("window_closed", () => {
+    screenshotWindowService.addListener('window_closed', () => {
       setScreenshotPreview(null);
       setCaptureMode(null);
-      console.log("Screenshot preview window closed");
+      console.log('Screenshot preview window closed');
     });
 
-    screenshotWindowService.addListener(
-      "save_screenshot",
-      async (screenshotData: ScreenshotData) => {
-        if (screenshotData) {
-          console.log("Save screenshot request from preview window");
-          await handleSaveScreenshotFromWindow(screenshotData);
-        }
+    screenshotWindowService.addListener('save_screenshot', async (screenshotData: ScreenshotData) => {
+      if (screenshotData) {
+        console.log('Save screenshot request from preview window');
+        await handleSaveScreenshotFromWindow(screenshotData);
       }
-    );
+    });
 
-    screenshotWindowService.addListener("retake_screenshot", () => {
-      console.log("Retake screenshot request from preview window");
+    screenshotWindowService.addListener('retake_screenshot', () => {
+      console.log('Retake screenshot request from preview window');
       setScreenshotPreview(null);
       setCaptureMode(null);
     });
 
     return () => {
-      screenshotWindowService.removeListener("window_closed");
-      screenshotWindowService.removeListener("save_screenshot");
-      screenshotWindowService.removeListener("retake_screenshot");
+      screenshotWindowService.removeListener('window_closed');
+      screenshotWindowService.removeListener('save_screenshot');
+      screenshotWindowService.removeListener('retake_screenshot');
     };
   }, [selectedCase]);
 
   // Setup video window service listeners
   useEffect(() => {
-    videoWindowService.addListener("preview_window_closed", () => {
-      console.log("Video preview window closed");
+    videoWindowService.addListener('preview_window_closed', () => {
+      console.log('Video preview window closed');
       setCaptureMode(null);
     });
 
-    videoWindowService.addListener("save_video", async (videoData: any) => {
+    videoWindowService.addListener('save_video', async (videoData: any) => {
       if (videoData) {
-        console.log("Save video request from preview window");
+        console.log('Save video request from preview window');
         // Handle video save logic here
       }
     });
 
-    videoWindowService.addListener("retake_video", () => {
-      console.log("Retake video request from preview window");
+    videoWindowService.addListener('retake_video', () => {
+      console.log('Retake video request from preview window');
       setCaptureMode(null);
     });
 
     return () => {
-      videoWindowService.removeListener("preview_window_closed");
-      videoWindowService.removeListener("save_video");
-      videoWindowService.removeListener("retake_video");
+      videoWindowService.removeListener('preview_window_closed');
+      videoWindowService.removeListener('save_video');
+      videoWindowService.removeListener('retake_video');
     };
   }, [selectedCase]);
 
   // Setup video recorder window service listeners
   useEffect(() => {
-    videoRecorderWindowService.addListener("recording_window_closed", () => {
-      console.log("Video recorder window closed");
+    videoRecorderWindowService.addListener('recording_window_closed', () => {
+      console.log('Video recorder window closed');
       setCaptureMode(null);
     });
 
-    videoRecorderWindowService.addListener(
-      "video_recorded",
-      async (videoResult: VideoResult) => {
-        if (
-          videoResult.success &&
-          videoResult.blob &&
-          videoResult.dataUrl &&
-          videoResult.filename
-        ) {
-          console.log("Video recorded successfully, opening preview...");
+    videoRecorderWindowService.addListener('video_recorded', async (videoResult: VideoResult) => {
+      if (videoResult.success && videoResult.blob && videoResult.dataUrl && videoResult.filename) {
+        console.log('Video recorded successfully, opening preview...');
+        
+        const videoData = {
+          blob: videoResult.blob,
+          dataUrl: videoResult.dataUrl,
+          filename: videoResult.filename,
+          duration: videoResult.duration || 0,
+          size: videoResult.size || videoResult.blob.size,
+          timestamp: new Date().toISOString(),
+          caseId: selectedCase,
+        };
 
-          const videoData = {
-            blob: videoResult.blob,
-            dataUrl: videoResult.dataUrl,
-            filename: videoResult.filename,
-            duration: videoResult.duration || 0,
-            size: videoResult.size || videoResult.blob.size,
-            timestamp: new Date().toISOString(),
-            caseId: selectedCase,
-          };
+        // Open video preview window
+        const windowResult = await videoWindowService.openVideoPreview(videoData, {
+          centered: true
+        });
 
-          // Open video preview window
-          const windowResult = await videoWindowService.openVideoPreview(
-            videoData,
-            {
-              centered: true,
-            }
-          );
-
-          if (windowResult.success) {
-            console.log(
-              "Video preview window opened successfully:",
-              windowResult.windowId
-            );
-          } else {
-            console.error(
-              "Failed to open video preview window:",
-              windowResult.error
-            );
-            alert("Failed to open video preview");
-          }
+        if (windowResult.success) {
+          console.log('Video preview window opened successfully:', windowResult.windowId);
         } else {
-          console.error("Video recording failed:", videoResult.error);
-          alert(videoResult.error || "Video recording failed");
+          console.error('Failed to open video preview window:', windowResult.error);
+          alert("Failed to open video preview");
         }
-
-        setCaptureMode(null);
+      } else {
+        console.error('Video recording failed:', videoResult.error);
+        alert(videoResult.error || "Video recording failed");
       }
-    );
+      
+      setCaptureMode(null);
+    });
 
-    videoRecorderWindowService.addListener("recording_cancelled", () => {
-      console.log("Video recording cancelled");
+    videoRecorderWindowService.addListener('recording_cancelled', () => {
+      console.log('Video recording cancelled');
       setCaptureMode(null);
     });
 
     return () => {
-      videoRecorderWindowService.removeListener("recording_window_closed");
-      videoRecorderWindowService.removeListener("video_recorded");
-      videoRecorderWindowService.removeListener("recording_cancelled");
+      videoRecorderWindowService.removeListener('recording_window_closed');
+      videoRecorderWindowService.removeListener('video_recorded');
+      videoRecorderWindowService.removeListener('recording_cancelled');
     };
   }, [selectedCase]);
 
   // Handle click outside dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowUserDropdown(false);
       }
     };
 
-    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside);
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
 
-  const handleSaveScreenshotFromWindow = async (
-    screenshotData: ScreenshotData
-  ) => {
+  const handleSaveScreenshotFromWindow = async (screenshotData: ScreenshotData) => {
     setIsUploading(true);
 
     try {
-      console.log("Saving screenshot from preview window...");
-
+      console.log('Saving screenshot from preview window...');
+      
       const result: ScreenshotResult = {
         success: true,
         dataUrl: screenshotData.dataUrl,
@@ -269,9 +231,9 @@ export default function Dashboard() {
     setShowUserDropdown(false);
     try {
       await logout();
-      console.log("✅ User logged out successfully");
+      console.log('✅ User logged out successfully');
     } catch (error) {
-      console.error("❌ Logout failed:", error);
+      console.error('❌ Logout failed:', error);
     }
   };
 
@@ -283,11 +245,7 @@ export default function Dashboard() {
     setSelectedCase(caseId);
   };
 
-  // Updated handleScreenshot function in Dashboard.tsx
-
-  const handleScreenshot = async (
-    type: "screen" | "full" | "region" = "screen"
-  ) => {
+  const handleScreenshot = async (type: "screen" | "full" | "region" = "screen") => {
     if (!selectedCase) {
       alert("Please select a case first");
       return;
@@ -298,34 +256,35 @@ export default function Dashboard() {
 
     try {
       if (type === "region") {
+        // Use NEW tab-based region selector service (Loom-style)
+        console.log('🎯 Starting tab-based region selection...');
+        
         // Check if region selector is already open
-        if (await fullscreenWindowService.isRegionSelectorOpen()) {
-          // Focus existing tab
-          const focused = await fullscreenWindowService.focusRegionSelector();
+        if (regionSelectorService.isActive()) {
+          // Focus existing selector tab
+          const focused = await regionSelectorService.focusSelectorTab();
           if (focused) {
-            console.log("🎯 Focused existing region selector tab");
+            console.log('🎯 Focused existing region selector tab');
             setIsCapturing(false);
             return;
           }
         }
 
-        // Use fullscreen window service for region selection in new tab (Loom-style)
-        const result = await fullscreenWindowService.startRegionSelection();
-
+        const result = await regionSelectorService.startRegionSelection(selectedCase);
+        
         if (!result.success) {
           alert(result.error || "Failed to start region selection");
           setIsCapturing(false);
           setCaptureMode(null);
           return;
         }
-
-        // Region selection tab is now open, wait for user interaction
-        // The result will be handled by the service listener
-        console.log("🎯 Region selector opened in new tab");
+        
+        console.log('✅ Region selector tab opened successfully');
+        // Keep capturing state - will be cleared when region is selected or cancelled
         return;
       }
 
-      // Handle regular screenshot capture (screen/full)
+      // Handle regular screenshot capture
       const captureType = type === "screen" ? "visible" : "full";
       const result = await screenshotService.captureFullScreen({
         type: captureType,
@@ -342,23 +301,19 @@ export default function Dashboard() {
           blob: result.blob,
         };
 
-        console.log("Opening screenshot preview in new window...");
-
-        const windowResult =
-          await screenshotWindowService.openScreenshotPreview(screenshotData, {
-            width: 1400,
-            height: 900,
-            centered: true,
-          });
+        console.log('Opening screenshot preview in new window...');
+        
+        const windowResult = await screenshotWindowService.openScreenshotPreview(screenshotData, {
+          width: 1400,
+          height: 900,
+          centered: true
+        });
 
         if (!windowResult.success) {
-          console.error("Failed to open preview window:", windowResult.error);
+          console.error('Failed to open preview window:', windowResult.error);
           setScreenshotPreview(screenshotData);
         } else {
-          console.log(
-            "Preview window opened successfully:",
-            windowResult.windowId
-          );
+          console.log('Preview window opened successfully:', windowResult.windowId);
         }
       } else {
         alert(result.error || "Screenshot capture failed");
@@ -375,6 +330,8 @@ export default function Dashboard() {
     setIsCapturing(true);
 
     try {
+      console.log('🎯 Processing region selection from tab:', region);
+      
       const result = await screenshotService.captureRegion(region, {
         format: "png",
       });
@@ -389,23 +346,19 @@ export default function Dashboard() {
           blob: result.blob,
         };
 
-        console.log("Opening region screenshot preview in new window...");
-
-        const windowResult =
-          await screenshotWindowService.openScreenshotPreview(screenshotData, {
-            width: 1400,
-            height: 900,
-            centered: true,
-          });
+        console.log('Opening region screenshot preview in new window...');
+        
+        const windowResult = await screenshotWindowService.openScreenshotPreview(screenshotData, {
+          width: 1400,
+          height: 900,
+          centered: true
+        });
 
         if (!windowResult.success) {
-          console.error("Failed to open preview window:", windowResult.error);
+          console.error('Failed to open preview window:', windowResult.error);
           setScreenshotPreview(screenshotData);
         } else {
-          console.log(
-            "Region preview window opened successfully:",
-            windowResult.windowId
-          );
+          console.log('Region preview window opened successfully:', windowResult.windowId);
         }
       } else {
         alert(result.error || "Region capture failed");
@@ -431,13 +384,13 @@ export default function Dashboard() {
       // Focus existing recorder window/tab
       const focused = await videoRecorderWindowService.focusRecorderWindow();
       if (focused) {
-        console.log("🎯 Focused existing recorder window");
+        console.log('🎯 Focused existing recorder window');
         return;
       }
     }
 
     setCaptureMode("video");
-
+    
     // Prepare recorder options based on type - with auto-start enabled
     const defaultOptions: Partial<VideoOptions> = {
       type: type === "video" ? "desktop" : "tab",
@@ -446,37 +399,31 @@ export default function Dashboard() {
       maxDuration: 300,
       includeAudio: false,
     };
-
+    
     const recorderData = {
       caseId: selectedCase,
       options: defaultOptions,
-      autoStart: true, // Auto-start recording immediately
+      autoStart: true // Auto-start recording immediately
     };
 
-    console.log("🎬 Opening video recorder with auto-start...");
-
+    console.log('🎬 Opening video recorder with auto-start...');
+    
     try {
       // Open recorder in new tab (Loom-style) with immediate screen selection
-      const result = await videoRecorderWindowService.openVideoRecorder(
-        recorderData,
-        {
-          centered: true,
-        }
-      );
-
+      const result = await videoRecorderWindowService.openVideoRecorder(recorderData, {
+        centered: true
+      });
+      
       if (result.success) {
-        console.log(
-          "✅ Video recorder opened with auto-start:",
-          result.tabId || result.windowId
-        );
+        console.log('✅ Video recorder opened with auto-start:', result.tabId || result.windowId);
         // Keep capture mode set - will be cleared when recorder closes or completes
       } else {
-        console.error("❌ Failed to open video recorder:", result.error);
+        console.error('❌ Failed to open video recorder:', result.error);
         alert(result.error || "Failed to open video recorder");
         setCaptureMode(null);
       }
     } catch (error) {
-      console.error("❌ Video recorder error:", error);
+      console.error('❌ Video recorder error:', error);
       alert("Failed to open video recorder");
       setCaptureMode(null);
     }
@@ -535,7 +482,7 @@ export default function Dashboard() {
             <p className="text-xl text-gray-500">My insights</p>
           </div>
         </div>
-
+        
         {/* User Avatar with Dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button
@@ -544,7 +491,7 @@ export default function Dashboard() {
           >
             {state.user?.username?.substring(0, 2).toUpperCase() || "JD"}
           </button>
-
+          
           {/* Dropdown Menu */}
           {showUserDropdown && (
             <div className="absolute right-0 top-10 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
@@ -554,13 +501,13 @@ export default function Dashboard() {
                 </p>
                 <p className="text-xs text-gray-500">{state.user?.email}</p>
               </div>
-
+              
               <div className="px-4 py-2 border-b border-gray-100">
                 <p className="text-xs text-gray-500 uppercase tracking-wide">
-                  {state.user?.role || "User"}
+                  {state.user?.role || 'User'}
                 </p>
               </div>
-
+              
               <button
                 onClick={handleLogout}
                 className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-800 transition-colors duration-200"
@@ -604,7 +551,7 @@ export default function Dashboard() {
           </FormControl>
         </Box>
       </div>
-
+      
       {/* Capture Tools Grid */}
       <div className="px-6 py-2">
         <div className="flex items-start justify-between">
@@ -632,14 +579,17 @@ export default function Dashboard() {
             <span className="text-xs text-gray-700">Full</span>
           </button>
 
-          {/* Region Capture */}
+          {/* Region Capture - Now opens in NEW TAB like Loom */}
           <button
             onClick={() => handleScreenshot("region")}
             disabled={isCapturing || !selectedCase}
-            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
+            title="Select region to capture - opens in new tab"
           >
             <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm"></div>
             <span className="text-xs text-gray-700">Region</span>
+            {/* Loom-style indicator for tab mode */}
+            <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
           </button>
 
           {/* Divider */}
@@ -699,8 +649,10 @@ export default function Dashboard() {
           <div className="bg-white rounded-lg p-6 flex flex-col items-center">
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
             <p className="text-gray-700">
-              {captureMode === "video"
-                ? "Opening recorder & choosing screen..."
+              {captureMode === "video" 
+                ? "Opening recorder & choosing screen..." 
+                : captureMode === "screenshot" && regionSelectorService.isActive()
+                ? "Opening region selector..."
                 : "Capturing..."}
             </p>
           </div>

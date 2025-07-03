@@ -1,6 +1,6 @@
-// entrypoints/region-selector.ts - WXT entry point for region selector
+// entrypoints/region-selector.ts - Updated for tab mode like Loom
 export default defineUnlistedScript(() => {
-  // Region selector logic for fullscreen overlay window
+  console.log('🎯 Region selector tab initializing...');
   
   // State
   let isSelecting = false;
@@ -8,8 +8,9 @@ export default defineUnlistedScript(() => {
   let currentRegion: { x: number; y: number; width: number; height: number } | null = null;
   let screenshotLoaded = false;
   let instructionsVisible = true;
+  let caseId: string | null = null;
 
-  // DOM elements
+  // DOM elements interface
   interface Elements {
     loading: HTMLElement | null;
     container: HTMLElement | null;
@@ -46,7 +47,7 @@ export default defineUnlistedScript(() => {
 
   // Initialize when DOM is ready
   function init() {
-    console.log('🎯 Region selector window initializing...');
+    console.log('🎯 Region selector tab initializing...');
     
     // Get DOM elements
     elements = {
@@ -69,20 +70,23 @@ export default defineUnlistedScript(() => {
     setupEventListeners();
     requestScreenshotData();
     
-    // Hide instructions after 4 seconds
+    // Auto-hide instructions after 5 seconds
     setTimeout(() => {
       hideInstructions();
-    }, 4000);
+    }, 5000);
+
+    // Update page title
+    document.title = 'Select Region to Capture - Cellebrite';
   }
 
   // Setup event listeners
   function setupEventListeners() {
-    // Mouse events
+    // Mouse events for region selection
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('mouseup', handleMouseUp);
 
-    // Keyboard events
+    // Keyboard shortcuts
     document.addEventListener('keydown', handleKeyDown);
 
     // Button events
@@ -98,93 +102,84 @@ export default defineUnlistedScript(() => {
       elements.errorCloseBtn.addEventListener('click', cancelSelection);
     }
 
-    // Window events
+    // Tab close/beforeunload events
     window.addEventListener('beforeunload', () => {
-      // Notify extension that window is closing
-      if (typeof chrome !== 'undefined' && chrome.runtime) {
-        chrome.runtime.sendMessage({
-          type: 'REGION_CANCELLED'
-        }).catch(() => {
-          // Ignore errors if extension context is gone
-        });
-      }
+      notifyRegionCancelled();
     });
 
     // Prevent context menu
     document.addEventListener('contextmenu', (e) => {
       e.preventDefault();
     });
+
+    // Message listener for data from extension
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        console.log('📨 Tab received message:', message.type);
+        
+        if (message.type === 'REGION_SELECTOR_DATA') {
+          console.log('📸 Received screenshot data in tab');
+          if (message.data.screenshot) {
+            loadScreenshot(message.data.screenshot);
+            caseId = message.data.caseId || null;
+          }
+          sendResponse({ success: true });
+          return true;
+        }
+        
+        sendResponse({ success: false, error: 'Unknown message type' });
+        return true;
+      });
+    }
   }
 
   // Request screenshot data from extension
   function requestScreenshotData() {
-    console.log('📡 Requesting screenshot data...');
+    console.log('📡 Tab requesting screenshot data...');
     
-    // Enhanced debugging
-    if (typeof chrome === 'undefined') {
-      console.error('❌ Chrome API not available');
+    if (typeof chrome === 'undefined' || !chrome.runtime) {
+      console.error('❌ Chrome runtime not available in tab');
       showError('Chrome extension API not available');
       return;
     }
     
-    if (!chrome.runtime) {
-      console.error('❌ Chrome runtime not available');
-      showError('Chrome runtime not available');
-      return;
-    }
+    console.log('✅ Chrome APIs available in tab, requesting data...');
     
-    console.log('✅ Chrome APIs available, setting up communication...');
-    
-    // Listen for screenshot data FIRST
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      console.log('📨 Received message:', message);
-      
-      if (message.type === 'REGION_SELECTOR_DATA') {
-        console.log('📸 Received screenshot data');
-        loadScreenshot(message.data.screenshot);
-        sendResponse({ success: true });
-        return true; // Keep message channel open
-      }
-      
-      sendResponse({ success: false, error: 'Unknown message type' });
-      return true;
-    });
-    
-    // Then notify extension that window is ready
-    console.log('📤 Notifying extension window is ready...');
+    // Notify extension that tab is ready
     chrome.runtime.sendMessage({
-      type: 'REGION_WINDOW_READY'
+      type: 'REGION_TAB_READY',
+      timestamp: Date.now()
     }).then(response => {
-      console.log('✅ Extension notified successfully:', response);
+      console.log('✅ Extension notified from tab:', response);
     }).catch(error => {
-      console.error('❌ Failed to notify extension:', error);
+      console.error('❌ Failed to notify extension from tab:', error);
       showError(`Failed to communicate with extension: ${error.message}`);
     });
 
-    // Timeout with more detailed error
+    // Timeout with detailed error
     setTimeout(() => {
       if (!screenshotLoaded) {
-        console.error('⏰ Timeout - no screenshot data received');
+        console.error('⏰ Timeout - no screenshot data received in tab');
         showError('Timeout waiting for screenshot data.\n\nPossible issues:\n• Extension popup closed\n• Permission denied\n• Tab capture failed');
       }
-    }, 5000);
+    }, 8000);
   }
 
-  // Load screenshot into overlay
+  // Load screenshot into tab
   function loadScreenshot(dataUrl: string) {
-    console.log('🖼️ Loading screenshot...');
+    console.log('🖼️ Loading screenshot in tab...');
     
     if (!elements.screenshot || !elements.loading || !elements.container) return;
 
     elements.screenshot.onload = () => {
-      console.log('✅ Screenshot loaded successfully');
+      console.log('✅ Screenshot loaded successfully in tab');
       if (elements.loading) elements.loading.style.display = 'none';
       if (elements.container) elements.container.style.display = 'block';
       screenshotLoaded = true;
     };
 
     elements.screenshot.onerror = () => {
-      console.error('❌ Failed to load screenshot');
+      console.error('❌ Failed to load screenshot in tab');
       showError('Failed to load screenshot');
     };
 
@@ -237,7 +232,7 @@ export default defineUnlistedScript(() => {
     // Hide instructions
     hideInstructions();
 
-    console.log('🎯 Starting region selection at:', startPoint);
+    console.log('🎯 Starting region selection in tab at:', startPoint);
   }
 
   // Mouse up handler
@@ -245,18 +240,19 @@ export default defineUnlistedScript(() => {
     if (!isSelecting || !currentRegion) return;
 
     isSelecting = false;
-    console.log('✅ Region selected:', currentRegion);
+    console.log('✅ Region selected in tab:', currentRegion);
 
-    // Auto-confirm if selection is large enough
-    if (currentRegion.width > 20 && currentRegion.height > 20) {
+    // Auto-confirm if selection is large enough (Loom-style behavior)
+    if (currentRegion.width > 30 && currentRegion.height > 30) {
       updateConfirmButton(true);
-      // Small delay then auto-confirm
+      // Small delay then auto-confirm for better UX
       setTimeout(() => {
         confirmSelection();
-      }, 300);
+      }, 500);
     } else {
       // Selection too small
       resetSelection();
+      showInstructions();
     }
   }
 
@@ -305,7 +301,7 @@ export default defineUnlistedScript(() => {
     updateOverlayMask();
 
     // Update confirm button
-    const isValidSize = currentRegion.width > 10 && currentRegion.height > 10;
+    const isValidSize = currentRegion.width > 20 && currentRegion.height > 20;
     updateConfirmButton(isValidSize);
   }
 
@@ -318,7 +314,7 @@ export default defineUnlistedScript(() => {
 
     const { x, y, width, height } = currentRegion;
 
-    // Create mask elements
+    // Create mask elements for areas outside selection
     const masks = [
       // Top
       { top: '0', left: '0', width: '100%', height: `${y}px` },
@@ -357,12 +353,20 @@ export default defineUnlistedScript(() => {
     if (!elements.confirmBtn) return;
     
     elements.confirmBtn.disabled = !enabled;
-    elements.confirmBtn.textContent = enabled ? 'Capture Region' : 'Select an area';
+    elements.confirmBtn.textContent = enabled ? 'Capture Selected Region' : 'Select an area';
+    
+    if (enabled) {
+      elements.confirmBtn.style.background = 'rgba(59, 130, 246, 0.9)';
+      elements.confirmBtn.style.cursor = 'pointer';
+    } else {
+      elements.confirmBtn.style.background = 'rgba(107, 114, 128, 0.5)';
+      elements.confirmBtn.style.cursor = 'not-allowed';
+    }
   }
 
   // Reset selection
   function resetSelection() {
-    console.log('🔄 Resetting selection');
+    console.log('🔄 Resetting selection in tab');
     
     currentRegion = null;
     startPoint = null;
@@ -377,9 +381,6 @@ export default defineUnlistedScript(() => {
     
     // Reset confirm button
     updateConfirmButton(false);
-    
-    // Show instructions again
-    showInstructions();
   }
 
   // Show/hide instructions
@@ -413,7 +414,7 @@ export default defineUnlistedScript(() => {
 
   // Show error
   function showError(message: string) {
-    console.error('❌ Region selector error:', message);
+    console.error('❌ Region selector tab error:', message);
     
     if (elements.errorMessage) {
       elements.errorMessage.textContent = message;
@@ -429,25 +430,30 @@ export default defineUnlistedScript(() => {
     }
   }
 
-  // Confirm selection
+  // Confirm selection and close tab
   function confirmSelection() {
-    if (!currentRegion || currentRegion.width < 10 || currentRegion.height < 10) {
+    if (!currentRegion || currentRegion.width < 20 || currentRegion.height < 20) {
       console.warn('⚠️ Selection too small');
       return;
     }
 
-    console.log('✅ Confirming region selection:', currentRegion);
+    console.log('✅ Confirming region selection in tab:', currentRegion);
 
     // Send result back to extension
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({
         type: 'REGION_SELECTED',
-        data: currentRegion
-      }).then(() => {
-        console.log('📤 Region data sent to extension');
-        window.close();
+        data: currentRegion,
+        caseId: caseId,
+        timestamp: Date.now()
+      }).then((response) => {
+        console.log('📤 Region data sent to extension from tab');
+        // Small delay before closing for better UX
+        setTimeout(() => {
+          window.close();
+        }, 300);
       }).catch(error => {
-        console.error('❌ Failed to send region data:', error);
+        console.error('❌ Failed to send region data from tab:', error);
         showError('Failed to send selection data');
       });
     } else {
@@ -455,18 +461,23 @@ export default defineUnlistedScript(() => {
     }
   }
 
-  // Cancel selection
+  // Cancel selection and close tab
   function cancelSelection() {
-    console.log('❌ Cancelling region selection');
-    
+    console.log('❌ Cancelling region selection in tab');
+    notifyRegionCancelled();
+    window.close();
+  }
+
+  // Notify extension about cancellation
+  function notifyRegionCancelled() {
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({
-        type: 'REGION_CANCELLED'
-      }).finally(() => {
-        window.close();
+        type: 'REGION_CANCELLED',
+        caseId: caseId,
+        timestamp: Date.now()
+      }).catch(() => {
+        // Ignore errors if extension context is gone
       });
-    } else {
-      window.close();
     }
   }
 
@@ -477,5 +488,5 @@ export default defineUnlistedScript(() => {
     init();
   }
 
-  console.log('🚀 Region selector script loaded');
+  console.log('🚀 Region selector tab script loaded');
 });
