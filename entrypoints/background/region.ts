@@ -9,7 +9,7 @@ export async function startRegionCapture(tabId?: number) {
   await chrome.scripting.executeScript(
     {
       target: { tabId: tab.id },
-      files: [chrome.runtime.getURL('content-scripts/region-overlay.js')],
+      files: [chrome.runtime.getURL('content-scripts/content.js')],
     },
     () => {
       if (chrome.runtime.lastError) {

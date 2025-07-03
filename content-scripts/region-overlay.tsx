@@ -20,7 +20,7 @@ const PORT = 'REGION_OVERLAY';
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_idle',
-  registration: 'runtime',              // cho phép inject động
+  registration: 'runtime',             
 
   main() {
     console.log('[OV] overlay script loaded');
