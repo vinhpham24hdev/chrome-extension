@@ -33,8 +33,8 @@ export default function VideoRecorder({
   const [videoOptions] = useState<VideoOptions>({
     type: "desktop",
     format: "webm",
-    quality: "medium",
-    maxDuration: 600, // 10 minutes
+    quality: "high",
+    maxDuration: 1200, 
     includeAudio: false,
     ...defaultOptions,
   });

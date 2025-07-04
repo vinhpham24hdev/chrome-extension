@@ -68,8 +68,8 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
   const { state, login, clearError } = useAuth();
   const [showLoginForm, setShowLoginForm] = useState(false);
   const [credentials, setCredentials] = useState({
-    username: "",
-    password: "",
+    username: "demo.user@cellebrite.com",
+    password: "password",
   });
 
   // Clear error when component mounts

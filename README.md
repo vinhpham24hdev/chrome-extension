@@ -32,7 +32,7 @@
 ```bash
 # 1. Clone & install
 git clone https://github.com/lvntruong/chrome-extension-video-capture.git
-cd chrome-extension
+cd chrome-chrome-extension-video-capture
 npm install
 
 # 2. Start extension with real backend
@@ -42,7 +42,7 @@ npm run dev:real        # or npm run dev:mock for offline mode
 # ‑ open chrome://extensions → "Load unpacked" → .wxt/dev
 ```
 
-> **Node >= 18** is required
+> **Node >= 22.12.0** is required
 
 ## 🔧 Environment Variables
 
