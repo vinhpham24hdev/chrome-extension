@@ -1,6 +1,6 @@
-// services/screenshotService.ts - Updated with URL capture
+// services/screenshotService.ts - Fixed with proper Screen vs Full distinction
 export interface ScreenshotOptions {
-  type?: 'visible' | 'full';
+  type?: 'visible' | 'full' | 'region';
   format?: 'png' | 'jpeg';
   quality?: number;
 }
@@ -10,7 +10,7 @@ export interface ScreenshotResult {
   dataUrl?: string;
   filename?: string;
   blob?: Blob;
-  sourceUrl?: string; // Add source URL
+  sourceUrl?: string;
   error?: string;
 }
 
@@ -98,7 +98,6 @@ class ScreenshotService {
         };
       }
 
-      // Get current active tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
       if (!tab) {
@@ -129,21 +128,16 @@ class ScreenshotService {
   }
 
   /**
-   * Capture current tab with enhanced error handling
+   * 🖥️ SCREEN: Capture only visible area (what you see in viewport)
    */
-  async captureCurrentTab(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
+  async captureVisibleArea(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
     try {
-      console.log('📸 Starting tab capture with permission check...');
+      console.log('📸 Starting VISIBLE AREA capture...');
 
-      // Get current tab URL first
       const currentUrl = await this.getCurrentTabUrl();
-      console.log('🌐 Current tab URL:', currentUrl || 'Not available/restricted');
-
-      // Check permissions
       const permissionCheck = await this.checkTabPermissions();
       
       if (!permissionCheck.canCapture) {
-        console.error('❌ Tab capture not allowed:', permissionCheck.error);
         return {
           success: false,
           error: permissionCheck.error || 'Cannot capture current tab'
@@ -151,32 +145,88 @@ class ScreenshotService {
       }
 
       const tab = permissionCheck.tab!;
-      console.log('✅ Tab capture allowed:', { id: tab.id, url: tab.url?.substring(0, 50) + '...' });
-
-      // Proceed with capture
-      const result = await this.performCapture(tab, options);
+      
+      // Simple visible tab capture
+      const result = await this.performVisibleCapture(tab, options);
       
       if (result.success && currentUrl) {
-        // Add the source URL to the result
         result.sourceUrl = currentUrl;
-        console.log('🔗 Added source URL to screenshot result:', currentUrl);
       }
 
       return result;
 
     } catch (error) {
-      console.error('❌ Tab capture error:', error);
+      console.error('❌ Visible area capture error:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Tab capture failed'
+        error: error instanceof Error ? error.message : 'Visible area capture failed'
       };
     }
   }
 
   /**
-   * Perform the actual capture after permission checks
+   * 📄 FULL: Capture entire page including content below the fold
    */
-  private async performCapture(tab: chrome.tabs.Tab, options: ScreenshotOptions): Promise<ScreenshotResult> {
+  async captureFullPage(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
+    try {
+      console.log('📄 Starting FULL PAGE capture...');
+
+      const currentUrl = await this.getCurrentTabUrl();
+      const permissionCheck = await this.checkTabPermissions();
+      
+      if (!permissionCheck.canCapture) {
+        return {
+          success: false,
+          error: permissionCheck.error || 'Cannot capture current tab'
+        };
+      }
+
+      const tab = permissionCheck.tab!;
+      
+      // Full page capture with scrolling
+      const result = await this.performFullPageCapture(tab, options);
+      
+      if (result.success && currentUrl) {
+        result.sourceUrl = currentUrl;
+      }
+
+      return result;
+
+    } catch (error) {
+      console.error('❌ Full page capture error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Full page capture failed'
+      };
+    }
+  }
+
+  /**
+   * Legacy method - now properly routes to visible or full
+   */
+  async captureCurrentTab(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
+    if (options.type === 'full') {
+      return this.captureFullPage(options);
+    } else {
+      return this.captureVisibleArea(options);
+    }
+  }
+
+  /**
+   * Enhanced captureFullScreen - routes based on type
+   */
+  async captureFullScreen(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
+    if (options.type === 'full') {
+      return this.captureFullPage(options);
+    } else {
+      return this.captureVisibleArea(options);
+    }
+  }
+
+  /**
+   * Perform simple visible area capture
+   */
+  private async performVisibleCapture(tab: chrome.tabs.Tab, options: ScreenshotOptions): Promise<ScreenshotResult> {
     try {
       if (!tab.windowId) {
         return {
@@ -185,7 +235,9 @@ class ScreenshotService {
         };
       }
 
-      // Capture the visible tab
+      console.log('📸 Capturing visible area only...');
+
+      // Simple capture of visible area
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
         format: options.format || 'png',
         quality: options.quality || 100
@@ -198,13 +250,12 @@ class ScreenshotService {
         };
       }
 
-      // Convert to blob
       const blob = await this.dataUrlToBlob(dataUrl);
-      
-      // Generate filename
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const domain = this.extractDomain(tab.url || 'unknown');
-      const filename = `screenshot_${domain}_${timestamp}.png`;
+      const filename = `visible_${domain}_${timestamp}.png`;
+
+      console.log('✅ Visible area captured successfully');
 
       return {
         success: true,
@@ -214,37 +265,228 @@ class ScreenshotService {
       };
 
     } catch (error) {
-      console.error('❌ Capture execution error:', error);
-      
-      // Provide specific error messages
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      
-      if (errorMessage.includes('activeTab')) {
-        return {
-          success: false,
-          error: 'Permission denied. Please click the extension icon first to grant access, then try again.'
-        };
-      }
-
-      if (errorMessage.includes('Cannot access contents')) {
-        return {
-          success: false,
-          error: 'Cannot access this page. Please try on a regular website instead.'
-        };
-      }
-
-      return {
-        success: false,
-        error: `Capture failed: ${errorMessage}`
-      };
+      return this.handleCaptureError(error);
     }
   }
 
   /**
-   * Enhanced captureFullScreen with better error messages
+   * Perform full page capture with scrolling
    */
-  async captureFullScreen(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
-    return this.captureCurrentTab(options);
+  private async performFullPageCapture(tab: chrome.tabs.Tab, options: ScreenshotOptions): Promise<ScreenshotResult> {
+    try {
+      if (!tab.windowId || !tab.id) {
+        return {
+          success: false,
+          error: 'Tab has no window/tab ID'
+        };
+      }
+
+      console.log('📄 Starting full page capture with scrolling...');
+
+      // Inject content script to get page dimensions and handle scrolling
+      const injectionResult = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: this.getPageDimensionsScript,
+      });
+
+      if (!injectionResult || !injectionResult[0]?.result) {
+        throw new Error('Failed to get page dimensions');
+      }
+
+      const pageDimensions = injectionResult[0].result;
+      console.log('📐 Page dimensions:', pageDimensions);
+
+      // If page fits in viewport, just do a simple capture
+      if (pageDimensions.scrollHeight <= pageDimensions.viewportHeight + 100) {
+        console.log('📸 Page fits in viewport, using simple capture');
+        return this.performVisibleCapture(tab, options);
+      }
+
+      // Calculate how many captures we need
+      const viewportHeight = pageDimensions.viewportHeight;
+      const totalHeight = pageDimensions.scrollHeight;
+      const captureCount = Math.ceil(totalHeight / viewportHeight);
+      
+      console.log(`📸 Need ${captureCount} captures for full page (${totalHeight}px total)`);
+
+      const captures: string[] = [];
+      
+      // Reset scroll to top
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => window.scrollTo(0, 0),
+      });
+
+      // Wait for initial scroll
+      await this.wait(500);
+
+      // Capture each section
+      for (let i = 0; i < captureCount; i++) {
+        const scrollY = i * viewportHeight;
+        
+        console.log(`📸 Capturing section ${i + 1}/${captureCount} at scroll ${scrollY}px`);
+
+        // Scroll to position
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (y) => window.scrollTo(0, y),
+          args: [scrollY]
+        });
+
+        // Wait for scroll and rendering
+        await this.wait(300);
+
+        // Capture this section
+        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+          format: options.format || 'png',
+          quality: options.quality || 100
+        });
+
+        if (dataUrl) {
+          captures.push(dataUrl);
+        }
+      }
+
+      // Reset scroll position
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => window.scrollTo(0, 0),
+      });
+
+      if (captures.length === 0) {
+        throw new Error('No captures were successful');
+      }
+
+      console.log(`✅ Captured ${captures.length} sections, stitching together...`);
+
+      // Stitch images together
+      const stitchedResult = await this.stitchImages(captures, pageDimensions);
+      
+      if (!stitchedResult.success) {
+        throw new Error(stitchedResult.error || 'Failed to stitch images');
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const domain = this.extractDomain(tab.url || 'unknown');
+      const filename = `fullpage_${domain}_${timestamp}.png`;
+
+      console.log('✅ Full page capture completed successfully');
+
+      return {
+        success: true,
+        dataUrl: stitchedResult.dataUrl!,
+        filename,
+        blob: stitchedResult.blob!
+      };
+
+    } catch (error) {
+      return this.handleCaptureError(error);
+    }
+  }
+
+  /**
+   * Script to get page dimensions (injected into page)
+   */
+  private getPageDimensionsScript = () => {
+    return {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollWidth: Math.max(
+        document.body.scrollWidth,
+        document.documentElement.scrollWidth,
+        document.body.offsetWidth,
+        document.documentElement.offsetWidth,
+        document.body.clientWidth,
+        document.documentElement.clientWidth
+      ),
+      scrollHeight: Math.max(
+        document.body.scrollHeight,
+        document.documentElement.scrollHeight,
+        document.body.offsetHeight,
+        document.documentElement.offsetHeight,
+        document.body.clientHeight,
+        document.documentElement.clientHeight
+      )
+    };
+  };
+
+  /**
+   * Stitch multiple images together vertically
+   */
+  private async stitchImages(
+    captures: string[], 
+    dimensions: { viewportWidth: number; viewportHeight: number; scrollHeight: number }
+  ): Promise<{ success: boolean; dataUrl?: string; blob?: Blob; error?: string }> {
+    return new Promise((resolve) => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+          resolve({ success: false, error: 'Canvas context not available' });
+          return;
+        }
+
+        canvas.width = dimensions.viewportWidth;
+        canvas.height = dimensions.scrollHeight;
+
+        let loadedImages = 0;
+        const images: HTMLImageElement[] = [];
+
+        // Load all images
+        captures.forEach((dataUrl, index) => {
+          const img = new Image();
+          img.onload = () => {
+            images[index] = img;
+            loadedImages++;
+            
+            if (loadedImages === captures.length) {
+              // All images loaded, stitch them
+              try {
+                images.forEach((img, i) => {
+                  const y = i * dimensions.viewportHeight;
+                  const remainingHeight = dimensions.scrollHeight - y;
+                  const drawHeight = Math.min(dimensions.viewportHeight, remainingHeight);
+                  
+                  ctx.drawImage(img, 0, y, canvas.width, drawHeight);
+                });
+
+                canvas.toBlob((blob) => {
+                  if (blob) {
+                    const dataUrl = canvas.toDataURL('image/png');
+                    resolve({
+                      success: true,
+                      dataUrl,
+                      blob
+                    });
+                  } else {
+                    resolve({ success: false, error: 'Failed to create stitched image blob' });
+                  }
+                }, 'image/png');
+
+              } catch (error) {
+                resolve({
+                  success: false,
+                  error: error instanceof Error ? error.message : 'Stitching failed'
+                });
+              }
+            }
+          };
+
+          img.onerror = () => {
+            resolve({ success: false, error: `Failed to load image ${index}` });
+          };
+
+          img.src = dataUrl;
+        });
+
+      } catch (error) {
+        resolve({
+          success: false,
+          error: error instanceof Error ? error.message : 'Image stitching failed'
+        });
+      }
+    });
   }
 
   /**
@@ -254,11 +496,11 @@ class ScreenshotService {
     try {
       console.log('📸 Starting region capture...');
 
-      // First capture the full tab
-      const fullCapture = await this.captureCurrentTab(options);
+      // First capture the visible area (not full page for region)
+      const fullCapture = await this.captureVisibleArea(options);
       
       if (!fullCapture.success) {
-        return fullCapture; // Return the same error
+        return fullCapture;
       }
 
       // Crop the region
@@ -271,7 +513,6 @@ class ScreenshotService {
         };
       }
 
-      // Generate new filename for region
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = `region_${region.width}x${region.height}_${timestamp}.png`;
 
@@ -280,7 +521,7 @@ class ScreenshotService {
         dataUrl: croppedResult.dataUrl,
         filename,
         blob: croppedResult.blob,
-        sourceUrl: fullCapture.sourceUrl // Pass through the source URL
+        sourceUrl: fullCapture.sourceUrl
       };
 
     } catch (error) {
@@ -290,6 +531,41 @@ class ScreenshotService {
         error: error instanceof Error ? error.message : 'Region capture failed'
       };
     }
+  }
+
+  /**
+   * Wait helper function
+   */
+  private wait(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Handle capture errors with specific messages
+   */
+  private handleCaptureError(error: unknown): ScreenshotResult {
+    console.error('❌ Capture execution error:', error);
+    
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    if (errorMessage.includes('activeTab')) {
+      return {
+        success: false,
+        error: 'Permission denied. Please click the extension icon first to grant access, then try again.'
+      };
+    }
+
+    if (errorMessage.includes('Cannot access contents')) {
+      return {
+        success: false,
+        error: 'Cannot access this page. Please try on a regular website instead.'
+      };
+    }
+
+    return {
+      success: false,
+      error: `Capture failed: ${errorMessage}`
+    };
   }
 
   /**
@@ -384,8 +660,6 @@ class ScreenshotService {
         return false;
       }
 
-      // TODO: Implement actual save logic based on your storage service
-      // For now, just log success
       console.log('✅ Screenshot saved successfully');
       return true;
 

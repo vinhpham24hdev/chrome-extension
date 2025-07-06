@@ -137,9 +137,9 @@ const mockCases: CaseItem[] = [
 export default function Dashboard() {
   const { state, logout } = useAuth();
   const [selectedCase, setSelectedCase] = useState<string>(mockCases[0].id);
-  const [captureMode, setCaptureMode] = useState<"screenshot" | "video" | "region" | null>(
-    null
-  );
+  const [captureMode, setCaptureMode] = useState<
+    "screenshot" | "video" | "region" | null
+  >(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [screenshotPreview, setScreenshotPreview] =
     useState<ScreenshotData | null>(null);
@@ -420,12 +420,32 @@ export default function Dashboard() {
     setCaptureMode("screenshot");
 
     try {
-      // Handle regular screenshot capture
-      const captureType = type === "screen" ? "visible" : "full";
-      const result = await screenshotService.captureFullScreen({
-        type: captureType,
-        format: "png",
-      });
+      let result: ScreenshotResult;
+
+      // 🖥️ SCREEN: Capture only visible area
+      if (type === "screen") {
+        console.log("📸 Capturing VISIBLE AREA (Screen)...");
+        result = await screenshotService.captureVisibleArea({
+          type: "visible",
+          format: "png",
+        });
+      }
+      // 📄 FULL: Capture entire page with scrolling
+      else if (type === "full") {
+        console.log("📄 Capturing FULL PAGE with scrolling...");
+        result = await screenshotService.captureFullPage({
+          type: "full",
+          format: "png",
+        });
+      }
+      // 🎯 REGION: Will be handled by region selector
+      else {
+        console.log("🎯 Starting region capture...");
+        result = await screenshotService.captureVisibleArea({
+          type: "visible",
+          format: "png",
+        });
+      }
 
       if (result.success && result.dataUrl && result.filename) {
         const screenshotData: ScreenshotData = {
@@ -435,7 +455,7 @@ export default function Dashboard() {
           type: `screenshot-${type}`,
           caseId: selectedCase,
           blob: result.blob,
-          sourceUrl: result.sourceUrl,
+          sourceUrl: result.sourceUrl, // Đã có URL detection
         };
 
         console.log("Opening screenshot preview in new window...");
@@ -740,31 +760,38 @@ export default function Dashboard() {
             onClick={() => handleScreenshot("screen")}
             disabled={isCapturing || !selectedCase}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Capture only visible area (what you see now)"
           >
-            <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
+            <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center relative">
               <div className="w-4 h-3 bg-gray-600 rounded-xs"></div>
+              {/* Add viewport indicator */}
+              <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full"></div>
             </div>
             <span className="text-xs text-gray-700">Screen</span>
           </button>
 
-          {/* Full Page Capture */}
+          {/* Full Page Capture - ENTIRE PAGE WITH SCROLLING */}
           <button
             onClick={() => handleScreenshot("full")}
             disabled={isCapturing || !selectedCase}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Capture entire page including content below the fold"
           >
             <div className="w-8 h-6 border-2 border-gray-600 rounded-sm relative">
               <div className="w-6 h-4 bg-gray-600 rounded-xs absolute top-0.5 left-0.5"></div>
+              {/* Add scroll indicator */}
+              <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"></div>
+              <div className="absolute top-1 right-0.5 w-0.5 h-3 bg-white opacity-75"></div>
             </div>
             <span className="text-xs text-gray-700">Full</span>
           </button>
 
-          {/* Region Capture - Enhanced with Loom-style indicator */}
+          {/* Region Capture - Enhanced with better description */}
           <button
             onClick={() => handleScreenshot("region")}
             disabled={isCapturing || !selectedCase}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
-            title="Select custom region to capture - opens in fullscreen mode"
+            title="Select custom area to capture"
           >
             <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm relative">
               {/* Add selection crosshair icon */}
@@ -774,10 +801,10 @@ export default function Dashboard() {
                   <div className="absolute inset-y-0 left-1/2 w-0.5 bg-gray-600 transform -translate-x-0.25"></div>
                 </div>
               </div>
+              {/* Add region indicator */}
+              <div className="absolute -top-1 -right-1 w-2 h-2 bg-purple-500 rounded-full"></div>
             </div>
             <span className="text-xs text-gray-700">Region</span>
-            {/* Loom-style indicator for fullscreen mode */}
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-purple-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
           </button>
 
           {/* Divider */}
@@ -845,7 +872,8 @@ export default function Dashboard() {
             </p>
             {captureMode === "region" && (
               <p className="text-sm text-gray-500 mt-2 text-center">
-                A new window will open where you can<br />
+                A new window will open where you can
+                <br />
                 select the area to capture
               </p>
             )}
