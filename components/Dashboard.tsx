@@ -19,7 +19,6 @@ import {
 import { screenshotWindowService } from "../services/screenshotWindowService";
 import { videoWindowService } from "../services/videoWindowService";
 import { videoRecorderWindowService } from "../services/videoRecorderWindowService";
-import { regionSelectorService, RegionResult } from "../services/regionSelectorService";
 
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 
@@ -324,61 +323,6 @@ export default function Dashboard() {
     };
   }, [selectedCase]);
 
-  // Setup region selector service listeners
-  useEffect(() => {
-    regionSelectorService.addListener("region_selected", (result: RegionResult) => {
-      console.log("Region selection completed:", result);
-      
-      if (result.success && result.dataUrl) {
-        const screenshotData: ScreenshotData = {
-          dataUrl: result.dataUrl,
-          filename: result.filename || `region-${Date.now()}.png`,
-          timestamp: new Date().toISOString(),
-          type: "screenshot-region",
-          caseId: selectedCase,
-          blob: videoService.dataURLtoBlob(result.dataUrl),
-        };
-
-        // Open preview window
-        screenshotWindowService
-          .openScreenshotPreview(screenshotData, {
-            width: 1400,
-            height: 900,
-            centered: true,
-          })
-          .then((res) => {
-            if (!res.success) {
-              setScreenshotPreview(screenshotData);
-            }
-          });
-      } else {
-        showError(
-          "Region Capture Failed",
-          result.error || "Failed to capture selected region",
-          [
-            "Try selecting the region again",
-            "Make sure the selected area is not too small",
-            "Check if you have sufficient permissions",
-          ]
-        );
-      }
-
-      setIsCapturing(false);
-      setCaptureMode(null);
-    });
-
-    regionSelectorService.addListener("selector_closed", () => {
-      console.log("Region selector closed");
-      setIsCapturing(false);
-      setCaptureMode(null);
-    });
-
-    return () => {
-      regionSelectorService.removeListener("region_selected");
-      regionSelectorService.removeListener("selector_closed");
-    };
-  }, [selectedCase]);
-
   // Handle click outside dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -476,36 +420,6 @@ export default function Dashboard() {
     setCaptureMode("screenshot");
 
     try {
-      if (type === "region") {
-        // Handle region selection - open in new fullscreen window
-        console.log("🎯 Opening region selector...");
-        
-        const result = await regionSelectorService.openRegionSelector({
-          caseId: selectedCase,
-          centered: true
-        });
-
-        if (result.success) {
-          console.log("✅ Region selector opened successfully");
-          setCaptureMode("region");
-          // Keep capturing state - will be cleared when selection completes
-        } else {
-          console.error("❌ Failed to open region selector:", result.error);
-          showError(
-            "Region Selector Failed",
-            result.error || "Failed to open region selector",
-            [
-              "Check popup blocker settings",
-              "Try again in a few seconds",
-              "Use regular screenshot instead",
-            ]
-          );
-          setIsCapturing(false);
-          setCaptureMode(null);
-        }
-        return;
-      }
-
       // Handle regular screenshot capture
       const captureType = type === "screen" ? "visible" : "full";
       const result = await screenshotService.captureFullScreen({
