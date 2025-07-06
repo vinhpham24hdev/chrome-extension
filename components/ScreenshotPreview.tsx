@@ -1,4 +1,4 @@
-// components/ScreenshotPreview.tsx - Pure React popup with proper event handling
+// components/ScreenshotPreview.tsx - Updated with proper URL detection
 import React, { useState, useEffect } from "react";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
 import { caseService } from "../services/caseService";
@@ -10,6 +10,7 @@ export interface ScreenshotData {
   type: string;
   caseId: string;
   blob?: Blob;
+  sourceUrl?: string; // Add this field to store the source URL
 }
 
 interface ScreenshotPreviewProps {
@@ -39,7 +40,7 @@ export default function ScreenshotPreview({
   const [formData, setFormData] = useState({
     name: screenshot.filename.replace(/\.[^/.]+$/, ""),
     description: "",
-    url: "",
+    url: screenshot.sourceUrl || "", // Use sourceUrl from screenshot data if available
     selectedCase: screenshot.caseId,
   });
 
@@ -55,16 +56,122 @@ export default function ScreenshotPreview({
     error: null,
   });
 
-  // Auto-detect current page URL
+  // Enhanced URL detection
   useEffect(() => {
-    if (typeof chrome !== 'undefined' && chrome.tabs) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.url) {
-          setFormData(prev => ({ ...prev, url: tabs[0].url! }));
+    const detectCurrentPageUrl = async () => {
+      try {
+        // Method 1: Use screenshot's sourceUrl if available
+        if (screenshot.sourceUrl) {
+          setFormData(prev => ({ ...prev, url: screenshot.sourceUrl! }));
+          return;
         }
-      });
+
+        // Method 2: Get current active tab URL (Chrome Extension)
+        if (typeof chrome !== 'undefined' && chrome.tabs) {
+          try {
+            const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tabs[0]?.url) {
+              const currentUrl = tabs[0].url;
+              
+              // Filter out browser internal pages
+              if (!isRestrictedUrl(currentUrl)) {
+                setFormData(prev => ({ ...prev, url: currentUrl }));
+                return;
+              }
+            }
+          } catch (error) {
+            console.warn('Could not get tab URL:', error);
+          }
+        }
+
+        // Method 3: Try to get URL from window location (if in same context)
+        if (typeof window !== 'undefined' && window.location) {
+          try {
+            const windowUrl = window.location.href;
+            if (!isRestrictedUrl(windowUrl)) {
+              setFormData(prev => ({ ...prev, url: windowUrl }));
+              return;
+            }
+          } catch (error) {
+            console.warn('Could not get window location:', error);
+          }
+        }
+
+        // Method 4: Try to get from parent window/opener
+        try {
+          if (window.opener && !window.opener.closed) {
+            const openerUrl = window.opener.location.href;
+            if (!isRestrictedUrl(openerUrl)) {
+              setFormData(prev => ({ ...prev, url: openerUrl }));
+              return;
+            }
+          }
+        } catch (error) {
+          // Cross-origin restriction is expected, ignore
+          console.debug('Cross-origin opener access blocked (expected)');
+        }
+
+        // Method 5: Try to extract from referrer
+        if (document.referrer && !isRestrictedUrl(document.referrer)) {
+          setFormData(prev => ({ ...prev, url: document.referrer }));
+          return;
+        }
+
+        // Method 6: Use a fallback URL pattern based on screenshot type
+        const fallbackUrl = generateFallbackUrl(screenshot);
+        if (fallbackUrl) {
+          setFormData(prev => ({ ...prev, url: fallbackUrl }));
+        }
+
+      } catch (error) {
+        console.error('Error detecting page URL:', error);
+        // Set a generic fallback
+        setFormData(prev => ({ 
+          ...prev, 
+          url: 'https://example.com' // Generic fallback
+        }));
+      }
+    };
+
+    detectCurrentPageUrl();
+  }, [screenshot]);
+
+  // Helper function to check if URL is restricted
+  const isRestrictedUrl = (url: string): boolean => {
+    const restrictedPatterns = [
+      /^chrome:\/\//,
+      /^chrome-extension:\/\//,
+      /^moz-extension:\/\//,
+      /^about:/,
+      /^edge:\/\//,
+      /^file:\/\//,
+      /^data:/,
+      /^javascript:/,
+      /^chrome-search:\/\//,
+      /^chrome-devtools:\/\//
+    ];
+
+    return restrictedPatterns.some(pattern => pattern.test(url));
+  };
+
+  // Generate fallback URL based on screenshot context
+  const generateFallbackUrl = (screenshot: ScreenshotData): string | null => {
+    // Try to extract domain info from filename
+    const filename = screenshot.filename;
+    
+    // Check if filename contains domain-like patterns
+    const domainMatch = filename.match(/(\w+\.\w+)/);
+    if (domainMatch) {
+      return `https://${domainMatch[1]}`;
     }
-  }, []);
+
+    // Check screenshot type for hints
+    if (screenshot.type?.includes('tab')) {
+      return 'https://www.example.com'; // Placeholder for tab captures
+    }
+
+    return null;
+  };
 
   // Generate unique snapshot ID
   const snapshotId = `Snapshot ${Math.floor(Math.random() * 100000000)}`;
@@ -300,10 +407,16 @@ export default function ScreenshotPreview({
                 />
               </div>
 
-              {/* URL Field */}
+              {/* URL Field - Enhanced with better detection */}
               <div>
                 <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-1">
-                  URL
+                  Source URL
+                  {formData.url && !isRestrictedUrl(formData.url) && (
+                    <span className="ml-2 text-xs text-green-600">✓ Detected</span>
+                  )}
+                  {formData.url && isRestrictedUrl(formData.url) && (
+                    <span className="ml-2 text-xs text-orange-600">⚠ Restricted page</span>
+                  )}
                 </label>
                 <input
                   type="url"
@@ -311,9 +424,14 @@ export default function ScreenshotPreview({
                   value={formData.url}
                   onChange={handleUrlChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter URL"
+                  placeholder="https://example.com"
                   disabled={uploadState.isUploading}
                 />
+                {formData.url && isRestrictedUrl(formData.url) && (
+                  <p className="mt-1 text-xs text-orange-600">
+                    Browser internal page - URL auto-detection limited
+                  </p>
+                )}
               </div>
 
               {/* Case Dropdown */}

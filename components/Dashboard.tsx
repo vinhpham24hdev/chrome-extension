@@ -435,6 +435,7 @@ export default function Dashboard() {
           type: `screenshot-${type}`,
           caseId: selectedCase,
           blob: result.blob,
+          sourceUrl: result.sourceUrl,
         };
 
         console.log("Opening screenshot preview in new window...");

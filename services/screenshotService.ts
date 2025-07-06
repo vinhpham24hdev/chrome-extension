@@ -1,4 +1,4 @@
-// services/screenshotService.ts - Enhanced with better restricted page handling
+// services/screenshotService.ts - Updated with URL capture
 export interface ScreenshotOptions {
   type?: 'visible' | 'full';
   format?: 'png' | 'jpeg';
@@ -10,6 +10,7 @@ export interface ScreenshotResult {
   dataUrl?: string;
   filename?: string;
   blob?: Blob;
+  sourceUrl?: string; // Add source URL
   error?: string;
 }
 
@@ -33,6 +34,52 @@ class ScreenshotService {
 
   isInitialized(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * Get current tab URL safely
+   */
+  private async getCurrentTabUrl(): Promise<string | null> {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.tabs) {
+        return null;
+      }
+
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab?.url) {
+        return null;
+      }
+
+      // Filter out restricted URLs
+      const restrictedPatterns = [
+        /^chrome:\/\//,
+        /^chrome-extension:\/\//,
+        /^moz-extension:\/\//,
+        /^about:/,
+        /^edge:\/\//,
+        /^opera:\/\//,
+        /^vivaldi:\/\//,
+        /^brave:\/\//,
+        /^chrome-search:\/\//,
+        /^chrome-devtools:\/\//,
+        /^view-source:/,
+        /^file:\/\//,
+        /^data:/
+      ];
+
+      const isRestricted = restrictedPatterns.some(pattern => pattern.test(tab.url!));
+      
+      if (isRestricted) {
+        console.log('Current tab URL is restricted, not capturing URL');
+        return null;
+      }
+
+      return tab.url;
+    } catch (error) {
+      console.warn('Could not get current tab URL:', error);
+      return null;
+    }
   }
 
   /**
@@ -68,48 +115,6 @@ class ScreenshotService {
         };
       }
 
-      // Check for restricted URLs
-      const restrictedPatterns = [
-        /^chrome:\/\//,
-        /^chrome-extension:\/\//,
-        /^moz-extension:\/\//,
-        /^about:/,
-        /^edge:\/\//,
-        /^opera:\/\//,
-        /^vivaldi:\/\//,
-        /^brave:\/\//,
-        /^chrome-search:\/\//,
-        /^chrome-devtools:\/\//,
-        /^view-source:/
-      ];
-
-      const isRestricted = restrictedPatterns.some(pattern => pattern.test(tab.url!));
-
-      // if (isRestricted) {
-      //   return {
-      //     canCapture: false,
-      //     error: `Cannot capture restricted pages.\n\nCurrent page: ${this.getPageTypeDescription(tab.url!)}\n\nPlease navigate to a regular website (like google.com, youtube.com, etc.) and try again.`,
-      //     tab
-      //   };
-      // }
-
-      // // Additional checks for special cases
-      // if (tab.url.startsWith('file://')) {
-      //   return {
-      //     canCapture: false,
-      //     error: 'Cannot capture local files. Please use a web page instead.',
-      //     tab
-      //   };
-      // }
-
-      // if (tab.url.startsWith('data:')) {
-      //   return {
-      //     canCapture: false,
-      //     error: 'Cannot capture data URLs. Please use a regular web page.',
-      //     tab
-      //   };
-      // }
-
       return {
         canCapture: true,
         tab
@@ -124,47 +129,17 @@ class ScreenshotService {
   }
 
   /**
-   * Get user-friendly description of page type
-   */
-  private getPageTypeDescription(url: string): string {
-    if (url.startsWith('chrome://')) return 'Chrome internal page';
-    if (url.startsWith('chrome-extension://')) return 'Extension page';
-    if (url.startsWith('moz-extension://')) return 'Firefox extension page';
-    if (url.startsWith('about:')) return 'Browser about page';
-    if (url.startsWith('edge://')) return 'Edge internal page';
-    if (url.startsWith('opera://')) return 'Opera internal page';
-    if (url.startsWith('vivaldi://')) return 'Vivaldi internal page';
-    if (url.startsWith('brave://')) return 'Brave internal page';
-    if (url.startsWith('file://')) return 'Local file';
-    if (url.startsWith('data:')) return 'Data URL';
-    return 'Restricted page';
-  }
-
-  /**
-   * Suggest alternative action for restricted pages
-   */
-  private getSuggestedAction(url: string): string {
-    const suggestions = [
-      "• Navigate to a regular website (google.com, youtube.com, github.com, etc.)",
-      "• Open a new tab with any website",
-      "• Use 'Screen' capture instead of 'Region' if you need to capture the entire screen"
-    ];
-
-    if (url.startsWith('chrome://') || url.startsWith('about:')) {
-      suggestions.unshift("• These are browser internal pages that cannot be captured for security reasons");
-    }
-
-    return suggestions.join('\n');
-  }
-
-  /**
    * Capture current tab with enhanced error handling
    */
   async captureCurrentTab(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
     try {
       console.log('📸 Starting tab capture with permission check...');
 
-      // Check permissions first
+      // Get current tab URL first
+      const currentUrl = await this.getCurrentTabUrl();
+      console.log('🌐 Current tab URL:', currentUrl || 'Not available/restricted');
+
+      // Check permissions
       const permissionCheck = await this.checkTabPermissions();
       
       if (!permissionCheck.canCapture) {
@@ -181,8 +156,10 @@ class ScreenshotService {
       // Proceed with capture
       const result = await this.performCapture(tab, options);
       
-      if (result.success) {
-        console.log('✅ Tab captured successfully');
+      if (result.success && currentUrl) {
+        // Add the source URL to the result
+        result.sourceUrl = currentUrl;
+        console.log('🔗 Added source URL to screenshot result:', currentUrl);
       }
 
       return result;
@@ -302,7 +279,8 @@ class ScreenshotService {
         success: true,
         dataUrl: croppedResult.dataUrl,
         filename,
-        blob: croppedResult.blob
+        blob: croppedResult.blob,
+        sourceUrl: fullCapture.sourceUrl // Pass through the source URL
       };
 
     } catch (error) {
@@ -312,24 +290,6 @@ class ScreenshotService {
         error: error instanceof Error ? error.message : 'Region capture failed'
       };
     }
-  }
-
-
-  /**
-   * Check if URL is restricted
-   */
-  private isRestrictedUrl(url: string): boolean {
-    const restrictedPatterns = [
-      /^chrome:\/\//,
-      /^chrome-extension:\/\//,
-      /^moz-extension:\/\//,
-      /^about:/,
-      /^edge:\/\//,
-      /^file:\/\//,
-      /^data:/
-    ];
-
-    return restrictedPatterns.some(pattern => pattern.test(url));
   }
 
   /**
