@@ -1,4 +1,13 @@
-// services/screenshotService.ts - Fixed with proper Screen vs Full distinction
+// services/screenshotService.ts - Fixed Full Page Screenshot Implementation
+
+// Declare global interface for temporary scroll position storage
+declare global {
+  interface Window {
+    __originalScrollY?: number;
+    __originalScrollX?: number;
+  }
+}
+
 export interface ScreenshotOptions {
   type?: 'visible' | 'full' | 'region';
   format?: 'png' | 'jpeg';
@@ -58,12 +67,6 @@ class ScreenshotService {
         /^moz-extension:\/\//,
         /^about:/,
         /^edge:\/\//,
-        /^opera:\/\//,
-        /^vivaldi:\/\//,
-        /^brave:\/\//,
-        /^chrome-search:\/\//,
-        /^chrome-devtools:\/\//,
-        /^view-source:/,
         /^file:\/\//,
         /^data:/
       ];
@@ -165,11 +168,11 @@ class ScreenshotService {
   }
 
   /**
-   * 📄 FULL: Capture entire page including content below the fold
+   * 📄 FULL: Capture entire page including content below the fold - ENHANCED VERSION
    */
   async captureFullPage(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
     try {
-      console.log('📄 Starting FULL PAGE capture...');
+      console.log('📄 Starting ENHANCED FULL PAGE capture...');
 
       const currentUrl = await this.getCurrentTabUrl();
       const permissionCheck = await this.checkTabPermissions();
@@ -183,8 +186,8 @@ class ScreenshotService {
 
       const tab = permissionCheck.tab!;
       
-      // Full page capture with scrolling
-      const result = await this.performFullPageCapture(tab, options);
+      // Enhanced full page capture with better scrolling logic
+      const result = await this.performEnhancedFullPageCapture(tab, options);
       
       if (result.success && currentUrl) {
         result.sourceUrl = currentUrl;
@@ -198,28 +201,6 @@ class ScreenshotService {
         success: false,
         error: error instanceof Error ? error.message : 'Full page capture failed'
       };
-    }
-  }
-
-  /**
-   * Legacy method - now properly routes to visible or full
-   */
-  async captureCurrentTab(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
-    if (options.type === 'full') {
-      return this.captureFullPage(options);
-    } else {
-      return this.captureVisibleArea(options);
-    }
-  }
-
-  /**
-   * Enhanced captureFullScreen - routes based on type
-   */
-  async captureFullScreen(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
-    if (options.type === 'full') {
-      return this.captureFullPage(options);
-    } else {
-      return this.captureVisibleArea(options);
     }
   }
 
@@ -270,9 +251,9 @@ class ScreenshotService {
   }
 
   /**
-   * Perform full page capture with scrolling
+   * ENHANCED: Perform full page capture with improved scrolling and stitching
    */
-  private async performFullPageCapture(tab: chrome.tabs.Tab, options: ScreenshotOptions): Promise<ScreenshotResult> {
+  private async performEnhancedFullPageCapture(tab: chrome.tabs.Tab, options: ScreenshotOptions): Promise<ScreenshotResult> {
     try {
       if (!tab.windowId || !tab.id) {
         return {
@@ -281,86 +262,154 @@ class ScreenshotService {
         };
       }
 
-      console.log('📄 Starting full page capture with scrolling...');
+      console.log('📄 Starting ENHANCED full page capture...');
 
-      // Inject content script to get page dimensions and handle scrolling
-      const injectionResult = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: this.getPageDimensionsScript,
-      });
-
-      if (!injectionResult || !injectionResult[0]?.result) {
-        throw new Error('Failed to get page dimensions');
+      // Step 1: Get page dimensions and scroll info
+      const pageInfo = await this.getEnhancedPageInfo(tab.id);
+      
+      if (!pageInfo.success) {
+        throw new Error(pageInfo.error || 'Failed to get page dimensions');
       }
 
-      const pageDimensions = injectionResult[0].result;
-      console.log('📐 Page dimensions:', pageDimensions);
+      const dimensions = pageInfo.data!;
+      console.log('📐 Enhanced page dimensions:', dimensions);
 
-      // If page fits in viewport, just do a simple capture
-      if (pageDimensions.scrollHeight <= pageDimensions.viewportHeight + 100) {
+      // Step 2: Check if scrolling is needed
+      const needsScrolling = dimensions.documentHeight > dimensions.viewportHeight + 50; // 50px tolerance
+      
+      if (!needsScrolling) {
         console.log('📸 Page fits in viewport, using simple capture');
         return this.performVisibleCapture(tab, options);
       }
 
-      // Calculate how many captures we need
-      const viewportHeight = pageDimensions.viewportHeight;
-      const totalHeight = pageDimensions.scrollHeight;
-      const captureCount = Math.ceil(totalHeight / viewportHeight);
+      // Step 3: Prepare for scrolling capture
+      console.log(`📸 Page requires scrolling - Document: ${dimensions.documentHeight}px, Viewport: ${dimensions.viewportHeight}px`);
       
-      console.log(`📸 Need ${captureCount} captures for full page (${totalHeight}px total)`);
+      // Save original scroll position
+      await this.executeScript(tab.id, () => {
+        (window as any).__originalScrollY = window.scrollY;
+        (window as any).__originalScrollX = window.scrollX;
+      });
+
+      // Step 4: Reset to top and wait for stability
+      await this.executeScript(tab.id, () => {
+        window.scrollTo(0, 0);
+      });
+      await this.wait(800); // Longer wait for complex pages
+
+      // Step 5: Calculate optimal scroll steps
+      const scrollSteps = this.calculateOptimalScrollSteps(dimensions);
+      console.log(`📸 Using ${scrollSteps.length} scroll positions for capture`);
 
       const captures: string[] = [];
       
-      // Reset scroll to top
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => window.scrollTo(0, 0),
-      });
-
-      // Wait for initial scroll
-      await this.wait(500);
-
-      // Capture each section
-      for (let i = 0; i < captureCount; i++) {
-        const scrollY = i * viewportHeight;
+      // Step 6: Capture each section with enhanced logic
+      for (let i = 0; i < scrollSteps.length; i++) {
+        const scrollPosition = scrollSteps[i];
         
-        console.log(`📸 Capturing section ${i + 1}/${captureCount} at scroll ${scrollY}px`);
+        console.log(`📸 Capturing section ${i + 1}/${scrollSteps.length} at scroll ${scrollPosition}px`);
 
         // Scroll to position
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: (y) => window.scrollTo(0, y),
-          args: [scrollY]
+        await this.executeScript(tab.id, (scrollY: number) => {
+          window.scrollTo(0, scrollY);
+          
+          // Force layout recalculation for better rendering
+          document.body.offsetHeight;
+          
+          // Trigger any lazy-loading images
+          const images = document.querySelectorAll('img[data-src], img[loading="lazy"]');
+          images.forEach(img => {
+            if (img instanceof HTMLImageElement) {
+              const rect = img.getBoundingClientRect();
+              if (rect.top < window.innerHeight && rect.bottom > 0) {
+                if (img.dataset.src && !img.src) {
+                  img.src = img.dataset.src;
+                }
+              }
+            }
+          });
+        }, [scrollPosition]);
+
+        // Wait for scroll completion and content loading
+        await this.wait(600); // Increased wait time
+
+        // Wait for images to load
+        await this.executeScript(tab.id, () => {
+          return new Promise<void>((resolve) => {
+            const images = Array.from(document.querySelectorAll('img'));
+            const visibleImages = images.filter(img => {
+              const rect = img.getBoundingClientRect();
+              return rect.top < window.innerHeight && rect.bottom > 0;
+            });
+
+            if (visibleImages.length === 0) {
+              resolve();
+              return;
+            }
+
+            let loaded = 0;
+            const checkComplete = () => {
+              loaded++;
+              if (loaded >= visibleImages.length) {
+                resolve();
+              }
+            };
+
+            visibleImages.forEach(img => {
+              if (img.complete) {
+                checkComplete();
+              } else {
+                img.onload = checkComplete;
+                img.onerror = checkComplete;
+              }
+            });
+
+            // Timeout after 2 seconds
+            setTimeout(resolve, 2000);
+          });
         });
 
-        // Wait for scroll and rendering
-        await this.wait(300);
+        // Additional wait for any animations or dynamic content
+        await this.wait(200);
 
         // Capture this section
-        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
-          format: options.format || 'png',
-          quality: options.quality || 100
-        });
+        try {
+          const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+            format: options.format || 'png',
+            quality: options.quality || 100
+          });
 
-        if (dataUrl) {
-          captures.push(dataUrl);
+          if (dataUrl) {
+            captures.push(dataUrl);
+            console.log(`✅ Section ${i + 1} captured successfully`);
+          } else {
+            console.warn(`⚠️ Section ${i + 1} capture returned empty data`);
+          }
+        } catch (captureError) {
+          console.warn(`⚠️ Section ${i + 1} capture failed:`, captureError);
+          // Continue with other sections
         }
       }
 
-      // Reset scroll position
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => window.scrollTo(0, 0),
+      // Step 7: Restore original scroll position
+      await this.executeScript(tab.id, () => {
+        const originalY = window.__originalScrollY || 0;
+        const originalX = window.__originalScrollX || 0;
+        window.scrollTo(originalX, originalY);
+        
+        // Cleanup
+        delete window.__originalScrollY;
+        delete window.__originalScrollX;
       });
 
       if (captures.length === 0) {
-        throw new Error('No captures were successful');
+        throw new Error('No sections were captured successfully');
       }
 
       console.log(`✅ Captured ${captures.length} sections, stitching together...`);
 
-      // Stitch images together
-      const stitchedResult = await this.stitchImages(captures, pageDimensions);
+      // Step 8: Enhanced image stitching
+      const stitchedResult = await this.enhancedImageStitching(captures, dimensions, scrollSteps);
       
       if (!stitchedResult.success) {
         throw new Error(stitchedResult.error || 'Failed to stitch images');
@@ -370,7 +419,7 @@ class ScreenshotService {
       const domain = this.extractDomain(tab.url || 'unknown');
       const filename = `fullpage_${domain}_${timestamp}.png`;
 
-      console.log('✅ Full page capture completed successfully');
+      console.log('✅ Enhanced full page capture completed successfully');
 
       return {
         success: true,
@@ -380,42 +429,140 @@ class ScreenshotService {
       };
 
     } catch (error) {
+      // Restore scroll position on error
+      try {
+        if (tab.id) {
+          await this.executeScript(tab.id, () => {
+            const originalY = window.__originalScrollY || 0;
+            const originalX = window.__originalScrollX || 0;
+            window.scrollTo(originalX, originalY);
+            
+            // Cleanup
+            delete window.__originalScrollY;
+            delete window.__originalScrollX;
+          });
+        }
+      } catch (restoreError) {
+        console.warn('Failed to restore scroll position:', restoreError);
+      }
+
       return this.handleCaptureError(error);
     }
   }
 
   /**
-   * Script to get page dimensions (injected into page)
+   * Get enhanced page information for better full-page capture
    */
-  private getPageDimensionsScript = () => {
-    return {
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
-      scrollWidth: Math.max(
-        document.body.scrollWidth,
-        document.documentElement.scrollWidth,
-        document.body.offsetWidth,
-        document.documentElement.offsetWidth,
-        document.body.clientWidth,
-        document.documentElement.clientWidth
-      ),
-      scrollHeight: Math.max(
-        document.body.scrollHeight,
-        document.documentElement.scrollHeight,
-        document.body.offsetHeight,
-        document.documentElement.offsetHeight,
-        document.body.clientHeight,
-        document.documentElement.clientHeight
-      )
+  private async getEnhancedPageInfo(tabId: number): Promise<{
+    success: boolean;
+    data?: {
+      viewportWidth: number;
+      viewportHeight: number;
+      documentWidth: number;
+      documentHeight: number;
+      scrollTop: number;
+      scrollLeft: number;
+      devicePixelRatio: number;
+      hasFixedElements: boolean;
     };
-  };
+    error?: string;
+  }> {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          // Get accurate document dimensions
+          const body = document.body;
+          const documentElement = document.documentElement;
+          
+          const documentHeight = Math.max(
+            body.scrollHeight, documentElement.scrollHeight,
+            body.offsetHeight, documentElement.offsetHeight,
+            body.clientHeight, documentElement.clientHeight
+          );
+          
+          const documentWidth = Math.max(
+            body.scrollWidth, documentElement.scrollWidth,
+            body.offsetWidth, documentElement.offsetWidth,
+            body.clientWidth, documentElement.clientWidth
+          );
+
+          // Check for fixed/sticky elements that might affect capturing
+          const fixedElements = Array.from(document.querySelectorAll('*')).filter(el => {
+            const style = window.getComputedStyle(el);
+            return style.position === 'fixed' || style.position === 'sticky';
+          });
+
+          return {
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            documentWidth,
+            documentHeight,
+            scrollTop: window.scrollY || documentElement.scrollTop || body.scrollTop,
+            scrollLeft: window.scrollX || documentElement.scrollLeft || body.scrollLeft,
+            devicePixelRatio: window.devicePixelRatio || 1,
+            hasFixedElements: fixedElements.length > 0
+          };
+        }
+      });
+
+      if (results && results[0]?.result) {
+        return {
+          success: true,
+          data: results[0].result
+        };
+      } else {
+        return {
+          success: false,
+          error: 'Failed to execute page info script'
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get page info'
+      };
+    }
+  }
 
   /**
-   * Stitch multiple images together vertically
+   * Calculate optimal scroll steps for better coverage
    */
-  private async stitchImages(
+  private calculateOptimalScrollSteps(dimensions: any): number[] {
+    const { viewportHeight, documentHeight } = dimensions;
+    const steps: number[] = [];
+    
+    // Calculate overlap to avoid missing content between captures
+    const overlap = Math.min(100, viewportHeight * 0.1); // 10% overlap or 100px max
+    const stepSize = viewportHeight - overlap;
+    
+    let currentPosition = 0;
+    
+    while (currentPosition < documentHeight) {
+      steps.push(currentPosition);
+      currentPosition += stepSize;
+      
+      // Ensure we don't go beyond the document
+      if (currentPosition >= documentHeight - viewportHeight) {
+        // Add final position that captures the bottom of the page
+        const finalPosition = Math.max(0, documentHeight - viewportHeight);
+        if (finalPosition > steps[steps.length - 1]) {
+          steps.push(finalPosition);
+        }
+        break;
+      }
+    }
+    
+    return steps;
+  }
+
+  /**
+   * Enhanced image stitching with better overlap handling
+   */
+  private async enhancedImageStitching(
     captures: string[], 
-    dimensions: { viewportWidth: number; viewportHeight: number; scrollHeight: number }
+    dimensions: any,
+    scrollSteps: number[]
   ): Promise<{ success: boolean; dataUrl?: string; blob?: Blob; error?: string }> {
     return new Promise((resolve) => {
       try {
@@ -428,7 +575,11 @@ class ScreenshotService {
         }
 
         canvas.width = dimensions.viewportWidth;
-        canvas.height = dimensions.scrollHeight;
+        canvas.height = dimensions.documentHeight;
+
+        // Fill with white background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         let loadedImages = 0;
         const images: HTMLImageElement[] = [];
@@ -441,19 +592,34 @@ class ScreenshotService {
             loadedImages++;
             
             if (loadedImages === captures.length) {
-              // All images loaded, stitch them
+              // All images loaded, stitch them with enhanced logic
               try {
                 images.forEach((img, i) => {
-                  const y = i * dimensions.viewportHeight;
-                  const remainingHeight = dimensions.scrollHeight - y;
-                  const drawHeight = Math.min(dimensions.viewportHeight, remainingHeight);
+                  if (!img) return; // Skip failed images
                   
-                  ctx.drawImage(img, 0, y, canvas.width, drawHeight);
+                  const scrollPosition = scrollSteps[i];
+                  let drawY = scrollPosition;
+                  let drawHeight = dimensions.viewportHeight;
+                  
+                  // Handle last image to ensure it reaches the bottom
+                  if (i === images.length - 1) {
+                    drawY = Math.max(scrollPosition, dimensions.documentHeight - img.height);
+                    drawHeight = Math.min(img.height, dimensions.documentHeight - drawY);
+                  }
+                  
+                  // Ensure we don't draw outside canvas bounds
+                  if (drawY + drawHeight > canvas.height) {
+                    drawHeight = canvas.height - drawY;
+                  }
+                  
+                  if (drawHeight > 0) {
+                    ctx.drawImage(img, 0, drawY, canvas.width, drawHeight);
+                  }
                 });
 
                 canvas.toBlob((blob) => {
                   if (blob) {
-                    const dataUrl = canvas.toDataURL('image/png');
+                    const dataUrl = canvas.toDataURL('image/png', 1.0);
                     resolve({
                       success: true,
                       dataUrl,
@@ -467,14 +633,20 @@ class ScreenshotService {
               } catch (error) {
                 resolve({
                   success: false,
-                  error: error instanceof Error ? error.message : 'Stitching failed'
+                  error: error instanceof Error ? error.message : 'Enhanced stitching failed'
                 });
               }
             }
           };
 
           img.onerror = () => {
-            resolve({ success: false, error: `Failed to load image ${index}` });
+            console.warn(`Failed to load capture ${index}`);
+            loadedImages++;
+            
+            if (loadedImages === captures.length) {
+              // Continue with available images
+              resolve({ success: false, error: `Failed to load capture ${index}` });
+            }
           };
 
           img.src = dataUrl;
@@ -483,53 +655,27 @@ class ScreenshotService {
       } catch (error) {
         resolve({
           success: false,
-          error: error instanceof Error ? error.message : 'Image stitching failed'
+          error: error instanceof Error ? error.message : 'Enhanced image stitching failed'
         });
       }
     });
   }
 
   /**
-   * Capture region with enhanced permission checking
+   * Helper: Execute script in tab with better error handling
    */
-  async captureRegion(region: { x: number; y: number; width: number; height: number }, options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
+  private async executeScript(tabId: number, func: (...args: any[]) => any, args: any[] = []): Promise<any> {
     try {
-      console.log('📸 Starting region capture...');
-
-      // First capture the visible area (not full page for region)
-      const fullCapture = await this.captureVisibleArea(options);
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func,
+        args
+      });
       
-      if (!fullCapture.success) {
-        return fullCapture;
-      }
-
-      // Crop the region
-      const croppedResult = await this.cropImage(fullCapture.dataUrl!, region);
-      
-      if (!croppedResult.success) {
-        return {
-          success: false,
-          error: croppedResult.error || 'Failed to crop region'
-        };
-      }
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `region_${region.width}x${region.height}_${timestamp}.png`;
-
-      return {
-        success: true,
-        dataUrl: croppedResult.dataUrl,
-        filename,
-        blob: croppedResult.blob,
-        sourceUrl: fullCapture.sourceUrl
-      };
-
+      return results[0]?.result;
     } catch (error) {
-      console.error('❌ Region capture error:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Region capture failed'
-      };
+      console.error('Script execution error:', error);
+      throw error;
     }
   }
 
@@ -585,6 +731,72 @@ class ScreenshotService {
       return urlObj.hostname.replace(/\./g, '_');
     } catch {
       return 'unknown';
+    }
+  }
+
+  /**
+   * Legacy method - now properly routes to visible or full
+   */
+  async captureCurrentTab(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
+    if (options.type === 'full') {
+      return this.captureFullPage(options);
+    } else {
+      return this.captureVisibleArea(options);
+    }
+  }
+
+  /**
+   * Enhanced captureFullScreen - routes based on type
+   */
+  async captureFullScreen(options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
+    if (options.type === 'full') {
+      return this.captureFullPage(options);
+    } else {
+      return this.captureVisibleArea(options);
+    }
+  }
+
+  /**
+   * Capture region with enhanced permission checking
+   */
+  async captureRegion(region: { x: number; y: number; width: number; height: number }, options: ScreenshotOptions = {}): Promise<ScreenshotResult> {
+    try {
+      console.log('📸 Starting region capture...');
+
+      // First capture the visible area (not full page for region)
+      const fullCapture = await this.captureVisibleArea(options);
+      
+      if (!fullCapture.success) {
+        return fullCapture;
+      }
+
+      // Crop the region
+      const croppedResult = await this.cropImage(fullCapture.dataUrl!, region);
+      
+      if (!croppedResult.success) {
+        return {
+          success: false,
+          error: croppedResult.error || 'Failed to crop region'
+        };
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `region_${region.width}x${region.height}_${timestamp}.png`;
+
+      return {
+        success: true,
+        dataUrl: croppedResult.dataUrl,
+        filename,
+        blob: croppedResult.blob,
+        sourceUrl: fullCapture.sourceUrl
+      };
+
+    } catch (error) {
+      console.error('❌ Region capture error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Region capture failed'
+      };
     }
   }
 

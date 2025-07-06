@@ -1,5 +1,5 @@
-// components/ScreenshotPreview.tsx - Updated with proper URL detection
-import React, { useState, useEffect } from "react";
+// components/ScreenshotPreview.tsx - Enhanced with better full page handling
+import React, { useState, useEffect, useRef } from "react";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
 import { caseService } from "../services/caseService";
 
@@ -10,7 +10,7 @@ export interface ScreenshotData {
   type: string;
   caseId: string;
   blob?: Blob;
-  sourceUrl?: string; // Add this field to store the source URL
+  sourceUrl?: string;
 }
 
 interface ScreenshotPreviewProps {
@@ -40,7 +40,7 @@ export default function ScreenshotPreview({
   const [formData, setFormData] = useState({
     name: screenshot.filename.replace(/\.[^/.]+$/, ""),
     description: "",
-    url: screenshot.sourceUrl || "", // Use sourceUrl from screenshot data if available
+    url: screenshot.sourceUrl || "",
     selectedCase: screenshot.caseId,
   });
 
@@ -56,24 +56,29 @@ export default function ScreenshotPreview({
     error: null,
   });
 
+  // Image state and refs
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+  const [isFullPage, setIsFullPage] = useState(false);
+  const [viewMode, setViewMode] = useState<'fit' | 'actual' | 'scroll'>('fit');
+  const imageRef = useRef<HTMLImageElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
   // Enhanced URL detection
   useEffect(() => {
     const detectCurrentPageUrl = async () => {
       try {
-        // Method 1: Use screenshot's sourceUrl if available
         if (screenshot.sourceUrl) {
           setFormData(prev => ({ ...prev, url: screenshot.sourceUrl! }));
           return;
         }
 
-        // Method 2: Get current active tab URL (Chrome Extension)
         if (typeof chrome !== 'undefined' && chrome.tabs) {
           try {
             const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
             if (tabs[0]?.url) {
               const currentUrl = tabs[0].url;
               
-              // Filter out browser internal pages
               if (!isRestrictedUrl(currentUrl)) {
                 setFormData(prev => ({ ...prev, url: currentUrl }));
                 return;
@@ -84,7 +89,6 @@ export default function ScreenshotPreview({
           }
         }
 
-        // Method 3: Try to get URL from window location (if in same context)
         if (typeof window !== 'undefined' && window.location) {
           try {
             const windowUrl = window.location.href;
@@ -97,7 +101,6 @@ export default function ScreenshotPreview({
           }
         }
 
-        // Method 4: Try to get from parent window/opener
         try {
           if (window.opener && !window.opener.closed) {
             const openerUrl = window.opener.location.href;
@@ -107,17 +110,14 @@ export default function ScreenshotPreview({
             }
           }
         } catch (error) {
-          // Cross-origin restriction is expected, ignore
           console.debug('Cross-origin opener access blocked (expected)');
         }
 
-        // Method 5: Try to extract from referrer
         if (document.referrer && !isRestrictedUrl(document.referrer)) {
           setFormData(prev => ({ ...prev, url: document.referrer }));
           return;
         }
 
-        // Method 6: Use a fallback URL pattern based on screenshot type
         const fallbackUrl = generateFallbackUrl(screenshot);
         if (fallbackUrl) {
           setFormData(prev => ({ ...prev, url: fallbackUrl }));
@@ -125,10 +125,9 @@ export default function ScreenshotPreview({
 
       } catch (error) {
         console.error('Error detecting page URL:', error);
-        // Set a generic fallback
         setFormData(prev => ({ 
           ...prev, 
-          url: 'https://example.com' // Generic fallback
+          url: 'https://example.com'
         }));
       }
     };
@@ -136,7 +135,31 @@ export default function ScreenshotPreview({
     detectCurrentPageUrl();
   }, [screenshot]);
 
-  // Helper function to check if URL is restricted
+  // Detect image dimensions and type
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      const dimensions = { width: img.width, height: img.height };
+      setImageDimensions(dimensions);
+      setImageLoaded(true);
+      
+      // Detect if this is a full page screenshot (very tall image)
+      const aspectRatio = dimensions.height / dimensions.width;
+      const isVeryTall = aspectRatio > 3; // More than 3:1 ratio suggests full page
+      const isFullPageType = screenshot.type?.includes('full') || screenshot.filename?.includes('fullpage');
+      
+      setIsFullPage(isVeryTall || isFullPageType);
+      
+      // Set default view mode based on image type
+      if (isVeryTall || isFullPageType) {
+        setViewMode('scroll'); // Default to scroll mode for very tall images
+      } else {
+        setViewMode('fit'); // Default to fit mode for normal images
+      }
+    };
+    img.src = screenshot.dataUrl;
+  }, [screenshot]);
+
   const isRestrictedUrl = (url: string): boolean => {
     const restrictedPatterns = [
       /^chrome:\/\//,
@@ -154,20 +177,15 @@ export default function ScreenshotPreview({
     return restrictedPatterns.some(pattern => pattern.test(url));
   };
 
-  // Generate fallback URL based on screenshot context
   const generateFallbackUrl = (screenshot: ScreenshotData): string | null => {
-    // Try to extract domain info from filename
     const filename = screenshot.filename;
-    
-    // Check if filename contains domain-like patterns
     const domainMatch = filename.match(/(\w+\.\w+)/);
     if (domainMatch) {
       return `https://${domainMatch[1]}`;
     }
 
-    // Check screenshot type for hints
     if (screenshot.type?.includes('tab')) {
-      return 'https://www.example.com'; // Placeholder for tab captures
+      return 'https://www.example.com';
     }
 
     return null;
@@ -202,7 +220,6 @@ export default function ScreenshotPreview({
     try {
       let blob = screenshot.blob;
       if (!blob) {
-        // Convert dataUrl to blob if not available
         const response = await fetch(screenshot.dataUrl);
         blob = await response.blob();
       }
@@ -241,12 +258,13 @@ export default function ScreenshotPreview({
             sourceUrl: formData.url,
             captureType: screenshot.type,
             caseName: formData.name,
+            imageDimensions: imageDimensions,
+            isFullPage: isFullPage,
           },
         }
       );
 
       if (result.success) {
-        // Update case metadata
         try {
           const caseData = await caseService.getCaseById(formData.selectedCase);
           if (caseData && caseData.metadata) {
@@ -289,19 +307,89 @@ export default function ScreenshotPreview({
     setFormData(prev => ({ ...prev, selectedCase: e.target.value }));
   };
 
+  const handleViewModeChange = (mode: 'fit' | 'actual' | 'scroll') => {
+    setViewMode(mode);
+  };
+
+  // Get image style based on view mode
+  const getImageStyle = () => {
+    if (!imageLoaded) return {};
+
+    switch (viewMode) {
+      case 'fit':
+        return {
+          maxWidth: '100%',
+          maxHeight: '100%',
+          objectFit: 'contain' as const,
+          width: 'auto',
+          height: 'auto',
+        };
+      case 'actual':
+        return {
+          width: 'auto',
+          height: 'auto',
+          maxWidth: 'none',
+          maxHeight: 'none',
+        };
+      case 'scroll':
+        return {
+          width: '100%',
+          height: 'auto',
+          maxWidth: '100%',
+        };
+      default:
+        return {};
+    }
+  };
+
+  // Get container style based on view mode
+  const getContainerStyle = () => {
+    switch (viewMode) {
+      case 'scroll':
+        return {
+          maxHeight: 'calc(90vh - 200px)',
+          overflowY: 'auto' as const,
+          overflowX: 'hidden' as const,
+        };
+      case 'actual':
+        return {
+          maxHeight: 'calc(90vh - 200px)',
+          overflow: 'auto' as const,
+        };
+      default:
+        return {};
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-2xl max-w-6xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-lg shadow-2xl max-w-7xl w-full max-h-[95vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-900">{snapshotId}</h2>
+          <div className="flex items-center space-x-4">
+            <h2 className="text-lg font-medium text-gray-900">{snapshotId}</h2>
+            
+            {/* Image Type Badge */}
+            {isFullPage && (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                📄 Full Page
+              </span>
+            )}
+            
+            {/* Image Dimensions */}
+            {imageLoaded && (
+              <span className="text-sm text-gray-500">
+                {imageDimensions.width} × {imageDimensions.height}px
+              </span>
+            )}
+          </div>
           
           <button
             onClick={handleCloseClick}
             disabled={uploadState.isUploading}
-            className="flex items-center"
+            className="flex items-center text-gray-400 hover:text-gray-600"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -354,15 +442,32 @@ export default function ScreenshotPreview({
 
         {/* Main Content */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Left Side - Screenshot */}
-          <div className="flex-1 p-4 bg-gray-100 flex items-center justify-center">
-            <div className="max-w-full max-h-full">
-              <img
-                src={screenshot.dataUrl}
-                alt="Screenshot preview"
-                className="max-w-full max-h-full object-contain rounded border border-gray-300 bg-white shadow-sm"
-                style={{ maxHeight: 'calc(90vh - 200px)' }}
-              />
+          {/* Left Side - Screenshot with Enhanced Preview */}
+          <div className="flex-1 flex flex-col bg-gray-100">
+            {/* Image Container */}
+            <div className="flex-1 flex items-center justify-center p-4" style={getContainerStyle()}>
+              <div 
+                ref={containerRef}
+                className="max-w-full max-h-full flex items-start justify-center"
+              >
+                {!imageLoaded && (
+                  <div className="flex items-center space-x-3 text-gray-500">
+                    <div className="w-6 h-6 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin"></div>
+                    <span>Loading image...</span>
+                  </div>
+                )}
+                
+                <img
+                  ref={imageRef}
+                  src={screenshot.dataUrl}
+                  alt="Screenshot preview"
+                  className={`${!imageLoaded ? 'hidden' : ''} border border-gray-300 bg-white shadow-sm ${
+                    viewMode === 'scroll' ? 'rounded-none' : 'rounded'
+                  }`}
+                  style={getImageStyle()}
+                  onLoad={() => setImageLoaded(true)}
+                />
+              </div>
             </div>
           </div>
 
@@ -371,10 +476,15 @@ export default function ScreenshotPreview({
             {/* Details Header */}
             <div className="p-4 border-b border-gray-200">
               <h3 className="text-lg font-medium text-gray-900">Details</h3>
+              {isFullPage && (
+                <p className="text-sm text-blue-600 mt-1">
+                  📄 This appears to be a full page screenshot
+                </p>
+              )}
             </div>
 
             {/* Form */}
-            <div className="flex-1 p-4 space-y-4">
+            <div className="flex-1 p-4 space-y-4 overflow-y-auto">
               {/* Name Field */}
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
@@ -407,7 +517,7 @@ export default function ScreenshotPreview({
                 />
               </div>
 
-              {/* URL Field - Enhanced with better detection */}
+              {/* URL Field */}
               <div>
                 <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-1">
                   Source URL
@@ -453,6 +563,22 @@ export default function ScreenshotPreview({
                   ))}
                 </select>
               </div>
+
+              {/* Image Info */}
+              {imageLoaded && (
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Image Info</h4>
+                  <div className="space-y-1 text-xs text-gray-600">
+                    <div>Size: {imageDimensions.width} × {imageDimensions.height}px</div>
+                    <div>Type: {screenshot.type}</div>
+                    {isFullPage && (
+                      <div className="text-blue-600 font-medium">
+                        📄 Full page capture detected
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Footer Buttons */}
@@ -468,7 +594,7 @@ export default function ScreenshotPreview({
               <button
                 onClick={handleAddToCaseClick}
                 disabled={!formData.name.trim() || uploadState.isUploading}
-                className="flex-1 px-4 py-2 bg-blue-600 border-blue-600  text-white rounded-md text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+                className="flex-1 px-4 py-2 bg-blue-600 border-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
               >
                 {uploadState.isUploading ? (
                   <>

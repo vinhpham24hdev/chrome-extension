@@ -82,6 +82,7 @@ function ScreenshotPreviewWindow() {
       .flex-1 { flex: 1 1 0% !important; }
       .flex-col { flex-direction: column !important; }
       .items-center { align-items: center !important; }
+      .items-start { align-items: flex-start !important; }
       .justify-center { justify-content: center !important; }
       .justify-between { justify-content: space-between !important; }
       .space-x-3 > * + * { margin-left: 0.75rem !important; }
