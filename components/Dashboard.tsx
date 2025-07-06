@@ -16,6 +16,10 @@ import {
   VideoResult,
   VideoOptions,
 } from "../services/videoService";
+import {
+  regionService,
+  RegionCaptureResult,
+} from "../services/regionService";
 import { screenshotWindowService } from "../services/screenshotWindowService";
 import { videoWindowService } from "../services/videoWindowService";
 import { videoRecorderWindowService } from "../services/videoRecorderWindowService";
@@ -96,7 +100,7 @@ const ErrorModal = ({
         <div className="px-6 py-4 border-t bg-gray-50 rounded-b-lg">
           <button
             onClick={onClose}
-            className="w-full bg-blue-600 border-blue-600  text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+            className="w-full bg-blue-600 border-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
           >
             Got it
           </button>
@@ -455,7 +459,7 @@ export default function Dashboard() {
           type: `screenshot-${type}`,
           caseId: selectedCase,
           blob: result.blob,
-          sourceUrl: result.sourceUrl, // Đã có URL detection
+          sourceUrl: result.sourceUrl, 
         };
 
         console.log("Opening screenshot preview in new window...");
@@ -522,6 +526,104 @@ export default function Dashboard() {
     }
 
     setIsCapturing(false);
+  };
+
+  // NEW: Handle region capture
+  const handleRegionCapture = async () => {
+    if (!selectedCase) {
+      showError(
+        "No Case Selected",
+        "Please select a case before capturing a region.",
+        ["Select a case from the dropdown above"]
+      );
+      return;
+    }
+
+    setIsCapturing(true);
+    setCaptureMode("region");
+
+    try {
+      console.log("🎯 Starting region selection...");
+
+      const result: RegionCaptureResult = await regionService.startRegionSelection({
+        showGuides: true,
+        showDimensions: true,
+        overlayColor: 'rgba(0, 0, 0, 0.3)',
+        borderColor: '#4285f4'
+      });
+
+      if (result.success && result.dataUrl && result.filename && result.selection) {
+        console.log("✅ Region captured successfully:", result.selection);
+
+        // Get selection stats for better UX
+        const stats = regionService.getSelectionStats(result.selection);
+        
+        const screenshotData: ScreenshotData = {
+          dataUrl: result.dataUrl,
+          filename: result.filename,
+          timestamp: new Date().toISOString(),
+          type: `region-${Math.round(stats.area)}px`,
+          caseId: selectedCase,
+          blob: result.blob,
+          sourceUrl: window.location.href,
+        };
+
+        console.log("Opening region preview in new window...");
+
+        const windowResult =
+          await screenshotWindowService.openScreenshotPreview(screenshotData, {
+            width: 1400,
+            height: 900,
+            centered: true,
+          });
+
+        if (!windowResult.success) {
+          console.error("Failed to open preview window:", windowResult.error);
+          setScreenshotPreview(screenshotData);
+        } else {
+          console.log(
+            "Preview window opened successfully:",
+            windowResult.windowId
+          );
+        }
+      } else {
+        // Enhanced error handling for region selection
+        const errorMsg = result.error || "Region selection was cancelled";
+        let suggestions = [
+          "Try the region capture again",
+          "Make sure to drag to select an area",
+          "Press ESC to cancel if needed",
+        ];
+
+        if (errorMsg.includes("cancelled")) {
+          console.log("👍 Region selection cancelled by user");
+          // Don't show error for user cancellation
+        } else if (errorMsg.includes("restricted")) {
+          suggestions = [
+            "Navigate to a regular website",
+            "Region capture doesn't work on browser internal pages",
+            "Try on google.com, youtube.com, or github.com",
+          ];
+          showError("Region Capture Failed", errorMsg, suggestions);
+        } else {
+          showError("Region Capture Failed", errorMsg, suggestions);
+        }
+      }
+    } catch (error) {
+      console.error("Region capture error:", error);
+      showError(
+        "Region Capture Error",
+        "An unexpected error occurred during region selection.",
+        [
+          "Refresh the page and try again",
+          "Check browser permissions",
+          "Try a different capture mode",
+        ]
+      );
+    }
+
+    setIsCapturing(false);
+    setCaptureMode(null);
   };
 
   // Updated video capture handler - opens in new tab with auto-start like Loom
@@ -687,7 +789,7 @@ export default function Dashboard() {
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={handleUserAvatarClick}
-            className="w-8 h-8 bg-blue-600 border-blue-600  rounded-full flex items-center justify-center text-white text-sm font-medium hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            className="w-8 h-8 bg-blue-600 border-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
             {state.user?.username?.substring(0, 2).toUpperCase() || "JD"}
           </button>
@@ -752,7 +854,7 @@ export default function Dashboard() {
         </Box>
       </div>
 
-      {/* Capture Tools Grid */}
+      {/* Enhanced Capture Tools Grid with Region Selector */}
       <div className="px-6 py-2">
         <div className="flex items-start justify-between">
           {/* Screen Capture */}
@@ -786,12 +888,12 @@ export default function Dashboard() {
             <span className="text-xs text-gray-700">Full</span>
           </button>
 
-          {/* Region Capture - Enhanced with better description */}
+          {/* Region Capture - ENHANCED with proper handler */}
           <button
-            onClick={() => handleScreenshot("region")}
+            onClick={handleRegionCapture}
             disabled={isCapturing || !selectedCase}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
-            title="Select custom area to capture"
+            title="Select custom area to capture - drag to select region"
           >
             <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm relative">
               {/* Add selection crosshair icon */}
@@ -805,6 +907,11 @@ export default function Dashboard() {
               <div className="absolute -top-1 -right-1 w-2 h-2 bg-purple-500 rounded-full"></div>
             </div>
             <span className="text-xs text-gray-700">Region</span>
+            
+            {/* Enhanced tooltip for region */}
+            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+              🎯 Drag to select area
+            </div>
           </button>
 
           {/* Divider */}
@@ -830,7 +937,7 @@ export default function Dashboard() {
             onClick={() => handleVideoCapture("r-video")}
             disabled={isCapturing || !selectedCase}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
-            title="Record screen - choose what to share"
+            title="Record screen region - choose what to share"
           >
             <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm flex items-center justify-center">
               <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
@@ -853,12 +960,12 @@ export default function Dashboard() {
 
       {/* View Report Button */}
       <div className="flex justify-center">
-        <button className="w-[176px] bg-blue-600 border-blue-600  hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed">
+        <button className="w-[176px] bg-blue-600 border-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed">
           View Report
         </button>
       </div>
 
-      {/* Status indicator when capturing */}
+      {/* Enhanced Status indicator when capturing */}
       {isCapturing && (
         <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
           <div className="bg-white rounded-lg p-6 flex flex-col items-center">
@@ -867,15 +974,15 @@ export default function Dashboard() {
               {captureMode === "video"
                 ? "Opening recorder & choosing screen..."
                 : captureMode === "region"
-                ? "Opening region selector..."
+                ? "🎯 Select region on page..."
                 : "Capturing screenshot..."}
             </p>
             {captureMode === "region" && (
-              <p className="text-sm text-gray-500 mt-2 text-center">
-                A new window will open where you can
-                <br />
-                select the area to capture
-              </p>
+              <div className="text-sm text-gray-500 mt-2 text-center">
+                <p>• Drag to select the area you want to capture</p>
+                <p>• Press <span className="font-medium">ESC</span> to cancel</p>
+                <p>• Click and drag on the webpage</p>
+              </div>
             )}
           </div>
         </div>

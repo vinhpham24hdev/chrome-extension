@@ -1,10 +1,10 @@
-// wxt.config.ts - Fixed configuration for WXT
+// wxt.config.ts - Updated configuration for WXT with Region Selector
 import { defineConfig } from "wxt";
 
 export default defineConfig({
   manifest: {
     name: "Cellebrite Screen Capture Tool",
-    description: "Chrome extension for capturing screenshots and videos with region selection",
+    description: "Chrome extension for capturing screenshots and videos with region selection and full page capture",
     version: "1.0.0",
 
     permissions: [
@@ -27,9 +27,16 @@ export default defineConfig({
         suggested_key: { default: "Ctrl+Shift+S", mac: "Command+Shift+S" },
         description: "Take screenshot",
       },
+      "full-page-capture": {
+        suggested_key: { default: "Ctrl+Shift+F", mac: "Command+Shift+F" },
+        description: "Take full page screenshot",
+      },
     },
 
-    action: { default_title: "Cellebrite Capture Tool" },
+    action: { 
+      default_title: "Cellebrite Capture Tool",
+      default_popup: "popup.html"
+    },
 
     content_security_policy: {
       extension_pages:
@@ -39,7 +46,7 @@ export default defineConfig({
     web_accessible_resources: [
       {
         resources: [
-          "content-scripts/region-overlay.js",
+          "content-scripts/regionSelector.js",
           "region-selector.html",
           "region-selector.js",
           "screenshot-preview.html",
@@ -56,5 +63,32 @@ export default defineConfig({
         use_dynamic_url: true,
       },
     ],
+
+    // Content scripts for region selector
+    content_scripts: [
+      {
+        matches: ["<all_urls>"],
+        js: ["content-scripts/content.js"],
+        run_at: "document_idle",
+        all_frames: false,
+      },
+    ],
+  },
+
+  // Additional build configuration
+  runner: {
+    disabled: false,
+  },
+
+  // Development server configuration
+  dev: {
+    server: {
+      port: 3000,
+    },
+  },
+
+  // Build optimization
+  build: {
+    target: "chrome110",
   },
 });
