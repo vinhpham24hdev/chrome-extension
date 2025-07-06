@@ -1,4 +1,4 @@
-// components/Dashboard.tsx - Enhanced error handling for restricted pages
+// components/Dashboard.tsx - Enhanced with region selector integration
 import React, { useState, useEffect, useRef } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
@@ -19,6 +19,7 @@ import {
 import { screenshotWindowService } from "../services/screenshotWindowService";
 import { videoWindowService } from "../services/videoWindowService";
 import { videoRecorderWindowService } from "../services/videoRecorderWindowService";
+import { regionSelectorService, RegionResult } from "../services/regionSelectorService";
 
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 
@@ -137,7 +138,7 @@ const mockCases: CaseItem[] = [
 export default function Dashboard() {
   const { state, logout } = useAuth();
   const [selectedCase, setSelectedCase] = useState<string>(mockCases[0].id);
-  const [captureMode, setCaptureMode] = useState<"screenshot" | "video" | null>(
+  const [captureMode, setCaptureMode] = useState<"screenshot" | "video" | "region" | null>(
     null
   );
   const [isCapturing, setIsCapturing] = useState(false);
@@ -323,6 +324,61 @@ export default function Dashboard() {
     };
   }, [selectedCase]);
 
+  // Setup region selector service listeners
+  useEffect(() => {
+    regionSelectorService.addListener("region_selected", (result: RegionResult) => {
+      console.log("Region selection completed:", result);
+      
+      if (result.success && result.dataUrl) {
+        const screenshotData: ScreenshotData = {
+          dataUrl: result.dataUrl,
+          filename: result.filename || `region-${Date.now()}.png`,
+          timestamp: new Date().toISOString(),
+          type: "screenshot-region",
+          caseId: selectedCase,
+          blob: videoService.dataURLtoBlob(result.dataUrl),
+        };
+
+        // Open preview window
+        screenshotWindowService
+          .openScreenshotPreview(screenshotData, {
+            width: 1400,
+            height: 900,
+            centered: true,
+          })
+          .then((res) => {
+            if (!res.success) {
+              setScreenshotPreview(screenshotData);
+            }
+          });
+      } else {
+        showError(
+          "Region Capture Failed",
+          result.error || "Failed to capture selected region",
+          [
+            "Try selecting the region again",
+            "Make sure the selected area is not too small",
+            "Check if you have sufficient permissions",
+          ]
+        );
+      }
+
+      setIsCapturing(false);
+      setCaptureMode(null);
+    });
+
+    regionSelectorService.addListener("selector_closed", () => {
+      console.log("Region selector closed");
+      setIsCapturing(false);
+      setCaptureMode(null);
+    });
+
+    return () => {
+      regionSelectorService.removeListener("region_selected");
+      regionSelectorService.removeListener("selector_closed");
+    };
+  }, [selectedCase]);
+
   // Handle click outside dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -339,39 +395,6 @@ export default function Dashboard() {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
-
-  // Listen for Region Selector overlay result
-  useEffect(() => {
-    function onRegionDone(msg: any) {
-      if (msg.type !== "REGION_DONE") return;
-
-      const screenshotData: ScreenshotData = {
-        dataUrl: msg.dataUrl,
-        filename: `region-${Date.now()}.png`,
-        timestamp: new Date().toISOString(),
-        type: "screenshot-region",
-        caseId: selectedCase,
-        blob: videoService.dataURLtoBlob(msg.dataUrl), // helper đã có sẵn
-      };
-
-      // Mở preview như mọi screenshot khác
-      screenshotWindowService
-        .openScreenshotPreview(screenshotData, {
-          width: 1400,
-          height: 900,
-          centered: true,
-        })
-        .then((res) => {
-          if (!res.success) setScreenshotPreview(screenshotData);
-        });
-
-      setIsCapturing(false);
-      setCaptureMode(null);
-    }
-
-    chrome.runtime.onMessage.addListener(onRegionDone);
-    return () => chrome.runtime.onMessage.removeListener(onRegionDone);
-  }, [selectedCase]);
 
   const handleSaveScreenshotFromWindow = async (
     screenshotData: ScreenshotData
@@ -453,6 +476,36 @@ export default function Dashboard() {
     setCaptureMode("screenshot");
 
     try {
+      if (type === "region") {
+        // Handle region selection - open in new fullscreen window
+        console.log("🎯 Opening region selector...");
+        
+        const result = await regionSelectorService.openRegionSelector({
+          caseId: selectedCase,
+          centered: true
+        });
+
+        if (result.success) {
+          console.log("✅ Region selector opened successfully");
+          setCaptureMode("region");
+          // Keep capturing state - will be cleared when selection completes
+        } else {
+          console.error("❌ Failed to open region selector:", result.error);
+          showError(
+            "Region Selector Failed",
+            result.error || "Failed to open region selector",
+            [
+              "Check popup blocker settings",
+              "Try again in a few seconds",
+              "Use regular screenshot instead",
+            ]
+          );
+          setIsCapturing(false);
+          setCaptureMode(null);
+        }
+        return;
+      }
+
       // Handle regular screenshot capture
       const captureType = type === "screen" ? "visible" : "full";
       const result = await screenshotService.captureFullScreen({
@@ -791,17 +844,25 @@ export default function Dashboard() {
             <span className="text-xs text-gray-700">Full</span>
           </button>
 
-          {/* Region Capture - Now opens in NEW TAB like Loom */}
+          {/* Region Capture - Enhanced with Loom-style indicator */}
           <button
             onClick={() => handleScreenshot("region")}
             disabled={isCapturing || !selectedCase}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
-            title="Select region to capture - opens in new tab"
+            title="Select custom region to capture - opens in fullscreen mode"
           >
-            <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm"></div>
+            <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm relative">
+              {/* Add selection crosshair icon */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-3 h-3 relative">
+                  <div className="absolute inset-x-0 top-1/2 h-0.5 bg-gray-600 transform -translate-y-0.25"></div>
+                  <div className="absolute inset-y-0 left-1/2 w-0.5 bg-gray-600 transform -translate-x-0.25"></div>
+                </div>
+              </div>
+            </div>
             <span className="text-xs text-gray-700">Region</span>
-            {/* Loom-style indicator for tab mode */}
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            {/* Loom-style indicator for fullscreen mode */}
+            <div className="absolute -top-1 -right-1 w-2 h-2 bg-purple-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
           </button>
 
           {/* Divider */}
@@ -863,8 +924,16 @@ export default function Dashboard() {
             <p className="text-gray-700">
               {captureMode === "video"
                 ? "Opening recorder & choosing screen..."
-                : captureMode === "screenshot"}
+                : captureMode === "region"
+                ? "Opening region selector..."
+                : "Capturing screenshot..."}
             </p>
+            {captureMode === "region" && (
+              <p className="text-sm text-gray-500 mt-2 text-center">
+                A new window will open where you can<br />
+                select the area to capture
+              </p>
+            )}
           </div>
         </div>
       )}

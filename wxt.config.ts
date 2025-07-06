@@ -1,10 +1,10 @@
-// wxt.config.ts
+// wxt.config.ts - Fixed configuration for WXT
 import { defineConfig } from "wxt";
 
 export default defineConfig({
   manifest: {
     name: "Cellebrite Screen Capture Tool",
-    description: "Chrome extension for capturing screenshots and videos",
+    description: "Chrome extension for capturing screenshots and videos with region selection",
     version: "1.0.0",
 
     permissions: [
@@ -23,6 +23,10 @@ export default defineConfig({
         suggested_key: { default: "Ctrl+Shift+R", mac: "Command+Shift+R" },
         description: "Start region capture",
       },
+      "screen-capture": {
+        suggested_key: { default: "Ctrl+Shift+S", mac: "Command+Shift+S" },
+        description: "Take screenshot",
+      },
     },
 
     action: { default_title: "Cellebrite Capture Tool" },
@@ -31,6 +35,7 @@ export default defineConfig({
       extension_pages:
         "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';",
     },
+    
     web_accessible_resources: [
       {
         resources: [

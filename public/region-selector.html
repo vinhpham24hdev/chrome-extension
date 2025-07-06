@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Select Region - Cellebrite</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      cursor: crosshair;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    /* Loading state */
+    #loading {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      color: white;
+      text-align: center;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #333;
+      border-top: 3px solid #fff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Main overlay */
+    #region-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.3);
+      z-index: 9999;
+      cursor: crosshair;
+      display: none;
+    }
+
+    /* Selection rectangle */
+    #selection-box {
+      position: absolute;
+      border: 2px solid #3b82f6;
+      background: rgba(59, 130, 246, 0.1);
+      display: none;
+      pointer-events: none;
+    }
+
+    /* Darkened areas outside selection */
+    .overlay-mask {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.5);
+      pointer-events: none;
+    }
+
+    #mask-top, #mask-bottom, #mask-left, #mask-right {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.5);
+      pointer-events: none;
+      display: none;
+    }
+
+    /* Instructions */
+    #instructions {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      z-index: 10001;
+      display: none;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Dimension display */
+    #dimensions {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: monospace;
+      pointer-events: none;
+      z-index: 10002;
+      display: none;
+      backdrop-filter: blur(10px);
+    }
+
+    /* Control buttons */
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      gap: 10px;
+      z-index: 10001;
+    }
+
+    .control-btn {
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+      backdrop-filter: blur(10px);
+    }
+
+    .control-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .control-btn.primary {
+      background: #3b82f6;
+      border-color: #3b82f6;
+    }
+
+    .control-btn.primary:hover {
+      background: #2563eb;
+    }
+
+    .control-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Capture animation */
+    @keyframes captureFlash {
+      0% { background: rgba(255, 255, 255, 0); }
+      50% { background: rgba(255, 255, 255, 0.8); }
+      100% { background: rgba(255, 255, 255, 0); }
+    }
+
+    .capture-flash {
+      animation: captureFlash 0.3s ease-out;
+    }
+
+    /* Resize handles */
+    .resize-handle {
+      position: absolute;
+      background: #3b82f6;
+      border: 2px solid white;
+      width: 8px;
+      height: 8px;
+      z-index: 10003;
+      display: none;
+    }
+
+    .resize-handle.nw { top: -4px; left: -4px; cursor: nw-resize; }
+    .resize-handle.ne { top: -4px; right: -4px; cursor: ne-resize; }
+    .resize-handle.sw { bottom: -4px; left: -4px; cursor: sw-resize; }
+    .resize-handle.se { bottom: -4px; right: -4px; cursor: se-resize; }
+    .resize-handle.n { top: -4px; left: 50%; transform: translateX(-50%); cursor: n-resize; }
+    .resize-handle.s { bottom: -4px; left: 50%; transform: translateX(-50%); cursor: s-resize; }
+    .resize-handle.w { top: 50%; left: -4px; transform: translateY(-50%); cursor: w-resize; }
+    .resize-handle.e { top: 50%; right: -4px; transform: translateY(-50%); cursor: e-resize; }
+  </style>
+</head>
+<body>
+  <!-- Loading screen -->
+  <div id="loading">
+    <div>
+      <div class="spinner"></div>
+      <div>Preparing screen capture...</div>
+      <div style="font-size: 12px; opacity: 0.7; margin-top: 8px;">
+        Taking screenshot of current page
+      </div>
+    </div>
+  </div>
+
+  <!-- Main overlay -->
+  <div id="region-overlay">
+    <!-- Selection box -->
+    <div id="selection-box">
+      <!-- Resize handles -->
+      <div class="resize-handle nw"></div>
+      <div class="resize-handle ne"></div>
+      <div class="resize-handle sw"></div>
+      <div class="resize-handle se"></div>
+      <div class="resize-handle n"></div>
+      <div class="resize-handle s"></div>
+      <div class="resize-handle w"></div>
+      <div class="resize-handle e"></div>
+    </div>
+
+    <!-- Darkening masks -->
+    <div id="mask-top"></div>
+    <div id="mask-bottom"></div>
+    <div id="mask-left"></div>
+    <div id="mask-right"></div>
+  </div>
+
+  <!-- Instructions -->
+  <div id="instructions">
+    Click and drag to select an area, then click "Capture" or press Enter
+  </div>
+
+  <!-- Dimension display -->
+  <div id="dimensions"></div>
+
+  <!-- Control buttons -->
+  <div id="controls">
+    <button class="control-btn" id="cancel-btn">Cancel</button>
+    <button class="control-btn primary" id="capture-btn" disabled>Capture Selected Area</button>
+  </div>
+
+  <!-- Background screenshot -->
+  <img id="background-image" style="
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    z-index: -1;
+    pointer-events: none;
+  " />
+
+  <script src="region-selector.js"></script>
+</body>
+</html>
