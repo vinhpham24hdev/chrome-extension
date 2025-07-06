@@ -19,10 +19,7 @@ import {
 import { screenshotWindowService } from "../services/screenshotWindowService";
 import { videoWindowService } from "../services/videoWindowService";
 import { videoRecorderWindowService } from "../services/videoRecorderWindowService";
-import {
-  regionSelectorService,
-  RegionSelection,
-} from "../services/regionSelectorService";
+
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 
 import logo from "@/assets/logo.png";
@@ -185,23 +182,6 @@ export default function Dashboard() {
   const closeError = () => {
     setErrorModal((prev) => ({ ...prev, isOpen: false }));
   };
-
-  // Setup region selector service listeners
-  useEffect(() => {
-    regionSelectorService.onRegionSelected((region) => {
-      handleRegionSelectFromService(region);
-    });
-
-    regionSelectorService.onCancelled(() => {
-      setIsCapturing(false);
-      setCaptureMode(null);
-      console.log("Region selection cancelled in tab");
-    });
-
-    return () => {
-      // Cleanup handled by service
-    };
-  }, [selectedCase]);
 
   // Setup screenshot window service listeners
   useEffect(() => {
@@ -473,20 +453,6 @@ export default function Dashboard() {
     setCaptureMode("screenshot");
 
     try {
-      if (type === "region") {
-        setIsCapturing(true);
-        console.log("🔹 Region overlay starting...");
-        const result = await regionSelectorService.startRegionSelection(
-          selectedCase
-        );
-        if (!result.success) {
-          showError("Region Selection Failed", result.error || "Unknown error");
-          setIsCapturing(false);
-          setCaptureMode(null);
-        }
-        return; // chờ REGION_DONE
-      }
-
       // Handle regular screenshot capture
       const captureType = type === "screen" ? "visible" : "full";
       const result = await screenshotService.captureFullScreen({
@@ -568,72 +534,6 @@ export default function Dashboard() {
     }
 
     setIsCapturing(false);
-  };
-
-  const handleRegionSelectFromService = async (region: RegionSelection) => {
-    setIsCapturing(true);
-
-    try {
-      console.log("🎯 Processing region selection from tab:", region);
-
-      const result = await screenshotService.captureRegion(region, {
-        format: "png",
-      });
-
-      if (result.success && result.dataUrl && result.filename) {
-        const screenshotData: ScreenshotData = {
-          dataUrl: result.dataUrl,
-          filename: result.filename,
-          timestamp: new Date().toISOString(),
-          type: "screenshot-region",
-          caseId: selectedCase,
-          blob: result.blob,
-        };
-
-        console.log("Opening region screenshot preview in new window...");
-
-        const windowResult =
-          await screenshotWindowService.openScreenshotPreview(screenshotData, {
-            width: 1400,
-            height: 900,
-            centered: true,
-          });
-
-        if (!windowResult.success) {
-          console.error("Failed to open preview window:", windowResult.error);
-          setScreenshotPreview(screenshotData);
-        } else {
-          console.log(
-            "Region preview window opened successfully:",
-            windowResult.windowId
-          );
-        }
-      } else {
-        showError(
-          "Region Capture Failed",
-          result.error || "Failed to capture the selected region",
-          [
-            "Try selecting a larger region",
-            "Make sure the page is fully loaded",
-            "Try regular screenshot instead",
-          ]
-        );
-      }
-    } catch (error) {
-      console.error("Region capture error:", error);
-      showError(
-        "Region Capture Error",
-        "An error occurred while capturing the selected region.",
-        [
-          "Try selecting the region again",
-          "Check if the page content has changed",
-          "Use full screen capture instead",
-        ]
-      );
-    }
-
-    setIsCapturing(false);
-    setCaptureMode(null);
   };
 
   // Updated video capture handler - opens in new tab with auto-start like Loom
@@ -963,10 +863,7 @@ export default function Dashboard() {
             <p className="text-gray-700">
               {captureMode === "video"
                 ? "Opening recorder & choosing screen..."
-                : captureMode === "screenshot" &&
-                  regionSelectorService.isActive()
-                ? "Opening region selector..."
-                : "Capturing..."}
+                : captureMode === "screenshot"}
             </p>
           </div>
         </div>

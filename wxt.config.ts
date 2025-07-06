@@ -34,7 +34,7 @@ export default defineConfig({
     web_accessible_resources: [
       {
         resources: [
-          "content-scripts/content.js",
+          "content-scripts/region-overlay.js",
           "region-selector.html",
           "region-selector.js",
           "screenshot-preview.html",
