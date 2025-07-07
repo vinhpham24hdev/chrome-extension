@@ -1,4 +1,4 @@
-// components/Dashboard.tsx - Enhanced with region selector integration
+// components/Dashboard.tsx - Fixed region selector integration
 import React, { useState, useEffect, useRef } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
@@ -324,6 +324,115 @@ export default function Dashboard() {
     };
   }, [selectedCase]);
 
+  // 🔥 NEW: Setup background message listener for region capture results
+  useEffect(() => {
+    const handleBackgroundMessage = (
+      message: any,
+      sender: chrome.runtime.MessageSender,
+      sendResponse: (response?: any) => void
+    ) => {
+      console.log("📨 Dashboard received message:", message.type);
+
+      if (message.type === "REGION_CAPTURE_COMPLETED") {
+        console.log("✅ Region capture completed, handling result...");
+        handleRegionCaptureCompleted(message.data);
+        sendResponse({ received: true });
+      }
+
+      if (message.type === "REGION_CAPTURE_FAILED") {
+        console.error("❌ Region capture failed:", message.error);
+        showError(
+          "Region Capture Failed",
+          message.error || "Region capture failed",
+          [
+            "Try refreshing the page and capturing again",
+            "Make sure you're on a regular website",
+            "Check browser permissions",
+          ]
+        );
+        setIsCapturing(false);
+        setCaptureMode(null);
+        sendResponse({ received: true });
+      }
+
+      if (message.type === "REGION_CAPTURE_CANCELLED") {
+        console.log("❌ Region capture cancelled by user");
+        setIsCapturing(false);
+        setCaptureMode(null);
+        sendResponse({ received: true });
+      }
+    };
+
+    // Add message listener
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      chrome.runtime.onMessage.addListener(handleBackgroundMessage);
+    }
+
+    return () => {
+      // Remove message listener
+      if (typeof chrome !== "undefined" && chrome.runtime) {
+        chrome.runtime.onMessage.removeListener(handleBackgroundMessage);
+      }
+    };
+  }, [selectedCase]);
+
+  // 🔥 NEW: Handle region capture completion
+  const handleRegionCaptureCompleted = async (data: any) => {
+    try {
+      console.log("🎯 Processing region capture result:", data);
+
+      if (!data.dataUrl || !data.filename) {
+        throw new Error("Invalid region capture data received");
+      }
+
+      // Convert dataUrl to blob if not provided
+      let blob = data.blob;
+      if (!blob && data.dataUrl) {
+        const response = await fetch(data.dataUrl);
+        blob = await response.blob();
+      }
+
+      const screenshotData: ScreenshotData = {
+        dataUrl: data.dataUrl,
+        filename: data.filename,
+        timestamp: new Date().toISOString(),
+        type: "screenshot-region",
+        caseId: selectedCase,
+        blob: blob,
+        sourceUrl: data.sourceUrl,
+      };
+
+      console.log("🪟 Opening region capture preview window...");
+
+      const windowResult = await screenshotWindowService.openScreenshotPreview(
+        screenshotData,
+        {
+          width: 1400,
+          height: 900,
+          centered: true,
+        }
+      );
+
+      if (windowResult.success) {
+        console.log("✅ Region preview window opened:", windowResult.windowId);
+      } else {
+        console.error("❌ Failed to open preview window:", windowResult.error);
+        // Fallback to inline preview
+        setScreenshotPreview(screenshotData);
+      }
+    } catch (error) {
+      console.error("❌ Error handling region capture completion:", error);
+      showError(
+        "Region Capture Error",
+        "Failed to process captured region.",
+        ["Try capturing the region again", "Check browser permissions"]
+      );
+    } finally {
+      setIsCapturing(false);
+      setCaptureMode(null);
+    }
+  };
+
   // Handle click outside dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -405,8 +514,7 @@ export default function Dashboard() {
     setSelectedCase(caseId);
   };
 
-  // components/Dashboard.tsx - Updated handleScreenshot function for region capture
-
+  // UPDATED: handleScreenshot function with proper routing
   const handleScreenshot = async (
     type: "screen" | "full" | "region" = "screen"
   ) => {
@@ -419,7 +527,7 @@ export default function Dashboard() {
       return;
     }
 
-    // 🎯 NEW: Region Capture Workflow
+    // 🎯 FIXED: Region Capture Workflow - DON'T CLOSE POPUP
     if (type === "region") {
       console.log("🎯 Starting region capture workflow...");
 
@@ -475,11 +583,12 @@ export default function Dashboard() {
 
         console.log("✅ Background script notified, session started");
 
-        // Step 5: Close popup to allow region selection
-        console.log("🚪 Closing popup for region selection...");
-        setTimeout(() => {
-          window.close();
-        }, 150); // Small delay to ensure message is processed
+        // 🔥 FIXED: DON'T CLOSE POPUP - Let user see region selector overlay
+        console.log("👀 Popup stays open for region selection feedback");
+        
+        // Optional: Show instruction to user that they can now select region
+        console.log("💡 User can now select region on the page");
+
       } catch (error) {
         console.error("❌ Region capture initialization failed:", error);
 
@@ -631,109 +740,7 @@ export default function Dashboard() {
     setIsCapturing(false);
   };
 
-  // NEW: Handle region capture
-  const handleRegionCapture = async () => {
-    if (!selectedCase) {
-      showError(
-        "No Case Selected",
-        "Please select a case before capturing a region.",
-        ["Select a case from the dropdown above"]
-      );
-      return;
-    }
-
-    setIsCapturing(true);
-    setCaptureMode("region");
-
-    try {
-      console.log("🎯 Starting region selection...");
-
-      const result: RegionCaptureResult =
-        await regionService.startRegionSelection({
-          showGuides: true,
-          showDimensions: true,
-          overlayColor: "rgba(0, 0, 0, 0.3)",
-          borderColor: "#4285f4",
-        });
-
-      if (
-        result.success &&
-        result.dataUrl &&
-        result.filename &&
-        result.selection
-      ) {
-        console.log("✅ Region captured successfully:", result.selection);
-
-        // Get selection stats for better UX
-        const stats = regionService.getSelectionStats(result.selection);
-
-        const screenshotData: ScreenshotData = {
-          dataUrl: result.dataUrl,
-          filename: result.filename,
-          timestamp: new Date().toISOString(),
-          type: `region-${Math.round(stats.area)}px`,
-          caseId: selectedCase,
-          blob: result.blob,
-          sourceUrl: window.location.href,
-        };
-
-        console.log("Opening region preview in new window...");
-
-        const windowResult =
-          await screenshotWindowService.openScreenshotPreview(screenshotData, {
-            width: 1400,
-            height: 900,
-            centered: true,
-          });
-
-        if (!windowResult.success) {
-          console.error("Failed to open preview window:", windowResult.error);
-          setScreenshotPreview(screenshotData);
-        } else {
-          console.log(
-            "Preview window opened successfully:",
-            windowResult.windowId
-          );
-        }
-      } else {
-        // Enhanced error handling for region selection
-        const errorMsg = result.error || "Region selection was cancelled";
-        let suggestions = [
-          "Try the region capture again",
-          "Make sure to drag to select an area",
-          "Press ESC to cancel if needed",
-        ];
-
-        if (errorMsg.includes("cancelled")) {
-          console.log("👍 Region selection cancelled by user");
-          // Don't show error for user cancellation
-        } else if (errorMsg.includes("restricted")) {
-          suggestions = [
-            "Navigate to a regular website",
-            "Region capture doesn't work on browser internal pages",
-            "Try on google.com, youtube.com, or github.com",
-          ];
-          showError("Region Capture Failed", errorMsg, suggestions);
-        } else {
-          showError("Region Capture Failed", errorMsg, suggestions);
-        }
-      }
-    } catch (error) {
-      console.error("Region capture error:", error);
-      showError(
-        "Region Capture Error",
-        "An unexpected error occurred during region selection.",
-        [
-          "Refresh the page and try again",
-          "Check browser permissions",
-          "Try a different capture mode",
-        ]
-      );
-    }
-
-    setIsCapturing(false);
-    setCaptureMode(null);
-  };
+  // REMOVED: handleRegionCapture - now handled in handleScreenshot("region")
 
   // Updated video capture handler - opens in new tab with auto-start like Loom
   const handleVideoCapture = async (type: "video" | "r-video" = "video") => {
@@ -997,9 +1004,9 @@ export default function Dashboard() {
             <span className="text-xs text-gray-700">Full</span>
           </button>
 
-          {/* Region Capture - ENHANCED with proper handler */}
+          {/* Region Capture - FIXED with proper handler */}
           <button
-            onClick={handleRegionCapture}
+            onClick={() => handleScreenshot("region")}
             disabled={isCapturing || !selectedCase}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
             title="Select custom area to capture - drag to select region"

@@ -1,5 +1,18 @@
-// services/regionService.ts - Service to handle region selection
-import { RegionSelection } from '../content-scripts/regionSelector';
+// services/regionService.ts - Fixed Region Capture Service
+
+export interface RegionSelection {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface RegionCaptureOptions {
+  showGuides?: boolean;
+  showDimensions?: boolean;
+  overlayColor?: string;
+  borderColor?: string;
+}
 
 export interface RegionCaptureResult {
   success: boolean;
@@ -7,14 +20,8 @@ export interface RegionCaptureResult {
   filename?: string;
   blob?: Blob;
   selection?: RegionSelection;
+  sourceUrl?: string;
   error?: string;
-}
-
-export interface RegionServiceOptions {
-  showGuides?: boolean;
-  showDimensions?: boolean;
-  overlayColor?: string;
-  borderColor?: string;
 }
 
 class RegionService {
@@ -40,80 +47,23 @@ class RegionService {
   }
 
   /**
-   * Start region selection process
+   * Start region selection process (FIXED - doesn't close popup)
    */
-  async startRegionSelection(options: RegionServiceOptions = {}): Promise<RegionCaptureResult> {
+  async startRegionSelection(options: RegionCaptureOptions = {}): Promise<RegionCaptureResult> {
     try {
-      console.log('🎯 Starting region selection...');
+      console.log('🎯 Starting region selection process...');
 
-      // Check if we have active tab access
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tabs[0]) {
+      // Check if we can access the current tab
+      const permissionCheck = await this.checkTabPermissions();
+      if (!permissionCheck.canCapture) {
         return {
           success: false,
-          error: 'No active tab found'
+          error: permissionCheck.error || 'Cannot access current tab'
         };
       }
 
-      const tab = tabs[0];
-
-      // Check if tab can be accessed
-      if (!tab.url || this.isRestrictedUrl(tab.url)) {
-        return {
-          success: false,
-          error: 'Cannot capture region on this page. Please try on a regular website.'
-        };
-      }
-
-      // Inject region selector content script if not already present
-      await this.injectRegionSelector(tab.id!);
-
-      // Start region selection
-      const selection = await this.requestRegionSelection(tab.id!, options);
-      
-      if (!selection) {
-        return {
-          success: false,
-          error: 'Region selection was cancelled'
-        };
-      }
-
-      console.log('📍 Region selected:', selection);
-
-      // Capture the full visible area first
-      const fullScreenshot = await this.captureFullScreen(tab);
-      
-      if (!fullScreenshot.success) {
-        return {
-          success: false,
-          error: fullScreenshot.error || 'Failed to capture screenshot'
-        };
-      }
-
-      // Crop the selected region
-      const croppedResult = await this.cropImageToRegion(
-        fullScreenshot.dataUrl!,
-        selection
-      );
-
-      if (!croppedResult.success) {
-        return {
-          success: false,
-          error: croppedResult.error || 'Failed to crop region'
-        };
-      }
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const domain = this.extractDomain(tab.url || 'unknown');
-      const filename = `region_${selection.width}x${selection.height}_${domain}_${timestamp}.png`;
-
-      return {
-        success: true,
-        dataUrl: croppedResult.dataUrl!,
-        filename,
-        blob: croppedResult.blob!,
-        selection
-      };
+      // 🔥 FIXED: Use the new region capture workflow
+      return await this.startEnhancedRegionCapture(options);
 
     } catch (error) {
       console.error('❌ Region selection error:', error);
@@ -125,509 +75,91 @@ class RegionService {
   }
 
   /**
-   * Check if URL is restricted for capturing
+   * FIXED: Enhanced region capture that works with the background script
    */
-  private isRestrictedUrl(url: string): boolean {
-    const restrictedPatterns = [
-      /^chrome:\/\//,
-      /^chrome-extension:\/\//,
-      /^moz-extension:\/\//,
-      /^about:/,
-      /^edge:\/\//,
-      /^file:\/\//,
-      /^data:/,
-      /^javascript:/,
-      /^chrome-search:\/\//,
-      /^chrome-devtools:\/\//
-    ];
-
-    return restrictedPatterns.some(pattern => pattern.test(url));
-  }
-
-  /**
-   * Extract domain from URL for filename
-   */
-  private extractDomain(url: string): string {
+  private async startEnhancedRegionCapture(options: RegionCaptureOptions): Promise<RegionCaptureResult> {
     try {
-      const urlObj = new URL(url);
-      return urlObj.hostname.replace(/\./g, '_');
-    } catch {
-      return 'unknown';
-    }
-  }
+      console.log('🎯 Starting enhanced region capture...');
 
-  /**
-   * Inject region selector content script
-   */
-  private async injectRegionSelector(tabId: number): Promise<void> {
-    try {
-      // Check if content script is already injected
-      const results = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          return typeof (window as any).isRegionSelectionActive === 'function';
+      // Step 1: Get current tab info
+      const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!currentTab || !currentTab.id) {
+        throw new Error('No active tab found');
+      }
+
+      // Step 2: Capture base image from visible area
+      const baseCapture = await this.captureBaseImage();
+      if (!baseCapture.success) {
+        throw new Error(baseCapture.error || 'Failed to capture base image');
+      }
+
+      console.log('✅ Base image captured for region selection');
+
+      // Step 3: Create session and start region selector
+      const sessionId = `region_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Store session data
+      await chrome.storage.local.set({
+        [`region_session_${sessionId}`]: {
+          dataUrl: baseCapture.dataUrl,
+          filename: baseCapture.filename,
+          sourceUrl: currentTab.url,
+          timestamp: new Date().toISOString(),
+          type: 'region-base'
         }
       });
 
-      const isAlreadyInjected = results[0]?.result;
+      console.log('💾 Session data stored with ID:', sessionId);
 
-      if (!isAlreadyInjected) {
-        // Inject the region selector content script directly as code
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          func: this.injectRegionSelectorCode
-        });
-        
-        console.log('💉 Region selector content script injected');
+      // Step 4: Start region selector via background script
+      const bgResponse = await chrome.runtime.sendMessage({
+        type: 'START_REGION_CAPTURE',
+        sessionId: sessionId,
+        options: options
+      });
+
+      if (!bgResponse || !bgResponse.success) {
+        throw new Error(bgResponse?.error || 'Failed to start region selector');
       }
+
+      console.log('✅ Region selector started successfully');
+
+      // 🔥 FIXED: Return success immediately - result will be handled by background script
+      return {
+        success: true,
+        sourceUrl: currentTab.url
+      };
+
     } catch (error) {
-      console.error('Failed to inject region selector:', error);
-      throw new Error('Failed to initialize region selector');
+      console.error('❌ Enhanced region capture failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Enhanced region capture failed'
+      };
     }
   }
 
   /**
-   * Inline region selector code to inject
+   * Capture base image for region selection
    */
-  private injectRegionSelectorCode = () => {
-    // Inline region selector implementation
-    class RegionSelector {
-      public isActive = false;
-      private isDragging = false;
-      private startX = 0;
-      private startY = 0;
-      private currentX = 0;
-      private currentY = 0;
-      
-      private overlay: HTMLDivElement | null = null;
-      private selectionBox: HTMLDivElement | null = null;
-      private dimensionsDisplay: HTMLDivElement | null = null;
-      private instructionsPanel: HTMLDivElement | null = null;
-      private crosshairX: HTMLDivElement | null = null;
-      private crosshairY: HTMLDivElement | null = null;
-      
-      private options: any;
-      private originalBodyStyle: string = '';
-      private resolveSelection: ((selection: any) => void) | null = null;
-
-      constructor(options: any = {}) {
-        this.options = {
-          showGuides: true,
-          showDimensions: true,
-          overlayColor: 'rgba(0, 0, 0, 0.3)',
-          borderColor: '#4285f4',
-          ...options
-        };
-      }
-
-      public start(): Promise<any> {
-        return new Promise((resolve) => {
-          if (this.isActive) {
-            resolve(null);
-            return;
-          }
-
-          this.resolveSelection = resolve;
-          this.initialize();
-        });
-      }
-
-      private initialize(): void {
-        this.isActive = true;
-        this.preserveOriginalStyles();
-        this.createOverlay();
-        this.createInstructions();
-        this.attachEventListeners();
-        this.preventScrolling();
-        
-        document.body.classList.add('region-selector-active');
-        console.log('🎯 Region selector activated');
-      }
-
-      private preserveOriginalStyles(): void {
-        this.originalBodyStyle = document.body.style.cssText;
-      }
-
-      private createOverlay(): void {
-        this.overlay = document.createElement('div');
-        this.overlay.style.cssText = `
-          position: fixed !important;
-          top: 0 !important;
-          left: 0 !important;
-          width: 100vw !important;
-          height: 100vh !important;
-          background: ${this.options.overlayColor} !important;
-          z-index: 2147483647 !important;
-          cursor: crosshair !important;
-          user-select: none !important;
-          pointer-events: auto !important;
-        `;
-
-        this.selectionBox = document.createElement('div');
-        this.selectionBox.style.cssText = `
-          position: absolute !important;
-          border: 2px solid ${this.options.borderColor} !important;
-          background: transparent !important;
-          pointer-events: none !important;
-          display: none !important;
-          box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5) !important;
-        `;
-
-        if (this.options.showDimensions) {
-          this.dimensionsDisplay = document.createElement('div');
-          this.dimensionsDisplay.style.cssText = `
-            position: absolute !important;
-            background: ${this.options.borderColor} !important;
-            color: white !important;
-            padding: 4px 8px !important;
-            border-radius: 4px !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-            font-size: 12px !important;
-            font-weight: 500 !important;
-            pointer-events: none !important;
-            white-space: nowrap !important;
-            display: none !important;
-            z-index: 2147483648 !important;
-          `;
-        }
-
-        if (this.options.showGuides) {
-          this.crosshairX = document.createElement('div');
-          this.crosshairX.style.cssText = `
-            position: absolute !important;
-            width: 100vw !important;
-            height: 1px !important;
-            background: ${this.options.borderColor} !important;
-            pointer-events: none !important;
-            display: none !important;
-            opacity: 0.6 !important;
-          `;
-
-          this.crosshairY = document.createElement('div');
-          this.crosshairY.style.cssText = `
-            position: absolute !important;
-            width: 1px !important;
-            height: 100vh !important;
-            background: ${this.options.borderColor} !important;
-            pointer-events: none !important;
-            display: none !important;
-            opacity: 0.6 !important;
-          `;
-
-          this.overlay.appendChild(this.crosshairX);
-          this.overlay.appendChild(this.crosshairY);
-        }
-
-        this.overlay.appendChild(this.selectionBox);
-        
-        if (this.dimensionsDisplay) {
-          this.overlay.appendChild(this.dimensionsDisplay);
-        }
-
-        document.body.appendChild(this.overlay);
-      }
-
-      private createInstructions(): void {
-        this.instructionsPanel = document.createElement('div');
-        this.instructionsPanel.style.cssText = `
-          position: fixed !important;
-          top: 20px !important;
-          left: 50% !important;
-          transform: translateX(-50%) !important;
-          background: rgba(0, 0, 0, 0.8) !important;
-          color: white !important;
-          padding: 12px 20px !important;
-          border-radius: 8px !important;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-          font-size: 14px !important;
-          z-index: 2147483649 !important;
-          pointer-events: none !important;
-        `;
-
-        this.instructionsPanel.innerHTML = `
-          <div style="text-align: center;">
-            <div style="font-weight: 600; margin-bottom: 4px;">📸 Select Region to Capture</div>
-            <div style="font-size: 12px; opacity: 0.8;">
-              Drag to select • Press <strong>ESC</strong> to cancel
-            </div>
-          </div>
-        `;
-
-        document.body.appendChild(this.instructionsPanel);
-      }
-
-      private attachEventListeners(): void {
-        if (!this.overlay) return;
-
-        this.overlay.addEventListener('mousedown', this.handleMouseDown.bind(this));
-        document.addEventListener('mousemove', this.handleMouseMove.bind(this));
-        document.addEventListener('mouseup', this.handleMouseUp.bind(this));
-        document.addEventListener('keydown', this.handleKeyDown.bind(this));
-      }
-
-      private handleMouseDown(e: MouseEvent): void {
-        if (e.button !== 0) return;
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        this.isDragging = true;
-        this.startX = e.clientX;
-        this.startY = e.clientY;
-        this.currentX = e.clientX;
-        this.currentY = e.clientY;
-
-        if (this.selectionBox) {
-          this.selectionBox.style.display = 'block';
-          this.updateSelectionBox();
-        }
-      }
-
-      private handleMouseMove(e: MouseEvent): void {
-        if (!this.isActive) return;
-
-        this.currentX = e.clientX;
-        this.currentY = e.clientY;
-
-        if (this.options.showGuides && !this.isDragging) {
-          this.updateCrosshairs();
-        }
-
-        if (this.isDragging) {
-          this.updateSelectionBox();
-          this.updateDimensions();
-        }
-      }
-
-      private handleMouseUp(e: MouseEvent): void {
-        if (!this.isDragging || e.button !== 0) return;
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        this.isDragging = false;
-
-        const selection = this.getSelectionData();
-        
-        if (selection.width > 5 && selection.height > 5) {
-          console.log('✅ Region selected:', selection);
-          this.completeSelection(selection);
-        } else {
-          this.resetSelection();
-        }
-      }
-
-      private handleKeyDown(e: KeyboardEvent): void {
-        if (!this.isActive) return;
-
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          e.stopPropagation();
-          this.completeSelection(null);
-        }
-      }
-
-      private updateCrosshairs(): void {
-        if (!this.crosshairX || !this.crosshairY) return;
-
-        this.crosshairX.style.display = 'block';
-        this.crosshairX.style.top = `${this.currentY}px`;
-
-        this.crosshairY.style.display = 'block';
-        this.crosshairY.style.left = `${this.currentX}px`;
-      }
-
-      private updateSelectionBox(): void {
-        if (!this.selectionBox) return;
-
-        const x = Math.min(this.startX, this.currentX);
-        const y = Math.min(this.startY, this.currentY);
-        const width = Math.abs(this.currentX - this.startX);
-        const height = Math.abs(this.currentY - this.startY);
-
-        this.selectionBox.style.left = `${x}px`;
-        this.selectionBox.style.top = `${y}px`;
-        this.selectionBox.style.width = `${width}px`;
-        this.selectionBox.style.height = `${height}px`;
-
-        if (this.crosshairX) this.crosshairX.style.display = 'none';
-        if (this.crosshairY) this.crosshairY.style.display = 'none';
-      }
-
-      private updateDimensions(): void {
-        if (!this.dimensionsDisplay || !this.options.showDimensions) return;
-
-        const width = Math.abs(this.currentX - this.startX);
-        const height = Math.abs(this.currentY - this.startY);
-
-        this.dimensionsDisplay.textContent = `${width} × ${height}`;
-        this.dimensionsDisplay.style.display = 'block';
-
-        const x = Math.min(this.startX, this.currentX);
-        const y = Math.min(this.startY, this.currentY);
-        
-        const displayY = y > 30 ? y - 30 : y + height + 10;
-        
-        this.dimensionsDisplay.style.left = `${x}px`;
-        this.dimensionsDisplay.style.top = `${displayY}px`;
-      }
-
-      private getSelectionData(): any {
-        const x = Math.min(this.startX, this.currentX);
-        const y = Math.min(this.startY, this.currentY);
-        const width = Math.abs(this.currentX - this.startX);
-        const height = Math.abs(this.currentY - this.startY);
-
-        return {
-          x: x * window.devicePixelRatio,
-          y: y * window.devicePixelRatio,
-          width: width * window.devicePixelRatio,
-          height: height * window.devicePixelRatio,
-          devicePixelRatio: window.devicePixelRatio,
-          timestamp: Date.now()
-        };
-      }
-
-      private completeSelection(selection: any): void {
-        if (this.resolveSelection) {
-          this.resolveSelection(selection);
-        }
-        this.cleanup();
-      }
-
-      private resetSelection(): void {
-        if (this.selectionBox) {
-          this.selectionBox.style.display = 'none';
-        }
-        
-        if (this.dimensionsDisplay) {
-          this.dimensionsDisplay.style.display = 'none';
-        }
-
-        this.isDragging = false;
-      }
-
-      private preventScrolling(): void {
-        document.body.style.overflow = 'hidden';
-      }
-
-      private restoreScrolling(): void {
-        document.body.style.cssText = this.originalBodyStyle;
-      }
-
-      public cleanup(): void {
-        if (!this.isActive) return;
-
-        this.isActive = false;
-        this.isDragging = false;
-
-        document.removeEventListener('mousemove', this.handleMouseMove.bind(this));
-        document.removeEventListener('mouseup', this.handleMouseUp.bind(this));
-        document.removeEventListener('keydown', this.handleKeyDown.bind(this));
-
-        if (this.overlay && this.overlay.parentNode) {
-          this.overlay.parentNode.removeChild(this.overlay);
-        }
-
-        if (this.instructionsPanel && this.instructionsPanel.parentNode) {
-          this.instructionsPanel.parentNode.removeChild(this.instructionsPanel);
-        }
-
-        this.restoreScrolling();
-        document.body.classList.remove('region-selector-active');
-
-        this.overlay = null;
-        this.selectionBox = null;
-        this.dimensionsDisplay = null;
-        this.instructionsPanel = null;
-        this.crosshairX = null;
-        this.crosshairY = null;
-
-        console.log('🧹 Region selector cleaned up');
-      }
-    }
-
-    // Global functions
-    let globalRegionSelector: RegionSelector | null = null;
-
-    (window as any).startRegionSelection = function(options: any): Promise<any> {
-      if (globalRegionSelector) {
-        globalRegionSelector.cleanup();
-      }
-
-      globalRegionSelector = new RegionSelector(options);
-      return globalRegionSelector.start();
-    };
-
-    (window as any).cancelRegionSelection = function(): void {
-      if (globalRegionSelector) {
-        globalRegionSelector.cleanup();
-        globalRegionSelector = null;
-      }
-    };
-
-    (window as any).isRegionSelectionActive = function(): boolean {
-      return globalRegionSelector?.isActive ?? false;
-    };
-
-    console.log('🎯 Region selector injected successfully');
-  };
-
-  /**
-   * Request region selection from content script
-   */
-  private async requestRegionSelection(
-    tabId: number, 
-    options: RegionServiceOptions
-  ): Promise<RegionSelection | null> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Region selection timeout'));
-      }, 60000); // 60 second timeout
-
-      // Execute the region selection directly in the tab
-      chrome.scripting.executeScript({
-        target: { tabId },
-        func: (opts: any) => {
-          return (window as any).startRegionSelection(opts);
-        },
-        args: [{
-          showGuides: options.showGuides ?? true,
-          showDimensions: options.showDimensions ?? true,
-          overlayColor: options.overlayColor ?? 'rgba(0, 0, 0, 0.3)',
-          borderColor: options.borderColor ?? '#4285f4'
-        }]
-      }).then(results => {
-        clearTimeout(timeout);
-        
-        if (results && results[0]?.result) {
-          resolve(results[0].result);
-        } else {
-          resolve(null);
-        }
-      }).catch(error => {
-        clearTimeout(timeout);
-        reject(error);
-      });
-    });
-  }
-
-  /**
-   * Capture full screen for cropping
-   */
-  private async captureFullScreen(tab: chrome.tabs.Tab): Promise<{
+  private async captureBaseImage(): Promise<{
     success: boolean;
     dataUrl?: string;
+    filename?: string;
     error?: string;
   }> {
     try {
-      if (!tab.windowId) {
+      // Get current active tab
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab || !tab.windowId) {
         return {
           success: false,
-          error: 'Tab has no window ID'
+          error: 'No active tab with window found'
         };
       }
 
+      // Capture visible area
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
         format: 'png',
         quality: 100
@@ -636,27 +168,271 @@ class RegionService {
       if (!dataUrl) {
         return {
           success: false,
-          error: 'No image data returned from capture'
+          error: 'Failed to capture visible tab'
         };
       }
 
+      // Generate filename
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const domain = this.extractDomain(tab.url || 'unknown');
+      const filename = `base_${domain}_${timestamp}.png`;
+
       return {
         success: true,
-        dataUrl
+        dataUrl,
+        filename
       };
+
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Screenshot capture failed'
+        error: error instanceof Error ? error.message : 'Base image capture failed'
       };
     }
   }
 
   /**
-   * Crop image to selected region
+   * Check if current tab can be captured
+   */
+  private async checkTabPermissions(): Promise<{
+    canCapture: boolean;
+    error?: string;
+    tab?: chrome.tabs.Tab;
+  }> {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.tabs) {
+        return {
+          canCapture: false,
+          error: 'Chrome tabs API not available'
+        };
+      }
+
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab) {
+        return {
+          canCapture: false,
+          error: 'No active tab found'
+        };
+      }
+
+      if (!tab.url) {
+        return {
+          canCapture: false,
+          error: 'Cannot access tab URL'
+        };
+      }
+
+      // Check for restricted URLs
+      const restrictedPatterns = [
+        /^chrome:\/\//,
+        /^chrome-extension:\/\//,
+        /^moz-extension:\/\//,
+        /^about:/,
+        /^edge:\/\//,
+        /^file:\/\//
+      ];
+
+      const isRestricted = restrictedPatterns.some(pattern => pattern.test(tab.url!));
+      
+      if (isRestricted) {
+        return {
+          canCapture: false,
+          error: 'Cannot capture browser internal pages. Please navigate to a regular website.'
+        };
+      }
+
+      return {
+        canCapture: true,
+        tab
+      };
+
+    } catch (error) {
+      return {
+        canCapture: false,
+        error: `Permission check failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      };
+    }
+  }
+
+  /**
+   * Get selection statistics for UI feedback
+   */
+  getSelectionStats(selection: RegionSelection): {
+    area: number;
+    aspectRatio: number;
+    isSquare: boolean;
+    isLandscape: boolean;
+    isPortrait: boolean;
+  } {
+    const area = selection.width * selection.height;
+    const aspectRatio = selection.width / selection.height;
+    
+    return {
+      area,
+      aspectRatio,
+      isSquare: Math.abs(aspectRatio - 1) < 0.1,
+      isLandscape: aspectRatio > 1.2,
+      isPortrait: aspectRatio < 0.8
+    };
+  }
+
+  /**
+   * Validate region selection
+   */
+  validateRegion(selection: RegionSelection): {
+    isValid: boolean;
+    errors: string[];
+    warnings: string[];
+  } {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Check minimum size
+    if (selection.width < 10 || selection.height < 10) {
+      errors.push('Region too small (minimum 10x10 pixels)');
+    }
+
+    // Check maximum size (prevent memory issues)
+    if (selection.width > 10000 || selection.height > 10000) {
+      errors.push('Region too large (maximum 10,000 pixels per dimension)');
+    }
+
+    // Check coordinates
+    if (selection.x < 0 || selection.y < 0) {
+      errors.push('Region coordinates cannot be negative');
+    }
+
+    // Warnings for very small regions
+    if (selection.width < 50 || selection.height < 50) {
+      warnings.push('Very small region may not capture enough detail');
+    }
+
+    // Warnings for very large regions
+    if (selection.width * selection.height > 4000000) { // 4MP
+      warnings.push('Large region may take longer to process');
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+      warnings
+    };
+  }
+
+  /**
+   * Cancel active region selection
+   */
+  async cancelRegionSelection(): Promise<void> {
+    try {
+      // Send cancellation message to background script
+      await chrome.runtime.sendMessage({
+        type: 'CANCEL_REGION_SELECTION'
+      });
+
+      console.log('✅ Region selection cancelled');
+    } catch (error) {
+      console.warn('⚠️ Failed to cancel region selection:', error);
+    }
+  }
+
+  /**
+   * Check if region selection is currently active
+   */
+  async isRegionSelectionActive(): Promise<boolean> {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'IS_REGION_SELECTION_ACTIVE'
+      });
+
+      return response?.active || false;
+    } catch (error) {
+      console.warn('⚠️ Failed to check region selection status:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Helper: Extract domain from URL
+   */
+  private extractDomain(url: string): string {
+    try {
+      const urlObj = new URL(url);
+      return urlObj.hostname.replace(/\./g, '_').replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  /**
+   * Legacy method for compatibility
+   */
+  async selectRegion(options: RegionCaptureOptions = {}): Promise<RegionCaptureResult> {
+    return this.startRegionSelection(options);
+  }
+
+  /**
+   * Create region capture from coordinates (for programmatic use)
+   */
+  async captureRegionFromCoordinates(
+    selection: RegionSelection,
+    options: RegionCaptureOptions = {}
+  ): Promise<RegionCaptureResult> {
+    try {
+      console.log('📸 Capturing region from coordinates:', selection);
+
+      // Validate selection
+      const validation = this.validateRegion(selection);
+      if (!validation.isValid) {
+        return {
+          success: false,
+          error: `Invalid region: ${validation.errors.join(', ')}`
+        };
+      }
+
+      // Capture base image
+      const baseCapture = await this.captureBaseImage();
+      if (!baseCapture.success) {
+        return {
+          success: false,
+          error: baseCapture.error || 'Failed to capture base image'
+        };
+      }
+
+      // Crop to region
+      const croppedResult = await this.cropImageToRegion(baseCapture.dataUrl!, selection);
+      if (!croppedResult.success) {
+        return {
+          success: false,
+          error: croppedResult.error || 'Failed to crop region'
+        };
+      }
+
+      // Generate filename
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `region_${selection.width}x${selection.height}_${timestamp}.png`;
+
+      return {
+        success: true,
+        dataUrl: croppedResult.dataUrl,
+        filename,
+        blob: croppedResult.blob,
+        selection
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Region capture failed'
+      };
+    }
+  }
+
+  /**
+   * Crop image to specified region
    */
   private async cropImageToRegion(
-    dataUrl: string, 
+    dataUrl: string,
     selection: RegionSelection
   ): Promise<{
     success: boolean;
@@ -678,62 +454,45 @@ class RegionService {
               return;
             }
 
-            // Convert screen coordinates back to image coordinates
-            const devicePixelRatio = selection.devicePixelRatio || window.devicePixelRatio || 1;
-            
-            // Calculate crop dimensions
-            const cropX = selection.x / devicePixelRatio;
-            const cropY = selection.y / devicePixelRatio;
-            const cropWidth = selection.width / devicePixelRatio;
-            const cropHeight = selection.height / devicePixelRatio;
+            // Set canvas size to region size
+            canvas.width = selection.width;
+            canvas.height = selection.height;
 
-            // Ensure crop area is within image bounds
-            const actualCropX = Math.max(0, Math.min(cropX, img.width));
-            const actualCropY = Math.max(0, Math.min(cropY, img.height));
-            const actualCropWidth = Math.min(cropWidth, img.width - actualCropX);
-            const actualCropHeight = Math.min(cropHeight, img.height - actualCropY);
+            // Fill with white background
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Set canvas dimensions to crop size
-            canvas.width = actualCropWidth;
-            canvas.height = actualCropHeight;
-
-            // Draw the cropped image
+            // Draw the cropped portion
             ctx.drawImage(
               img,
-              actualCropX,
-              actualCropY,
-              actualCropWidth,
-              actualCropHeight,
-              0,
-              0,
-              actualCropWidth,
-              actualCropHeight
+              selection.x, selection.y, selection.width, selection.height,
+              0, 0, selection.width, selection.height
             );
 
-            // Convert to blob and data URL
+            // Convert to blob
             canvas.toBlob((blob) => {
               if (blob) {
-                const croppedDataUrl = canvas.toDataURL('image/png', 1.0);
+                const croppedDataUrl = canvas.toDataURL('image/png');
                 resolve({
                   success: true,
                   dataUrl: croppedDataUrl,
                   blob
                 });
               } else {
-                resolve({ success: false, error: 'Failed to create cropped image blob' });
+                resolve({ success: false, error: 'Failed to create image blob' });
               }
             }, 'image/png');
 
           } catch (error) {
             resolve({
               success: false,
-              error: error instanceof Error ? error.message : 'Image cropping failed'
+              error: error instanceof Error ? error.message : 'Image processing failed'
             });
           }
         };
 
         img.onerror = () => {
-          resolve({ success: false, error: 'Failed to load image for cropping' });
+          resolve({ success: false, error: 'Failed to load image' });
         };
 
         img.src = dataUrl;
@@ -741,119 +500,10 @@ class RegionService {
       } catch (error) {
         resolve({
           success: false,
-          error: error instanceof Error ? error.message : 'Region cropping failed'
+          error: error instanceof Error ? error.message : 'Image cropping failed'
         });
       }
     });
-  }
-
-  /**
-   * Cancel any active region selection
-   */
-  async cancelRegionSelection(): Promise<void> {
-    try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tabs[0]?.id) {
-        chrome.scripting.executeScript({
-          target: { tabId: tabs[0].id },
-          func: () => {
-            if (typeof (window as any).cancelRegionSelection === 'function') {
-              (window as any).cancelRegionSelection();
-            }
-          }
-        });
-      }
-    } catch (error) {
-      console.warn('Failed to cancel region selection:', error);
-    }
-  }
-
-  /**
-   * Check if region selection is currently active
-   */
-  async isRegionSelectionActive(): Promise<boolean> {
-    try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tabs[0]?.id) return false;
-
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tabs[0].id },
-        func: () => {
-          if (typeof (window as any).isRegionSelectionActive === 'function') {
-            return (window as any).isRegionSelectionActive();
-          }
-          return false;
-        }
-      });
-
-      return results[0]?.result ?? false;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  /**
-   * Save region capture result to storage
-   */
-  async saveToStorage(result: RegionCaptureResult, caseId: string): Promise<boolean> {
-    try {
-      console.log('💾 Saving region capture to storage...');
-      
-      if (!result.success || !result.blob) {
-        console.error('❌ Invalid region capture result');
-        return false;
-      }
-
-      // Here you would integrate with your existing storage service
-      // For now, just log success
-      console.log('✅ Region capture saved successfully');
-      return true;
-
-    } catch (error) {
-      console.error('❌ Save error:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Download region capture to local disk
-   */
-  downloadRegionCapture(dataUrl: string, filename: string): void {
-    try {
-      const link = document.createElement('a');
-      link.download = filename;
-      link.href = dataUrl;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      console.log('✅ Region capture downloaded:', filename);
-    } catch (error) {
-      console.error('❌ Download error:', error);
-    }
-  }
-
-  /**
-   * Get region selection statistics
-   */
-  getSelectionStats(selection: RegionSelection): {
-    area: number;
-    aspectRatio: number;
-    isSquare: boolean;
-    isLandscape: boolean;
-    isPortrait: boolean;
-  } {
-    const width = selection.width / selection.devicePixelRatio;
-    const height = selection.height / selection.devicePixelRatio;
-    const area = width * height;
-    const aspectRatio = width / height;
-
-    return {
-      area,
-      aspectRatio,
-      isSquare: Math.abs(aspectRatio - 1) < 0.1,
-      isLandscape: aspectRatio > 1.2,
-      isPortrait: aspectRatio < 0.8
-    };
   }
 }
 

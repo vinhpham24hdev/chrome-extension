@@ -1,4 +1,4 @@
-// entrypoints/background.ts - Fixed for Manifest V3
+// entrypoints/background.ts - Fixed Region Capture for Manifest V3
 export default defineBackground(() => {
   console.log("🚀 Background script started:", { id: browser.runtime.id });
 
@@ -47,6 +47,7 @@ export default defineBackground(() => {
           handleRegionCancelled(message, sender);
           sendResponse({ success: true });
           break;
+          
         case "VIDEO_RECORDED":
           handleVideoRecorded(message.data, sender)
             .then((result) => sendResponse({ success: true, result }))
@@ -234,8 +235,8 @@ export default defineBackground(() => {
 
       console.log("🖼️ Generated filename:", filename);
 
-      // Prepare data for preview window
-      const previewData = {
+      // Prepare data for the popup/dashboard
+      const regionCaptureData = {
         dataUrl: croppedResult.dataUrl,
         filename: filename,
         timestamp: sessionData.timestamp,
@@ -243,61 +244,28 @@ export default defineBackground(() => {
         caseId: sessionData.caseId,
         blob: croppedResult.blob,
         sourceUrl: sessionData.sourceUrl,
+        region: region
       };
 
-      console.log("💾 Preview data prepared:", {
-        hasDataUrl: !!previewData.dataUrl,
-        hasBlob: !!previewData.blob,
-        filename: previewData.filename,
-      });
+      console.log("📤 Sending region capture result to popup...");
 
-      // Store preview data with multiple storage keys for reliability
-      const previewId = `preview_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}`;
-
-      console.log("💾 Storing preview data with ID:", previewId);
-
-      const storageData = {
-        [`screenshot_preview_${previewId}`]: previewData,
-        [`region_preview_data`]: previewData, // Fallback key
-        [`latest_screenshot_preview`]: previewData, // Another fallback
-      };
-
-      await chrome.storage.local.set(storageData);
-      console.log(
-        "✅ Preview data stored successfully with keys:",
-        Object.keys(storageData)
-      );
-
-      // Create window with detailed logging
-      const previewHtmlUrl = chrome.runtime.getURL("screenshot-preview.html");
-      const previewUrl = `${previewHtmlUrl}?id=${previewId}&type=region&timestamp=${Date.now()}`;
-      console.log("🪟 Creating window with URL:", previewUrl);
-
-      let window;
+      // 🔥 FIXED: Send result directly to popup instead of opening window here
       try {
-        window = await chrome.windows.create({
-          url: previewUrl,
-          type: "popup",
-          width: 1400,
-          height: 900,
-          focused: true,
-          state: "normal",
+        // Try to send to popup/dashboard
+        await chrome.runtime.sendMessage({
+          type: "REGION_CAPTURE_COMPLETED",
+          data: regionCaptureData,
         });
-
-        console.log("🎉 Window creation completed successfully");
-        console.log("📋 Window object:", window);
-      } catch (windowError) {
-        console.error("❌ Window creation failed:", windowError);
+        console.log("✅ Successfully sent region capture result to popup");
+      } catch (messageError) {
+        console.warn("⚠️ Failed to send to popup, storing for later:", messageError);
+        
+        // Store for later pickup if popup is not available
+        await chrome.storage.local.set({
+          latest_region_capture: regionCaptureData,
+          has_pending_region_capture: true,
+        });
       }
-
-      if (!window || !window.id) {
-        throw new Error("Window creation returned null/undefined or no ID");
-      }
-
-      console.log("✅ Preview window created successfully!");
-      console.log("🆔 Window ID:", window.id);
 
       // Cleanup session data
       await chrome.storage.local.remove([`region_session_${sessionId}`]);
@@ -307,10 +275,9 @@ export default defineBackground(() => {
 
       return {
         success: true,
-        windowId: window.id,
-        previewId: previewId,
+        filename: filename,
         region: region,
-        previewUrl: previewUrl,
+        caseId: sessionData.caseId,
       };
     } catch (error) {
       console.error("❌ REGION CAPTURE FAILED:", error);
@@ -323,6 +290,17 @@ export default defineBackground(() => {
         region: region,
         timestamp: new Date().toISOString(),
       });
+
+      // 🔥 FIXED: Send error directly to popup
+      try {
+        await chrome.runtime.sendMessage({
+          type: "REGION_CAPTURE_FAILED",
+          error: error instanceof Error ? error.message : "Region capture failed",
+          sessionId: sessionId,
+        });
+      } catch (messageError) {
+        console.warn("⚠️ Failed to send error to popup:", messageError);
+      }
 
       // Cleanup session data on error
       try {
@@ -343,6 +321,16 @@ export default defineBackground(() => {
   ) {
     const { sessionId } = message;
     console.log("❌ Region capture cancelled for session:", sessionId);
+
+    // 🔥 FIXED: Send cancellation to popup
+    try {
+      await chrome.runtime.sendMessage({
+        type: "REGION_CAPTURE_CANCELLED",
+        sessionId: sessionId,
+      });
+    } catch (messageError) {
+      console.warn("⚠️ Failed to send cancellation to popup:", messageError);
+    }
 
     // Cleanup session data
     if (sessionId) {
@@ -894,20 +882,25 @@ export default defineBackground(() => {
 
   // FIXED: Handle popup opened - deliver any pending results (MV3 compatible)
   async function handlePopupOpened(sender: chrome.runtime.MessageSender) {
-    console.log("🎯 Popup opened, checking for pending video results");
+    console.log("🎯 Popup opened, checking for pending results");
 
     try {
-      // Check for pending results in storage
+      // Check for pending video results
       const storage = await chrome.storage.local.get([
         "has_pending_video_results",
         "latest_video_result_id",
+        "has_pending_region_capture",
+        "latest_region_capture",
       ]);
 
+      const result: any = { hasPendingResults: false };
+
+      // Handle pending video results
       if (storage.has_pending_video_results && storage.latest_video_result_id) {
         const resultKey = `pending_video_${storage.latest_video_result_id}`;
-        const result = await chrome.storage.local.get([resultKey]);
+        const videoResult = await chrome.storage.local.get([resultKey]);
 
-        if (result[resultKey] && !result[resultKey].delivered) {
+        if (videoResult[resultKey] && !videoResult[resultKey].delivered) {
           console.log("📦 Found pending video result, delivering to popup");
 
           // Send to popup with delay to ensure it's ready
@@ -915,30 +908,55 @@ export default defineBackground(() => {
             try {
               await chrome.runtime.sendMessage({
                 type: "VIDEO_RESULT_DELIVERY",
-                data: result[resultKey],
+                data: videoResult[resultKey],
                 timestamp: Date.now(),
               });
 
               // Mark as delivered
               await chrome.storage.local.set({
-                [resultKey]: { ...result[resultKey], delivered: true },
+                [resultKey]: { ...videoResult[resultKey], delivered: true },
                 has_pending_video_results: false,
               });
 
               console.log("✅ Successfully delivered pending video result");
             } catch (error) {
-              console.error("❌ Error delivering pending result:", error);
+              console.error("❌ Error delivering pending video result:", error);
             }
-          }, 1000); // Small delay to ensure popup is ready
+          }, 1000);
 
-          return {
-            hasPendingResults: true,
-            resultId: storage.latest_video_result_id,
-          };
+          result.hasPendingVideoResults = true;
+          result.videoResultId = storage.latest_video_result_id;
         }
       }
 
-      return { hasPendingResults: false };
+      // Handle pending region capture results
+      if (storage.has_pending_region_capture && storage.latest_region_capture) {
+        console.log("📦 Found pending region capture, delivering to popup");
+
+        // Send to popup with delay to ensure it's ready
+        setTimeout(async () => {
+          try {
+            await chrome.runtime.sendMessage({
+              type: "REGION_CAPTURE_COMPLETED",
+              data: storage.latest_region_capture,
+            });
+
+            // Mark as delivered
+            await chrome.storage.local.set({
+              has_pending_region_capture: false,
+            });
+
+            console.log("✅ Successfully delivered pending region capture");
+          } catch (error) {
+            console.error("❌ Error delivering pending region capture:", error);
+          }
+        }, 500);
+
+        result.hasPendingRegionCapture = true;
+        result.regionCaptureData = storage.latest_region_capture;
+      }
+
+      return result;
     } catch (error) {
       console.error("❌ Error handling popup opened:", error);
       throw error;
@@ -1009,7 +1027,7 @@ export default defineBackground(() => {
 
         for (const [key, value] of Object.entries(storage)) {
           if (
-            key.startsWith("pending_video_") &&
+            (key.startsWith("pending_video_") || key.startsWith("region_session_")) &&
             typeof value === "object" &&
             value !== null
           ) {

@@ -36,6 +36,18 @@ function ServiceInitializer({ children }: { children: React.ReactNode }) {
         } else {
           console.error("❌ Service initialization failed:", result.errors);
         }
+
+        // 🔥 FIXED: Notify background script that popup is opened
+        try {
+          await chrome.runtime.sendMessage({
+            type: "POPUP_OPENED",
+            timestamp: Date.now(),
+          });
+          console.log("📤 Notified background script that popup opened");
+        } catch (error) {
+          console.warn("⚠️ Failed to notify background script:", error);
+        }
+
       } catch (error) {
         console.error("💥 Critical initialization error:", error);
         setInitializationState({
@@ -117,6 +129,43 @@ function ServiceInitializer({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const { state } = useAuth();
 
+  // 🔥 NEW: Setup message listener for background script communications
+  useEffect(() => {
+    const handleBackgroundMessage = (
+      message: any,
+      sender: chrome.runtime.MessageSender,
+      sendResponse: (response?: any) => void
+    ) => {
+      console.log("📨 App received message:", message.type);
+
+      // Handle any app-level messages from background script
+      if (message.type === "POPUP_MESSAGE") {
+        console.log("📨 Popup message received:", message.data);
+        sendResponse({ received: true });
+      }
+
+      // Forward region capture messages to Dashboard component
+      if (message.type === "REGION_CAPTURE_COMPLETED" || 
+          message.type === "REGION_CAPTURE_FAILED" || 
+          message.type === "REGION_CAPTURE_CANCELLED") {
+        // These will be handled by Dashboard component
+        console.log("📨 Region capture message received, will be handled by Dashboard");
+      }
+    };
+
+    // Add message listener
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      chrome.runtime.onMessage.addListener(handleBackgroundMessage);
+    }
+
+    return () => {
+      // Remove message listener
+      if (typeof chrome !== "undefined" && chrome.runtime) {
+        chrome.runtime.onMessage.removeListener(handleBackgroundMessage);
+      }
+    };
+  }, []);
+
   // Show loading state while checking authentication
   if (state.isLoading) {
     return (
@@ -143,6 +192,16 @@ function AppContent() {
 
 // Main App component
 function App() {
+  // 🔥 NEW: Handle popup lifecycle
+  useEffect(() => {
+    console.log("🎯 Popup App component mounted");
+
+    // Cleanup function when popup closes
+    return () => {
+      console.log("🚪 Popup App component unmounting");
+    };
+  }, []);
+
   return (
     <ServiceInitializer>
       <AuthProvider>
