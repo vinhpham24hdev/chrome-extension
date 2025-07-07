@@ -1,7 +1,7 @@
 // components/ScreenshotPreviewApp.tsx - Main app component for screenshot preview window
-import React, { useState, useEffect } from 'react';
-import { createRoot } from 'react-dom/client';
-import ScreenshotPreview, { ScreenshotData } from './ScreenshotPreview';
+import React, { useState, useEffect } from "react";
+import { createRoot } from "react-dom/client";
+import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 
 interface PreviewWindowState {
   screenshot: ScreenshotData | null;
@@ -13,7 +13,7 @@ function ScreenshotPreviewWindow() {
   const [state, setState] = useState<PreviewWindowState>({
     screenshot: null,
     isLoading: true,
-    error: null
+    error: null,
   });
 
   useEffect(() => {
@@ -21,54 +21,59 @@ function ScreenshotPreviewWindow() {
     injectTailwindCSS();
 
     // Hide loading indicator initially shown in HTML
-    const loadingElement = document.getElementById('loading');
+    const loadingElement = document.getElementById("loading");
     if (loadingElement) {
-      loadingElement.style.display = 'none';
+      loadingElement.style.display = "none";
     }
 
     // Get screenshot data from URL parameters or storage
     loadScreenshotData();
 
     // Listen for messages from popup window
-    const messageListener = (message: any, sender: chrome.runtime.MessageSender) => {
-      if (message.type === 'SCREENSHOT_DATA') {
-        setState(prev => ({
+    const messageListener = (
+      message: any,
+      sender: chrome.runtime.MessageSender
+    ) => {
+      if (message.type === "SCREENSHOT_DATA") {
+        setState((prev) => ({
           ...prev,
           screenshot: message.data,
           isLoading: false,
-          error: null
+          error: null,
         }));
       }
-      
-      if (message.type === 'CLOSE_PREVIEW') {
+
+      if (message.type === "CLOSE_PREVIEW") {
         window.close();
       }
     };
 
     // Add message listener
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
+    if (typeof chrome !== "undefined" && chrome.runtime) {
       chrome.runtime.onMessage.addListener(messageListener);
     }
 
     // Handle window close events
     const handleBeforeUnload = () => {
       // Notify popup that preview window is closing
-      if (typeof chrome !== 'undefined' && chrome.runtime) {
-        chrome.runtime.sendMessage({
-          type: 'PREVIEW_WINDOW_CLOSED'
-        }).catch(() => {
-          // Ignore errors if popup is closed
-        });
+      if (typeof chrome !== "undefined" && chrome.runtime) {
+        chrome.runtime
+          .sendMessage({
+            type: "PREVIEW_WINDOW_CLOSED",
+          })
+          .catch(() => {
+            // Ignore errors if popup is closed
+          });
       }
     };
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
-      if (typeof chrome !== 'undefined' && chrome.runtime) {
+      if (typeof chrome !== "undefined" && chrome.runtime) {
         chrome.runtime.onMessage.removeListener(messageListener);
       }
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, []);
 
@@ -252,66 +257,213 @@ function ScreenshotPreviewWindow() {
       }
     `;
 
-    const styleElement = document.createElement('style');
+    const styleElement = document.createElement("style");
     styleElement.textContent = css;
     document.head.appendChild(styleElement);
-    
-    console.log('Tailwind CSS injected into preview window');
+
+    console.log("Tailwind CSS injected into preview window");
   };
 
   const loadScreenshotData = async () => {
     try {
-      // Try to get data from URL parameters first
+      console.log("🔍 Loading screenshot data in preview window...");
+
+      // Method 1: Try to get data from URL parameters
       const urlParams = new URLSearchParams(window.location.search);
-      const screenshotId = urlParams.get('id');
-      
+      const screenshotId = urlParams.get("id");
+      const type = urlParams.get("type");
+
+      console.log("📋 URL params:", { screenshotId, type });
+
       if (screenshotId) {
-        // Get data from Chrome storage
-        if (typeof chrome !== 'undefined' && chrome.storage) {
-          const result = await chrome.storage.local.get([`screenshot_preview_${screenshotId}`]);
-          const data = result[`screenshot_preview_${screenshotId}`];
-          
-          if (data) {
-            setState(prev => ({
-              ...prev,
-              screenshot: data,
-              isLoading: false,
-              error: null
-            }));
-            
-            // Clean up storage after loading
-            chrome.storage.local.remove([`screenshot_preview_${screenshotId}`]);
-            return;
+        console.log("💾 Trying to load from storage with ID:", screenshotId);
+
+        if (typeof chrome !== "undefined" && chrome.storage) {
+          // Try multiple storage keys for reliability
+          const storageKeys = [
+            `screenshot_preview_${screenshotId}`,
+            `region_preview_data`,
+            `latest_screenshot_preview`,
+          ];
+
+          console.log("🔑 Checking storage keys:", storageKeys);
+
+          for (const key of storageKeys) {
+            try {
+              const result = await chrome.storage.local.get([key]);
+              const data = result[key];
+
+              console.log(
+                `📦 Storage key ${key}:`,
+                data ? "Found" : "Not found"
+              );
+
+              if (data && data.dataUrl) {
+                console.log("✅ Found screenshot data via key:", key);
+                console.log("📊 Data info:", {
+                  hasDataUrl: !!data.dataUrl,
+                  filename: data.filename,
+                  type: data.type,
+                  dataUrlLength: data.dataUrl?.length,
+                });
+
+                setState((prev) => ({
+                  ...prev,
+                  screenshot: data,
+                  isLoading: false,
+                  error: null,
+                }));
+
+                // Clean up storage after loading (except latest fallback)
+                if (key !== "latest_screenshot_preview") {
+                  chrome.storage.local.remove([key]);
+                }
+
+                return;
+              }
+            } catch (keyError) {
+              console.warn(`⚠️ Error checking storage key ${key}:`, keyError);
+            }
           }
+
+          console.warn("⚠️ No data found in storage with any key");
         }
       }
 
-      // If no data found, wait for message from popup
-      setState(prev => ({
+      // Method 2: Wait for message from background script
+      console.log("📨 Waiting for data message from background...");
+
+      setState((prev) => ({
         ...prev,
         isLoading: true,
-        error: null
+        error: null,
       }));
 
+      // Set up timeout for waiting
+      const timeout = setTimeout(() => {
+        console.error("⏰ Timeout waiting for screenshot data");
+        setState((prev) => ({
+          ...prev,
+          isLoading: false,
+          error: "Timeout loading screenshot data. Please try again.",
+        }));
+      }, 10000); // 10 second timeout
+
+      // Listen for incoming data
+      const messageListener = (
+        message: any,
+        sender: chrome.runtime.MessageSender
+      ) => {
+        console.log("📨 Received message in preview window:", message.type);
+
+        if (message.type === "SCREENSHOT_DATA") {
+          clearTimeout(timeout);
+          console.log("✅ Received screenshot data via message");
+          console.log("📊 Message data info:", {
+            hasDataUrl: !!message.data?.dataUrl,
+            filename: message.data?.filename,
+            type: message.data?.type,
+          });
+
+          setState((prev) => ({
+            ...prev,
+            screenshot: message.data,
+            isLoading: false,
+            error: null,
+          }));
+        }
+      };
+
+      if (typeof chrome !== "undefined" && chrome.runtime) {
+        chrome.runtime.onMessage.addListener(messageListener);
+
+        // Cleanup listener when component unmounts or data is received
+        window.addEventListener("beforeunload", () => {
+          chrome.runtime.onMessage.removeListener(messageListener);
+          clearTimeout(timeout);
+        });
+      }
     } catch (error) {
-      console.error('Failed to load screenshot data:', error);
-      setState(prev => ({
+      console.error("❌ Failed to load screenshot data:", error);
+      setState((prev) => ({
         ...prev,
         isLoading: false,
-        error: error instanceof Error ? error.message : 'Failed to load screenshot'
+        error:
+          error instanceof Error ? error.message : "Failed to load screenshot",
       }));
     }
   };
 
+  // ENHANCED error display with more helpful information
+  if (state.error) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center fade-in">
+        <div className="text-center text-white max-w-md error-shake">
+          <div className="text-red-400 text-6xl mb-4">⚠️</div>
+          <div className="text-lg mb-2">Failed to load screenshot</div>
+          <div className="text-sm text-gray-300 mb-6">{state.error}</div>
+
+          {/* Debug info */}
+          <div className="text-xs text-gray-400 mb-4 text-left bg-gray-800 p-3 rounded">
+            <div>
+              <strong>Debug Info:</strong>
+            </div>
+            <div>URL: {window.location.href}</div>
+            <div>Time: {new Date().toISOString()}</div>
+            <div>User Agent: {navigator.userAgent.split(" ")[0]}</div>
+          </div>
+
+          <div className="space-y-2">
+            <button
+              onClick={() => window.location.reload()}
+              className="block w-full px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors btn-hover-scale"
+            >
+              Retry Loading
+            </button>
+            <button
+              onClick={() => {
+                // Try to load latest data from storage
+                if (typeof chrome !== "undefined" && chrome.storage) {
+                  chrome.storage.local.get(
+                    ["latest_screenshot_preview"],
+                    (result) => {
+                      if (result.latest_screenshot_preview) {
+                        setState((prev) => ({
+                          ...prev,
+                          screenshot: result.latest_screenshot_preview,
+                          isLoading: false,
+                          error: null,
+                        }));
+                      }
+                    }
+                  );
+                }
+              }}
+              className="block w-full px-6 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
+            >
+              Try Load Latest
+            </button>
+            <button
+              onClick={() => window.close()}
+              className="block w-full px-6 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+            >
+              Close Window
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const handleSave = async () => {
     // Send save request back to popup/background
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
+    if (typeof chrome !== "undefined" && chrome.runtime) {
       chrome.runtime.sendMessage({
-        type: 'SAVE_SCREENSHOT',
-        data: state.screenshot
+        type: "SAVE_SCREENSHOT",
+        data: state.screenshot,
       });
     }
-    
+
     // Close window after save
     setTimeout(() => {
       window.close();
@@ -320,7 +472,7 @@ function ScreenshotPreviewWindow() {
 
   const handleDownload = () => {
     if (state.screenshot) {
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = state.screenshot.dataUrl;
       link.download = state.screenshot.filename;
       document.body.appendChild(link);
@@ -331,12 +483,12 @@ function ScreenshotPreviewWindow() {
 
   const handleRetake = () => {
     // Send retake request back to popup
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
+    if (typeof chrome !== "undefined" && chrome.runtime) {
       chrome.runtime.sendMessage({
-        type: 'RETAKE_SCREENSHOT'
+        type: "RETAKE_SCREENSHOT",
       });
     }
-    
+
     window.close();
   };
 
@@ -400,15 +552,15 @@ function ScreenshotPreviewWindow() {
 // Initialize the app function
 export function initializeScreenPreviewApp() {
   const init = () => {
-    const rootElement = document.getElementById('root');
+    const rootElement = document.getElementById("root");
     if (rootElement) {
       const root = createRoot(rootElement);
       root.render(<ScreenshotPreviewWindow />);
     }
   };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
   } else {
     init();
   }

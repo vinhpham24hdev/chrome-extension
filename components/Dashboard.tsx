@@ -16,10 +16,7 @@ import {
   VideoResult,
   VideoOptions,
 } from "../services/videoService";
-import {
-  regionService,
-  RegionCaptureResult,
-} from "../services/regionService";
+import { regionService, RegionCaptureResult } from "../services/regionService";
 import { screenshotWindowService } from "../services/screenshotWindowService";
 import { videoWindowService } from "../services/videoWindowService";
 import { videoRecorderWindowService } from "../services/videoRecorderWindowService";
@@ -408,6 +405,8 @@ export default function Dashboard() {
     setSelectedCase(caseId);
   };
 
+  // components/Dashboard.tsx - Updated handleScreenshot function for region capture
+
   const handleScreenshot = async (
     type: "screen" | "full" | "region" = "screen"
   ) => {
@@ -420,6 +419,110 @@ export default function Dashboard() {
       return;
     }
 
+    // 🎯 NEW: Region Capture Workflow
+    if (type === "region") {
+      console.log("🎯 Starting region capture workflow...");
+
+      setIsCapturing(true);
+      setCaptureMode("region");
+
+      try {
+        // Step 1: Capture visible area as base image
+        console.log("📸 Capturing base image for region selection...");
+        const visibleCapture = await screenshotService.captureVisibleArea({
+          type: "visible",
+          format: "png",
+        });
+
+        if (!visibleCapture.success) {
+          throw new Error(
+            visibleCapture.error || "Failed to capture base image"
+          );
+        }
+
+        // Step 2: Create unique session ID
+        const sessionId = `region_${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
+        console.log("💾 Created session ID:", sessionId);
+
+        // Step 3: Save session data to Chrome storage
+        await chrome.storage.local.set({
+          [`region_session_${sessionId}`]: {
+            dataUrl: visibleCapture.dataUrl,
+            filename: visibleCapture.filename,
+            sourceUrl: visibleCapture.sourceUrl,
+            caseId: selectedCase,
+            timestamp: new Date().toISOString(),
+            type: "region-base",
+            blob: visibleCapture.blob,
+          },
+        });
+        console.log("💾 Session data saved to storage");
+
+        // Step 4: Send message to background script
+        const bgResponse = await chrome.runtime.sendMessage({
+          type: "START_REGION_CAPTURE",
+          sessionId: sessionId,
+          caseId: selectedCase,
+        });
+
+        if (!bgResponse || !bgResponse.success) {
+          throw new Error(
+            bgResponse?.error || "Failed to start region capture"
+          );
+        }
+
+        console.log("✅ Background script notified, session started");
+
+        // Step 5: Close popup to allow region selection
+        console.log("🚪 Closing popup for region selection...");
+        setTimeout(() => {
+          window.close();
+        }, 150); // Small delay to ensure message is processed
+      } catch (error) {
+        console.error("❌ Region capture initialization failed:", error);
+
+        let errorMsg = "Unknown error occurred";
+        let suggestions = [
+          "Try refreshing the page and capturing again",
+          "Check if you're on a regular website",
+          "Make sure popup blockers are disabled",
+        ];
+
+        if (error instanceof Error) {
+          errorMsg = error.message;
+
+          if (
+            errorMsg.includes("permission") ||
+            errorMsg.includes("activeTab")
+          ) {
+            suggestions = [
+              "Click the extension icon first to grant permissions",
+              "Refresh the page and try again",
+              "Make sure you're on an active tab",
+            ];
+          } else if (
+            errorMsg.includes("restricted") ||
+            errorMsg.includes("chrome://")
+          ) {
+            suggestions = [
+              "Navigate to a regular website (google.com, youtube.com)",
+              "Browser internal pages cannot be captured",
+              "Try opening a new tab with any website",
+            ];
+          }
+        }
+
+        showError("Region Capture Failed", errorMsg, suggestions);
+        setIsCapturing(false);
+        setCaptureMode(null);
+      }
+
+      return; // Exit early for region capture
+    }
+
+    // Existing logic for screen and full capture (unchanged)
     setIsCapturing(true);
     setCaptureMode("screenshot");
 
@@ -442,9 +545,9 @@ export default function Dashboard() {
           format: "png",
         });
       }
-      // 🎯 REGION: Will be handled by region selector
+      // This else should never be reached now since region is handled above
       else {
-        console.log("🎯 Starting region capture...");
+        console.log("🎯 Fallback - using visible capture for unknown type");
         result = await screenshotService.captureVisibleArea({
           type: "visible",
           format: "png",
@@ -459,7 +562,7 @@ export default function Dashboard() {
           type: `screenshot-${type}`,
           caseId: selectedCase,
           blob: result.blob,
-          sourceUrl: result.sourceUrl, 
+          sourceUrl: result.sourceUrl,
         };
 
         console.log("Opening screenshot preview in new window...");
@@ -545,19 +648,25 @@ export default function Dashboard() {
     try {
       console.log("🎯 Starting region selection...");
 
-      const result: RegionCaptureResult = await regionService.startRegionSelection({
-        showGuides: true,
-        showDimensions: true,
-        overlayColor: 'rgba(0, 0, 0, 0.3)',
-        borderColor: '#4285f4'
-      });
+      const result: RegionCaptureResult =
+        await regionService.startRegionSelection({
+          showGuides: true,
+          showDimensions: true,
+          overlayColor: "rgba(0, 0, 0, 0.3)",
+          borderColor: "#4285f4",
+        });
 
-      if (result.success && result.dataUrl && result.filename && result.selection) {
+      if (
+        result.success &&
+        result.dataUrl &&
+        result.filename &&
+        result.selection
+      ) {
         console.log("✅ Region captured successfully:", result.selection);
 
         // Get selection stats for better UX
         const stats = regionService.getSelectionStats(result.selection);
-        
+
         const screenshotData: ScreenshotData = {
           dataUrl: result.dataUrl,
           filename: result.filename,
@@ -907,7 +1016,7 @@ export default function Dashboard() {
               <div className="absolute -top-1 -right-1 w-2 h-2 bg-purple-500 rounded-full"></div>
             </div>
             <span className="text-xs text-gray-700">Region</span>
-            
+
             {/* Enhanced tooltip for region */}
             <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
               🎯 Drag to select area
@@ -980,7 +1089,9 @@ export default function Dashboard() {
             {captureMode === "region" && (
               <div className="text-sm text-gray-500 mt-2 text-center">
                 <p>• Drag to select the area you want to capture</p>
-                <p>• Press <span className="font-medium">ESC</span> to cancel</p>
+                <p>
+                  • Press <span className="font-medium">ESC</span> to cancel
+                </p>
                 <p>• Click and drag on the webpage</p>
               </div>
             )}
