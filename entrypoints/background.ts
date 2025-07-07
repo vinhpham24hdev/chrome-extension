@@ -1,4 +1,4 @@
-// entrypoints/background.ts - Fixed Region Capture for Manifest V3
+// entrypoints/background.ts - Loom-style Region Capture for Manifest V3
 export default defineBackground(() => {
   console.log("🚀 Background script started:", { id: browser.runtime.id });
 
@@ -47,14 +47,14 @@ export default defineBackground(() => {
           handleRegionCancelled(message, sender);
           sendResponse({ success: true });
           break;
-          
+
         case "VIDEO_RECORDED":
           handleVideoRecorded(message.data, sender)
             .then((result) => sendResponse({ success: true, result }))
             .catch((error) =>
               sendResponse({ success: false, error: error.message })
             );
-          return true; // Keep message channel open for async response
+          return true;
 
         case "VIDEO_RECORDED_BACKGROUND":
           handleVideoRecordedBackground(message.data, sender)
@@ -111,7 +111,7 @@ export default defineBackground(() => {
 
     try {
       console.log(
-        "🎯 Background: Starting region capture for session:",
+        "🎯 Background: Starting Loom-style region capture for session:",
         sessionId
       );
 
@@ -144,11 +144,11 @@ export default defineBackground(() => {
       // Inject region selector into the active tab
       await chrome.scripting.executeScript({
         target: { tabId: activeTab.id },
-        func: initializeRegionSelector,
+        func: initializeLoomStyleRegionSelector,
         args: [sessionId],
       });
 
-      console.log("✅ Region selector injected successfully");
+      console.log("✅ Loom-style region selector injected successfully");
 
       return {
         success: true,
@@ -169,8 +169,6 @@ export default defineBackground(() => {
       throw error;
     }
   }
-
-  // Handle region selection completion
   async function handleRegionSelected(
     message: any,
     sender: chrome.runtime.MessageSender
@@ -178,7 +176,10 @@ export default defineBackground(() => {
     const { sessionId, region } = message;
 
     try {
-      console.log("🎯 Background: Processing region selection:", region);
+      console.log(
+        "🎯 Background: Processing Loom-style region selection:",
+        region
+      );
       console.log("📋 Session ID:", sessionId);
 
       // Validate region data
@@ -195,11 +196,6 @@ export default defineBackground(() => {
 
       if (!sessionData) {
         console.error("❌ Session data not found in storage for:", sessionId);
-
-        // Debug: Check all storage keys
-        const allStorage = await chrome.storage.local.get();
-        console.log("📋 All storage keys:", Object.keys(allStorage));
-
         throw new Error(
           "Session data not found - may have expired or been cleaned up"
         );
@@ -212,12 +208,26 @@ export default defineBackground(() => {
         dataUrlLength: sessionData.dataUrl?.length,
       });
 
-      // Crop the image to selected region
-      console.log("📸 Starting image crop process...");
-      const croppedResult = await cropImageInBackground(
-        sessionData.dataUrl,
-        region
-      );
+      // 🔥 FIXED: Use content script for image processing instead of background
+      console.log("📸 Starting image crop process in content script...");
+
+      // Get the tab that sent the message (where the region was selected)
+      if (!sender.tab?.id) {
+        throw new Error("No sender tab ID available for image processing");
+      }
+
+      // Execute cropping in content script where DOM/Image APIs are available
+      const cropResults = await chrome.scripting.executeScript({
+        target: { tabId: sender.tab.id },
+        func: cropImageInContentScript,
+        args: [sessionData.dataUrl, region],
+      });
+
+      if (!cropResults || !cropResults[0] || !cropResults[0].result) {
+        throw new Error("Failed to execute image cropping in content script");
+      }
+
+      const croppedResult = cropResults[0].result;
 
       if (!croppedResult.success) {
         console.error("❌ Crop failed:", croppedResult.error);
@@ -226,7 +236,7 @@ export default defineBackground(() => {
         );
       }
 
-      console.log("✅ Image cropped successfully");
+      console.log("✅ Image cropped successfully in content script");
 
       // Generate filename for cropped image
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -235,52 +245,57 @@ export default defineBackground(() => {
 
       console.log("🖼️ Generated filename:", filename);
 
-      // Prepare data for the popup/dashboard
+      // 🔥 LOOM-STYLE: Store the result for when popup reopens
       const regionCaptureData = {
         dataUrl: croppedResult.dataUrl,
         filename: filename,
         timestamp: sessionData.timestamp,
         type: "screenshot-region",
         caseId: sessionData.caseId,
-        blob: croppedResult.blob,
         sourceUrl: sessionData.sourceUrl,
-        region: region
+        region: region,
+        completedAt: new Date().toISOString(),
       };
 
-      console.log("📤 Sending region capture result to popup...");
+      console.log("💾 Storing region capture result for popup pickup...");
 
-      // 🔥 FIXED: Send result directly to popup instead of opening window here
+      // Store result for when popup reopens
+      await chrome.storage.local.set({
+        latest_region_capture: regionCaptureData,
+        has_pending_region_capture: true,
+        region_capture_completed_time: Date.now(),
+      });
+
+      console.log("✅ Region capture result stored successfully");
+
+      // Try to notify popup if it's still open (unlikely but possible)
       try {
-        // Try to send to popup/dashboard
         await chrome.runtime.sendMessage({
           type: "REGION_CAPTURE_COMPLETED",
           data: regionCaptureData,
         });
-        console.log("✅ Successfully sent region capture result to popup");
+        console.log("📤 Notified popup of region capture completion");
       } catch (messageError) {
-        console.warn("⚠️ Failed to send to popup, storing for later:", messageError);
-        
-        // Store for later pickup if popup is not available
-        await chrome.storage.local.set({
-          latest_region_capture: regionCaptureData,
-          has_pending_region_capture: true,
-        });
+        console.log("📦 Popup closed - result stored for later pickup");
       }
 
       // Cleanup session data
       await chrome.storage.local.remove([`region_session_${sessionId}`]);
       console.log("🧹 Session data cleaned up");
 
-      console.log("🎉 Region capture workflow completed successfully!");
+      console.log(
+        "🎉 Loom-style region capture workflow completed successfully!"
+      );
 
       return {
         success: true,
         filename: filename,
         region: region,
         caseId: sessionData.caseId,
+        storedForPickup: true,
       };
     } catch (error) {
-      console.error("❌ REGION CAPTURE FAILED:", error);
+      console.error("❌ LOOM-STYLE REGION CAPTURE FAILED:", error);
 
       // Enhanced error logging with full context
       console.error("❌ Full error details:", {
@@ -291,15 +306,19 @@ export default defineBackground(() => {
         timestamp: new Date().toISOString(),
       });
 
-      // 🔥 FIXED: Send error directly to popup
+      // Store error for popup pickup
       try {
-        await chrome.runtime.sendMessage({
-          type: "REGION_CAPTURE_FAILED",
-          error: error instanceof Error ? error.message : "Region capture failed",
-          sessionId: sessionId,
+        await chrome.storage.local.set({
+          region_capture_error: {
+            error:
+              error instanceof Error ? error.message : "Region capture failed",
+            sessionId: sessionId,
+            timestamp: new Date().toISOString(),
+          },
+          has_region_capture_error: true,
         });
-      } catch (messageError) {
-        console.warn("⚠️ Failed to send error to popup:", messageError);
+      } catch (storageError) {
+        console.warn("⚠️ Failed to store error for pickup:", storageError);
       }
 
       // Cleanup session data on error
@@ -314,22 +333,183 @@ export default defineBackground(() => {
     }
   }
 
+  function cropImageInContentScript(
+    dataUrl: string,
+    region: { x: number; y: number; width: number; height: number }
+  ): Promise<{
+    success: boolean;
+    dataUrl?: string;
+    error?: string;
+  }> {
+    return new Promise((resolve) => {
+      try {
+        console.log("🖼️ Starting image crop in content script:", {
+          region,
+          dataUrlLength: dataUrl ? dataUrl.length : 0,
+        });
+
+        if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+          resolve({
+            success: false,
+            error: "Invalid or missing image data URL",
+          });
+          return;
+        }
+
+        const img = new Image();
+
+        img.onload = () => {
+          try {
+            console.log("✅ Base image loaded:", {
+              width: img.width,
+              height: img.height,
+            });
+
+            // Validate and adjust region to fit within image bounds
+            let adjustedRegion = { ...region };
+
+            if (
+              region.x < 0 ||
+              region.y < 0 ||
+              region.x >= img.width ||
+              region.y >= img.height ||
+              region.width <= 0 ||
+              region.height <= 0
+            ) {
+              console.warn("⚠️ Region outside image bounds, adjusting...", {
+                region: region,
+                imageSize: { width: img.width, height: img.height },
+              });
+
+              adjustedRegion = {
+                x: Math.max(0, Math.min(region.x, img.width - 1)),
+                y: Math.max(0, Math.min(region.y, img.height - 1)),
+                width: Math.min(
+                  region.width,
+                  img.width - Math.max(0, region.x)
+                ),
+                height: Math.min(
+                  region.height,
+                  img.height - Math.max(0, region.y)
+                ),
+              };
+
+              console.log("📐 Adjusted region:", adjustedRegion);
+            }
+
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+
+            if (!ctx) {
+              resolve({
+                success: false,
+                error: "Canvas context not available in content script",
+              });
+              return;
+            }
+
+            // Set canvas dimensions to region size
+            canvas.width = adjustedRegion.width;
+            canvas.height = adjustedRegion.height;
+
+            console.log("📐 Canvas created:", {
+              width: canvas.width,
+              height: canvas.height,
+            });
+
+            // Fill with white background (in case of transparency)
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw the cropped portion
+            ctx.drawImage(
+              img,
+              adjustedRegion.x,
+              adjustedRegion.y,
+              adjustedRegion.width,
+              adjustedRegion.height, // Source rectangle
+              0,
+              0,
+              adjustedRegion.width,
+              adjustedRegion.height // Destination rectangle
+            );
+
+            console.log("✅ Image drawn to canvas in content script");
+
+            // Convert to dataURL
+            const croppedDataUrl = canvas.toDataURL("image/png", 1.0);
+
+            console.log("✅ Crop completed in content script:", {
+              dataUrlLength: croppedDataUrl.length,
+            });
+
+            resolve({
+              success: true,
+              dataUrl: croppedDataUrl,
+            });
+          } catch (canvasError) {
+            console.error(
+              "❌ Canvas drawing error in content script:",
+              canvasError
+            );
+            resolve({
+              success: false,
+              error:
+                canvasError instanceof Error
+                  ? canvasError.message
+                  : "Canvas drawing failed",
+            });
+          }
+        };
+
+        img.onerror = (error) => {
+          console.error("❌ Image load error in content script:", error);
+          resolve({
+            success: false,
+            error: "Failed to load base image for cropping",
+          });
+        };
+
+        // Set cross-origin attribute for data URLs
+        img.crossOrigin = "anonymous";
+
+        // Load the image
+        img.src = dataUrl;
+      } catch (initError) {
+        console.error(
+          "❌ Crop initialization error in content script:",
+          initError
+        );
+        resolve({
+          success: false,
+          error:
+            initError instanceof Error
+              ? initError.message
+              : "Image cropping initialization failed",
+        });
+      }
+    });
+  }
+
   // Handle region capture cancellation
   async function handleRegionCancelled(
     message: any,
     sender: chrome.runtime.MessageSender
   ) {
     const { sessionId } = message;
-    console.log("❌ Region capture cancelled for session:", sessionId);
+    console.log(
+      "❌ Loom-style region capture cancelled for session:",
+      sessionId
+    );
 
-    // 🔥 FIXED: Send cancellation to popup
+    // Store cancellation for popup pickup
     try {
-      await chrome.runtime.sendMessage({
-        type: "REGION_CAPTURE_CANCELLED",
-        sessionId: sessionId,
+      await chrome.storage.local.set({
+        region_capture_cancelled: true,
+        region_capture_cancelled_time: Date.now(),
       });
-    } catch (messageError) {
-      console.warn("⚠️ Failed to send cancellation to popup:", messageError);
+    } catch (storageError) {
+      console.warn("⚠️ Failed to store cancellation:", storageError);
     }
 
     // Cleanup session data
@@ -522,10 +702,10 @@ export default defineBackground(() => {
     }
   }
 
-  // 🎯 Region Selector Injection Function
-  function initializeRegionSelector(sessionId: string) {
+  // 🎯 LOOM-STYLE: Region Selector Injection Function
+  function initializeLoomStyleRegionSelector(sessionId: string) {
     console.log(
-      "🎯 Initializing region selector on page for session:",
+      "🎯 Initializing Loom-style region selector on page for session:",
       sessionId
     );
 
@@ -536,7 +716,7 @@ export default defineBackground(() => {
       console.log("🧹 Removed existing region selector");
     }
 
-    // Create overlay container
+    // Create overlay container with Loom-style design
     const overlay = document.createElement("div");
     overlay.id = "cellebrite-region-selector";
     overlay.style.cssText = `
@@ -545,67 +725,109 @@ export default defineBackground(() => {
       left: 0 !important;
       width: 100vw !important;
       height: 100vh !important;
-      background: rgba(0, 0, 0, 0.3) !important;
+      background: rgba(0, 0, 0, 0.4) !important;
       z-index: 2147483647 !important;
       cursor: crosshair !important;
       user-select: none !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+      backdrop-filter: blur(2px) !important;
     `;
 
-    // Create instruction text
+    // Create Loom-style instruction panel
     const instruction = document.createElement("div");
     instruction.style.cssText = `
       position: absolute !important;
-      top: 20px !important;
+      top: 30px !important;
       left: 50% !important;
       transform: translateX(-50%) !important;
-      background: rgba(0, 0, 0, 0.8) !important;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
       color: white !important;
-      padding: 12px 20px !important;
-      border-radius: 6px !important;
-      font-size: 14px !important;
-      font-weight: 500 !important;
+      padding: 16px 24px !important;
+      border-radius: 12px !important;
+      font-size: 15px !important;
+      font-weight: 600 !important;
       pointer-events: none !important;
       z-index: 2147483648 !important;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+      text-align: center !important;
+      animation: slideInDown 0.3s ease-out !important;
     `;
-    instruction.innerHTML =
-      "🎯 Click and drag to select region • Press <strong>ESC</strong> to cancel";
+    instruction.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <span style="font-size: 18px;">🎯</span>
+        <span>Click and drag to select region</span>
+      </div>
+      <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">
+        Press <strong>ESC</strong> to cancel
+      </div>
+    `;
 
-    // Create selection box
+    // Create selection box with Loom-style design
     const selectionBox = document.createElement("div");
     selectionBox.style.cssText = `
       position: absolute !important;
-      border: 2px dashed #007cff !important;
-      background: rgba(0, 124, 255, 0.1) !important;
+      border: 3px solid #4285f4 !important;
+      background: rgba(66, 133, 244, 0.1) !important;
       display: none !important;
       pointer-events: none !important;
       z-index: 2147483648 !important;
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5) !important;
+      box-shadow: 
+        0 0 0 1px rgba(255, 255, 255, 0.8),
+        0 4px 16px rgba(66, 133, 244, 0.4) !important;
+      border-radius: 4px !important;
     `;
 
-    // Create dimension display
+    // Create dimension display with Loom-style design
     const dimensionDisplay = document.createElement("div");
     dimensionDisplay.style.cssText = `
       position: absolute !important;
-      background: rgba(0, 0, 0, 0.8) !important;
+      background: linear-gradient(135deg, #4285f4 0%, #1a73e8 100%) !important;
       color: white !important;
-      padding: 4px 8px !important;
-      border-radius: 3px !important;
-      font-size: 12px !important;
-      font-weight: 500 !important;
+      padding: 6px 12px !important;
+      border-radius: 8px !important;
+      font-size: 13px !important;
+      font-weight: 600 !important;
       display: none !important;
       pointer-events: none !important;
-      z-index: 2147483648 !important;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+      z-index: 2147483649 !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+      white-space: nowrap !important;
     `;
+
+    // Add CSS animations
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes slideInDown {
+        from {
+          opacity: 0;
+          transform: translateX(-50%) translateY(-20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+      @keyframes pulseSelection {
+        0%, 100% { 
+          box-shadow: 
+            0 0 0 1px rgba(255, 255, 255, 0.8),
+            0 4px 16px rgba(66, 133, 244, 0.4);
+        }
+        50% { 
+          box-shadow: 
+            0 0 0 1px rgba(255, 255, 255, 1),
+            0 4px 20px rgba(66, 133, 244, 0.6);
+        }
+      }
+    `;
+    document.head.appendChild(style);
 
     overlay.appendChild(instruction);
     overlay.appendChild(selectionBox);
     overlay.appendChild(dimensionDisplay);
     document.body.appendChild(overlay);
 
-    console.log("🎨 Region selector UI created and attached");
+    console.log("🎨 Loom-style region selector UI created and attached");
 
     // Selection state
     let isSelecting = false;
@@ -626,13 +848,18 @@ export default defineBackground(() => {
       selectionBox.style.width = "0px";
       selectionBox.style.height = "0px";
       selectionBox.style.display = "block";
+      selectionBox.style.animation = "pulseSelection 1.5s infinite";
       dimensionDisplay.style.display = "block";
 
-      // Fade instruction
-      instruction.style.opacity = "0.5";
+      // Fade and scale instruction
+      instruction.style.opacity = "0.7";
       instruction.style.transform = "translateX(-50%) scale(0.95)";
+      instruction.style.transition = "all 0.2s ease";
 
-      console.log("🖱️ Selection started at:", { x: startX, y: startY });
+      console.log("🖱️ Loom-style selection started at:", {
+        x: startX,
+        y: startY,
+      });
     });
 
     // Mouse move - update selection
@@ -652,18 +879,26 @@ export default defineBackground(() => {
       selectionBox.style.width = width + "px";
       selectionBox.style.height = height + "px";
 
-      // Update dimension display
+      // Update dimension display with better positioning
       dimensionDisplay.textContent = `${width} × ${height}px`;
-      dimensionDisplay.style.left = left + width + 10 + "px";
-      dimensionDisplay.style.top = top + "px";
 
-      // Ensure dimension display stays in viewport
-      if (left + width + 120 > window.innerWidth) {
-        dimensionDisplay.style.left = left - 80 + "px";
+      // Smart positioning for dimension display
+      let dimLeft = left + width + 12;
+      let dimTop = top;
+
+      // Keep dimension display in viewport
+      if (dimLeft + 80 > window.innerWidth) {
+        dimLeft = left - 90;
       }
-      if (top < 30) {
-        dimensionDisplay.style.top = top + height + 10 + "px";
+      if (dimTop < 10) {
+        dimTop = top + height + 12;
       }
+      if (dimTop + 30 > window.innerHeight) {
+        dimTop = top - 35;
+      }
+
+      dimensionDisplay.style.left = dimLeft + "px";
+      dimensionDisplay.style.top = dimTop + "px";
     });
 
     // Mouse up - complete selection
@@ -678,7 +913,7 @@ export default defineBackground(() => {
       const left = Math.min(startX, currentX);
       const top = Math.min(startY, currentY);
 
-      console.log("🖱️ Selection completed:", {
+      console.log("🖱️ Loom-style selection completed:", {
         x: left,
         y: top,
         width,
@@ -688,6 +923,24 @@ export default defineBackground(() => {
       // Minimum size check (10x10 pixels)
       if (width >= 10 && height >= 10) {
         console.log("✅ Valid region selected, sending to background...");
+
+        // Show completion animation
+        selectionBox.style.animation = "none";
+        selectionBox.style.background = "rgba(76, 175, 80, 0.2)";
+        selectionBox.style.borderColor = "#4caf50";
+
+        // Update instruction to show success
+        instruction.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <span style="font-size: 18px;">✅</span>
+            <span>Region captured!</span>
+          </div>
+          <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">
+            Processing... Reopen popup to see result
+          </div>
+        `;
+        instruction.style.background =
+          "linear-gradient(135deg, #4caf50 0%, #45a049 100%)";
 
         // Send region to background script
         chrome.runtime
@@ -700,36 +953,90 @@ export default defineBackground(() => {
             console.log("📤 Message sent to background, response:", response);
             if (response && response.success) {
               console.log("✅ Background processed region successfully");
+
+              // Clean up after brief success animation
+              setTimeout(() => {
+                cleanup();
+              }, 1000);
             } else {
               console.error(
                 "❌ Background failed to process region:",
                 response?.error
               );
+              // Still cleanup on error
+              setTimeout(() => {
+                cleanup();
+              }, 2000);
             }
           })
           .catch((error) => {
             console.error("❌ Error sending region data to background:", error);
+            // Cleanup on error
+            setTimeout(() => {
+              cleanup();
+            }, 2000);
           });
       } else {
         console.log("❌ Region too small (minimum 10x10px), cancelling");
-        chrome.runtime
-          .sendMessage({
-            type: "REGION_CANCELLED",
-            sessionId: sessionId,
-          })
-          .catch((error) => {
-            console.error("❌ Error sending cancellation:", error);
-          });
-      }
 
-      // Cleanup overlay
-      cleanup();
+        // Show error animation
+        selectionBox.style.background = "rgba(244, 67, 54, 0.2)";
+        selectionBox.style.borderColor = "#f44336";
+
+        instruction.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <span style="font-size: 18px;">⚠️</span>
+            <span>Selection too small</span>
+          </div>
+          <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">
+            Drag to select a larger area
+          </div>
+        `;
+        instruction.style.background =
+          "linear-gradient(135deg, #ff5722 0%, #f44336 100%)";
+
+        // Reset after showing error
+        setTimeout(() => {
+          selectionBox.style.display = "none";
+          dimensionDisplay.style.display = "none";
+          instruction.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+              <span style="font-size: 18px;">🎯</span>
+              <span>Click and drag to select region</span>
+            </div>
+            <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">
+              Press <strong>ESC</strong> to cancel
+            </div>
+          `;
+          instruction.style.background =
+            "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+          instruction.style.opacity = "1";
+          instruction.style.transform = "translateX(-50%) scale(1)";
+          isSelecting = false;
+        }, 1500);
+
+        return;
+      }
     });
 
     // ESC key - cancel selection
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        console.log("❌ Region selection cancelled by ESC key");
+        console.log("❌ Loom-style region selection cancelled by ESC key");
+
+        // Show cancellation animation
+        instruction.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <span style="font-size: 18px;">❌</span>
+            <span>Cancelled</span>
+          </div>
+          <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">
+            No region was captured
+          </div>
+        `;
+        instruction.style.background =
+          "linear-gradient(135deg, #757575 0%, #616161 100%)";
+
         chrome.runtime
           .sendMessage({
             type: "REGION_CANCELLED",
@@ -738,26 +1045,46 @@ export default defineBackground(() => {
           .catch((error) => {
             console.error("❌ Error sending ESC cancellation:", error);
           });
-        cleanup();
+
+        setTimeout(() => {
+          cleanup();
+        }, 1000);
       }
     };
 
     // Cleanup function
     const cleanup = () => {
       if (document.body.contains(overlay)) {
-        document.body.removeChild(overlay);
+        // Fade out animation
+        overlay.style.transition = "opacity 0.3s ease-out";
+        overlay.style.opacity = "0";
+
+        setTimeout(() => {
+          if (document.body.contains(overlay)) {
+            document.body.removeChild(overlay);
+          }
+        }, 300);
       }
+
       document.removeEventListener("keydown", handleKeyDown);
+
+      // Remove injected styles
+      if (document.head.contains(style)) {
+        document.head.removeChild(style);
+      }
+
       isSelecting = false;
-      console.log("🧹 Region selector cleaned up");
+      console.log("🧹 Loom-style region selector cleaned up");
     };
 
     document.addEventListener("keydown", handleKeyDown);
 
-    // Auto-cleanup after 2 minutes (safety measure)
+    // Auto-cleanup after 3 minutes (safety measure)
     setTimeout(() => {
       if (document.body.contains(overlay)) {
-        console.log("⏰ Region selector auto-cleanup after 2 minutes timeout");
+        console.log(
+          "⏰ Loom-style region selector auto-cleanup after 3 minutes timeout"
+        );
         chrome.runtime
           .sendMessage({
             type: "REGION_CANCELLED",
@@ -768,9 +1095,9 @@ export default defineBackground(() => {
           });
         cleanup();
       }
-    }, 120000); // 2 minutes
+    }, 180000); // 3 minutes
 
-    console.log("✅ Region selector initialization complete");
+    console.log("✅ Loom-style region selector initialization complete");
   }
 
   // Handle video recording completion
@@ -880,17 +1207,20 @@ export default defineBackground(() => {
     }
   }
 
-  // FIXED: Handle popup opened - deliver any pending results (MV3 compatible)
+  // 🔥 LOOM-STYLE: Handle popup opened - deliver any pending results
   async function handlePopupOpened(sender: chrome.runtime.MessageSender) {
-    console.log("🎯 Popup opened, checking for pending results");
+    console.log("🎯 Popup opened, checking for pending results (Loom-style)");
 
     try {
-      // Check for pending video results
+      // Check for pending region capture results
       const storage = await chrome.storage.local.get([
         "has_pending_video_results",
         "latest_video_result_id",
         "has_pending_region_capture",
         "latest_region_capture",
+        "has_region_capture_error",
+        "region_capture_error",
+        "region_capture_cancelled",
       ]);
 
       const result: any = { hasPendingResults: false };
@@ -929,31 +1259,61 @@ export default defineBackground(() => {
         }
       }
 
-      // Handle pending region capture results
+      // 🔥 LOOM-STYLE: Handle pending region capture results
       if (storage.has_pending_region_capture && storage.latest_region_capture) {
-        console.log("📦 Found pending region capture, delivering to popup");
-
-        // Send to popup with delay to ensure it's ready
-        setTimeout(async () => {
-          try {
-            await chrome.runtime.sendMessage({
-              type: "REGION_CAPTURE_COMPLETED",
-              data: storage.latest_region_capture,
-            });
-
-            // Mark as delivered
-            await chrome.storage.local.set({
-              has_pending_region_capture: false,
-            });
-
-            console.log("✅ Successfully delivered pending region capture");
-          } catch (error) {
-            console.error("❌ Error delivering pending region capture:", error);
-          }
-        }, 500);
+        console.log("📦 Found pending region capture result, notifying popup");
 
         result.hasPendingRegionCapture = true;
         result.regionCaptureData = storage.latest_region_capture;
+
+        // Clear the pending flag since popup will handle it
+        setTimeout(async () => {
+          try {
+            await chrome.storage.local.set({
+              has_pending_region_capture: false,
+            });
+            console.log("✅ Cleared pending region capture flag");
+          } catch (error) {
+            console.error("❌ Error clearing pending flag:", error);
+          }
+        }, 500);
+      }
+
+      // Handle region capture errors
+      if (storage.has_region_capture_error && storage.region_capture_error) {
+        console.log("📦 Found region capture error, notifying popup");
+
+        result.hasRegionCaptureError = true;
+        result.regionCaptureError = storage.region_capture_error;
+
+        // Clear the error flag
+        setTimeout(async () => {
+          try {
+            await chrome.storage.local.set({
+              has_region_capture_error: false,
+            });
+          } catch (error) {
+            console.error("❌ Error clearing error flag:", error);
+          }
+        }, 500);
+      }
+
+      // Handle region capture cancellation
+      if (storage.region_capture_cancelled) {
+        console.log("📦 Found region capture cancellation, notifying popup");
+
+        result.regionCaptureCancelled = true;
+
+        // Clear the cancellation flag
+        setTimeout(async () => {
+          try {
+            await chrome.storage.local.set({
+              region_capture_cancelled: false,
+            });
+          } catch (error) {
+            console.error("❌ Error clearing cancellation flag:", error);
+          }
+        }, 500);
       }
 
       return result;
@@ -1027,7 +1387,10 @@ export default defineBackground(() => {
 
         for (const [key, value] of Object.entries(storage)) {
           if (
-            (key.startsWith("pending_video_") || key.startsWith("region_session_")) &&
+            (key.startsWith("pending_video_") ||
+              key.startsWith("region_session_") ||
+              key === "latest_region_capture" ||
+              key === "region_capture_error") &&
             typeof value === "object" &&
             value !== null
           ) {
@@ -1057,5 +1420,5 @@ export default defineBackground(() => {
   // Initial cleanup on startup
   setTimeout(cleanupOldResults, 5000);
 
-  console.log("✅ Background script initialized successfully");
+  console.log("✅ Loom-style background script initialized successfully");
 });

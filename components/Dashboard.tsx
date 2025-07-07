@@ -1,4 +1,4 @@
-// components/Dashboard.tsx - Fixed region selector integration
+// components/Dashboard.tsx - Loom-style region selector integration
 import React, { useState, useEffect, useRef } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
@@ -146,6 +146,13 @@ export default function Dashboard() {
     useState<ScreenshotData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
+  // 🔥 NEW: Loom-style pending capture state
+  const [pendingCapture, setPendingCapture] = useState<{
+    type: "region" | "screenshot" | "video" | null;
+    sessionId?: string;
+    startTime?: number;
+  }>({ type: null });
+
   // Error modal state
   const [errorModal, setErrorModal] = useState<{
     isOpen: boolean;
@@ -177,11 +184,88 @@ export default function Dashboard() {
     });
     setIsCapturing(false);
     setCaptureMode(null);
+    setPendingCapture({ type: null });
   };
 
   // Close error modal
   const closeError = () => {
     setErrorModal((prev) => ({ ...prev, isOpen: false }));
+  };
+
+  // 🔥 NEW: Check for pending captures when popup opens (Loom-style)
+  useEffect(() => {
+    const checkPendingCaptures = async () => {
+      try {
+        console.log("🔍 Checking for pending captures...");
+
+        // Check for pending region captures
+        const storage = await chrome.storage.local.get([
+          "has_pending_region_capture",
+          "latest_region_capture",
+          "region_capture_session_id",
+        ]);
+
+        if (
+          storage.has_pending_region_capture &&
+          storage.latest_region_capture
+        ) {
+          console.log("📦 Found pending region capture, showing result");
+          await handlePendingRegionCapture(storage.latest_region_capture);
+        }
+      } catch (error) {
+        console.warn("⚠️ Failed to check pending captures:", error);
+      }
+    };
+
+    checkPendingCaptures();
+  }, []);
+
+  // 🔥 NEW: Handle pending region capture result
+  const handlePendingRegionCapture = async (regionCaptureData: any) => {
+    try {
+      console.log("🎯 Processing pending region capture:", regionCaptureData);
+
+      // Convert to ScreenshotData format
+      const screenshotData: ScreenshotData = {
+        dataUrl: regionCaptureData.dataUrl,
+        filename: regionCaptureData.filename,
+        timestamp: regionCaptureData.timestamp || new Date().toISOString(),
+        type: "screenshot-region",
+        caseId: regionCaptureData.caseId || selectedCase,
+        blob: regionCaptureData.blob,
+        sourceUrl: regionCaptureData.sourceUrl,
+      };
+
+      console.log("🪟 Opening region capture preview window...");
+
+      const windowResult = await screenshotWindowService.openScreenshotPreview(
+        screenshotData,
+        {
+          width: 1400,
+          height: 900,
+          centered: true,
+        }
+      );
+
+      if (windowResult.success) {
+        console.log("✅ Region preview window opened:", windowResult.windowId);
+
+        // Clear pending capture flag
+        await chrome.storage.local.set({
+          has_pending_region_capture: false,
+        });
+      } else {
+        console.error("❌ Failed to open preview window:", windowResult.error);
+        // Fallback to inline preview
+        setScreenshotPreview(screenshotData);
+      }
+    } catch (error) {
+      console.error("❌ Error handling pending region capture:", error);
+      showError("Region Capture Error", "Failed to process captured region.", [
+        "Try capturing the region again",
+        "Check browser permissions",
+      ]);
+    }
   };
 
   // Setup screenshot window service listeners
@@ -324,115 +408,6 @@ export default function Dashboard() {
     };
   }, [selectedCase]);
 
-  // 🔥 NEW: Setup background message listener for region capture results
-  useEffect(() => {
-    const handleBackgroundMessage = (
-      message: any,
-      sender: chrome.runtime.MessageSender,
-      sendResponse: (response?: any) => void
-    ) => {
-      console.log("📨 Dashboard received message:", message.type);
-
-      if (message.type === "REGION_CAPTURE_COMPLETED") {
-        console.log("✅ Region capture completed, handling result...");
-        handleRegionCaptureCompleted(message.data);
-        sendResponse({ received: true });
-      }
-
-      if (message.type === "REGION_CAPTURE_FAILED") {
-        console.error("❌ Region capture failed:", message.error);
-        showError(
-          "Region Capture Failed",
-          message.error || "Region capture failed",
-          [
-            "Try refreshing the page and capturing again",
-            "Make sure you're on a regular website",
-            "Check browser permissions",
-          ]
-        );
-        setIsCapturing(false);
-        setCaptureMode(null);
-        sendResponse({ received: true });
-      }
-
-      if (message.type === "REGION_CAPTURE_CANCELLED") {
-        console.log("❌ Region capture cancelled by user");
-        setIsCapturing(false);
-        setCaptureMode(null);
-        sendResponse({ received: true });
-      }
-    };
-
-    // Add message listener
-    if (typeof chrome !== "undefined" && chrome.runtime) {
-      chrome.runtime.onMessage.addListener(handleBackgroundMessage);
-    }
-
-    return () => {
-      // Remove message listener
-      if (typeof chrome !== "undefined" && chrome.runtime) {
-        chrome.runtime.onMessage.removeListener(handleBackgroundMessage);
-      }
-    };
-  }, [selectedCase]);
-
-  // 🔥 NEW: Handle region capture completion
-  const handleRegionCaptureCompleted = async (data: any) => {
-    try {
-      console.log("🎯 Processing region capture result:", data);
-
-      if (!data.dataUrl || !data.filename) {
-        throw new Error("Invalid region capture data received");
-      }
-
-      // Convert dataUrl to blob if not provided
-      let blob = data.blob;
-      if (!blob && data.dataUrl) {
-        const response = await fetch(data.dataUrl);
-        blob = await response.blob();
-      }
-
-      const screenshotData: ScreenshotData = {
-        dataUrl: data.dataUrl,
-        filename: data.filename,
-        timestamp: new Date().toISOString(),
-        type: "screenshot-region",
-        caseId: selectedCase,
-        blob: blob,
-        sourceUrl: data.sourceUrl,
-      };
-
-      console.log("🪟 Opening region capture preview window...");
-
-      const windowResult = await screenshotWindowService.openScreenshotPreview(
-        screenshotData,
-        {
-          width: 1400,
-          height: 900,
-          centered: true,
-        }
-      );
-
-      if (windowResult.success) {
-        console.log("✅ Region preview window opened:", windowResult.windowId);
-      } else {
-        console.error("❌ Failed to open preview window:", windowResult.error);
-        // Fallback to inline preview
-        setScreenshotPreview(screenshotData);
-      }
-    } catch (error) {
-      console.error("❌ Error handling region capture completion:", error);
-      showError(
-        "Region Capture Error",
-        "Failed to process captured region.",
-        ["Try capturing the region again", "Check browser permissions"]
-      );
-    } finally {
-      setIsCapturing(false);
-      setCaptureMode(null);
-    }
-  };
-
   // Handle click outside dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -514,7 +489,7 @@ export default function Dashboard() {
     setSelectedCase(caseId);
   };
 
-  // UPDATED: handleScreenshot function with proper routing
+  // UPDATED: handleScreenshot function with Loom-style workflow
   const handleScreenshot = async (
     type: "screen" | "full" | "region" = "screen"
   ) => {
@@ -527,12 +502,9 @@ export default function Dashboard() {
       return;
     }
 
-    // 🎯 FIXED: Region Capture Workflow - DON'T CLOSE POPUP
+    // 🔥 LOOM-STYLE: Region Capture Workflow - Close popup after starting
     if (type === "region") {
-      console.log("🎯 Starting region capture workflow...");
-
-      setIsCapturing(true);
-      setCaptureMode("region");
+      console.log("🎯 Starting Loom-style region capture workflow...");
 
       try {
         // Step 1: Capture visible area as base image
@@ -565,6 +537,9 @@ export default function Dashboard() {
             type: "region-base",
             blob: visibleCapture.blob,
           },
+          // 🔥 LOOM-STYLE: Mark that we have a pending region capture
+          region_capture_session_id: sessionId,
+          region_capture_case_id: selectedCase,
         });
         console.log("💾 Session data saved to storage");
 
@@ -583,12 +558,20 @@ export default function Dashboard() {
 
         console.log("✅ Background script notified, session started");
 
-        // 🔥 FIXED: DON'T CLOSE POPUP - Let user see region selector overlay
-        console.log("👀 Popup stays open for region selection feedback");
-        
-        // Optional: Show instruction to user that they can now select region
-        console.log("💡 User can now select region on the page");
+        // 🔥 LOOM-STYLE: Show brief instruction then close popup
+        setIsCapturing(true);
+        setCaptureMode("region");
+        setPendingCapture({
+          type: "region",
+          sessionId: sessionId,
+          startTime: Date.now(),
+        });
 
+        // Show instruction for 1.5 seconds then close popup (like Loom)
+        setTimeout(() => {
+          console.log("🚪 Closing popup for region selection (Loom-style)");
+          window.close();
+        }, 1500);
       } catch (error) {
         console.error("❌ Region capture initialization failed:", error);
 
@@ -626,6 +609,7 @@ export default function Dashboard() {
         showError("Region Capture Failed", errorMsg, suggestions);
         setIsCapturing(false);
         setCaptureMode(null);
+        setPendingCapture({ type: null });
       }
 
       return; // Exit early for region capture
@@ -739,8 +723,6 @@ export default function Dashboard() {
 
     setIsCapturing(false);
   };
-
-  // REMOVED: handleRegionCapture - now handled in handleScreenshot("region")
 
   // Updated video capture handler - opens in new tab with auto-start like Loom
   const handleVideoCapture = async (type: "video" | "r-video" = "video") => {
@@ -880,7 +862,6 @@ export default function Dashboard() {
     setScreenshotPreview(null);
     setCaptureMode(null);
   };
-
   return (
     <div className="w-[402px] h-[380px] bg-white flex flex-col relative">
       {/* Enhanced Error Modal */}
