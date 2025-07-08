@@ -2,7 +2,6 @@
 import { s3Service } from "./s3Service";
 import { caseService } from "./caseService";
 import { authService } from "./authService";
-import { awsConfigManager } from "../config/aws";
 import { screenshotService } from "./screenshotService";
 import { videoService } from "./videoService";
 import { screenshotWindowService } from "./screenshotWindowService";
@@ -119,19 +118,6 @@ export class ServiceManager {
         } else {
           errors.push(errorMsg);
         }
-      }
-
-      // 2. Initialize AWS Configuration
-      console.log("🔧 Initializing AWS configuration...");
-      try {
-        awsConfigManager.initialize();
-        console.log("✅ AWS configuration initialized");
-      } catch (error) {
-        const errorMsg = `AWS configuration failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`;
-        warnings.push(errorMsg);
-        console.warn("⚠️", errorMsg);
       }
 
       // 3. Initialize Authentication Service
