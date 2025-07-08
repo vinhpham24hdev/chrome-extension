@@ -1,4 +1,4 @@
-// entrypoints/background.ts - Fixed coordinates and popup behavior
+// entrypoints/background.ts - FIXED coordinate calculation
 export default defineBackground(() => {
   console.log("🚀 Background script started:", { id: browser.runtime.id });
 
@@ -121,15 +121,15 @@ export default defineBackground(() => {
     }
   }
 
-  // 🔥 FIXED: Handle region selection with correct coordinates and immediate preview
+  // 🔥 FIXED: Handle region selection with accurate coordinate transformation
   async function handleRegionSelected(
     message: any,
     sender: chrome.runtime.MessageSender
   ) {
-    const { sessionId, region } = message;
+    const { sessionId, region, captureInfo } = message;
 
     try {
-      console.log("🎯 Background: Processing region selection:", region);
+      console.log("🎯 Background: Processing region selection:", { region, captureInfo });
 
       // Validate region data
       if (!region || region.width <= 0 || region.height <= 0) {
@@ -154,16 +154,16 @@ export default defineBackground(() => {
         caseId: sessionData.caseId,
       });
 
-      // 🔥 FIXED: Use content script for proper coordinate-based cropping
+      // 🔥 FIXED: Accurate coordinate transformation and cropping
       if (!sender.tab?.id) {
         throw new Error("No sender tab ID available for image processing");
       }
 
-      // Execute cropping in content script with exact pixel coordinates
+      // Execute accurate cropping with device pixel ratio consideration
       const cropResults = await chrome.scripting.executeScript({
         target: { tabId: sender.tab.id },
-        func: cropImageWithExactCoordinates,
-        args: [sessionData.dataUrl, region],
+        func: cropImageWithAccurateCoordinates,
+        args: [sessionData.dataUrl, region, captureInfo],
       });
 
       if (!cropResults || !cropResults[0] || !cropResults[0].result) {
@@ -177,7 +177,7 @@ export default defineBackground(() => {
         throw new Error(croppedResult.error || "Failed to crop image to selected region");
       }
 
-      console.log("✅ Image cropped successfully with exact coordinates");
+      console.log("✅ Image cropped successfully with accurate coordinates");
 
       // Generate filename for cropped image
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -195,12 +195,13 @@ export default defineBackground(() => {
         caseId: sessionData.caseId,
         sourceUrl: sessionData.sourceUrl,
         region: region,
+        captureInfo: captureInfo,
         completedAt: new Date().toISOString(),
       };
 
       console.log("🪟 Opening preview window immediately...");
 
-      // 🔥 FIXED: Open preview window immediately, not wait for popup reopen
+      // 🔥 FIXED: Open preview window immediately
       try {
         const previewHtmlUrl = chrome.runtime.getURL("screenshot-preview.html");
         const previewId = `preview_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -305,10 +306,11 @@ export default defineBackground(() => {
     }
   }
 
-  // 🔥 FIXED: Crop image function with exact pixel coordinates
-  function cropImageWithExactCoordinates(
+  // 🔥 FIXED: Accurate image cropping with device pixel ratio and zoom consideration
+  function cropImageWithAccurateCoordinates(
     dataUrl: string,
-    region: { x: number; y: number; width: number; height: number }
+    region: { x: number; y: number; width: number; height: number },
+    captureInfo: any
   ): Promise<{
     success: boolean;
     dataUrl?: string;
@@ -316,8 +318,9 @@ export default defineBackground(() => {
   }> {
     return new Promise((resolve) => {
       try {
-        console.log("🖼️ Cropping with exact coordinates:", {
+        console.log("🖼️ Starting accurate image cropping:", {
           region,
+          captureInfo,
           dataUrlLength: dataUrl ? dataUrl.length : 0,
         });
 
@@ -336,33 +339,44 @@ export default defineBackground(() => {
             console.log("✅ Base image loaded:", {
               imageWidth: img.width,
               imageHeight: img.height,
+              naturalWidth: img.naturalWidth,
+              naturalHeight: img.naturalHeight,
               requestedRegion: region,
+              captureInfo: captureInfo,
             });
 
-            // 🔥 FIXED: Use exact coordinates without adjustment unless absolutely necessary
-            let cropRegion = { ...region };
-            
-            // Only adjust if region is completely outside bounds
-            if (region.x + region.width > img.width) {
-              cropRegion.width = Math.max(1, img.width - region.x);
-              console.warn("⚠️ Adjusted width to fit image bounds");
-            }
-            if (region.y + region.height > img.height) {
-              cropRegion.height = Math.max(1, img.height - region.y);
-              console.warn("⚠️ Adjusted height to fit image bounds");
-            }
-            if (region.x < 0) {
-              cropRegion.x = 0;
-              cropRegion.width = region.width + region.x;
-              console.warn("⚠️ Adjusted x coordinate to 0");
-            }
-            if (region.y < 0) {
-              cropRegion.y = 0;
-              cropRegion.height = region.height + region.y;
-              console.warn("⚠️ Adjusted y coordinate to 0");
-            }
+            // 🔥 FIXED: Calculate accurate scaling factors
+            const devicePixelRatio = captureInfo?.devicePixelRatio || window.devicePixelRatio || 1;
+            const zoomLevel = captureInfo?.zoomLevel || 1;
 
-            console.log("📐 Final crop region:", cropRegion);
+            console.log("📐 Scaling factors:", {
+              devicePixelRatio,
+              zoomLevel,
+              combinedScale: devicePixelRatio * zoomLevel,
+            });
+
+            // 🔥 FIXED: Apply accurate coordinate transformation
+            // The captured image is at device pixel ratio, but coordinates are in CSS pixels
+            const scale = devicePixelRatio * zoomLevel;
+            
+            let scaledRegion = {
+              x: Math.round(region.x * scale),
+              y: Math.round(region.y * scale),
+              width: Math.round(region.width * scale),
+              height: Math.round(region.height * scale),
+            };
+
+            // Ensure region is within image bounds
+            scaledRegion.x = Math.max(0, Math.min(scaledRegion.x, img.width - 1));
+            scaledRegion.y = Math.max(0, Math.min(scaledRegion.y, img.height - 1));
+            scaledRegion.width = Math.max(1, Math.min(scaledRegion.width, img.width - scaledRegion.x));
+            scaledRegion.height = Math.max(1, Math.min(scaledRegion.height, img.height - scaledRegion.y));
+
+            console.log("📐 Final scaled region:", {
+              original: region,
+              scaled: scaledRegion,
+              scale: scale,
+            });
 
             const canvas = document.createElement("canvas");
             const ctx = canvas.getContext("2d");
@@ -375,11 +389,11 @@ export default defineBackground(() => {
               return;
             }
 
-            // Set canvas dimensions to exact region size
-            canvas.width = cropRegion.width;
-            canvas.height = cropRegion.height;
+            // Set canvas dimensions to the original region size (CSS pixels)
+            canvas.width = region.width;
+            canvas.height = region.height;
 
-            console.log("📐 Canvas created with exact dimensions:", {
+            console.log("📐 Canvas created with CSS pixel dimensions:", {
               canvasWidth: canvas.width,
               canvasHeight: canvas.height,
             });
@@ -388,27 +402,28 @@ export default defineBackground(() => {
             ctx.fillStyle = "#ffffff";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // 🔥 FIXED: Draw the exact region with precise coordinates
+            // 🔥 FIXED: Draw the scaled region back to CSS pixel size
             ctx.drawImage(
               img,
-              cropRegion.x,          // Source X (exact pixel)
-              cropRegion.y,          // Source Y (exact pixel)  
-              cropRegion.width,      // Source Width (exact pixels)
-              cropRegion.height,     // Source Height (exact pixels)
-              0,                     // Destination X (canvas origin)
-              0,                     // Destination Y (canvas origin)
-              cropRegion.width,      // Destination Width (same as source)
-              cropRegion.height      // Destination Height (same as source)
+              scaledRegion.x,           // Source X (device pixels)
+              scaledRegion.y,           // Source Y (device pixels)
+              scaledRegion.width,       // Source Width (device pixels)
+              scaledRegion.height,      // Source Height (device pixels)
+              0,                        // Destination X (canvas origin)
+              0,                        // Destination Y (canvas origin)
+              region.width,             // Destination Width (CSS pixels)
+              region.height             // Destination Height (CSS pixels)
             );
 
-            console.log("✅ Image drawn to canvas with exact coordinates");
+            console.log("✅ Image drawn to canvas with accurate scaling");
 
             // Convert to dataURL with high quality
             const croppedDataUrl = canvas.toDataURL("image/png", 1.0);
             
-            console.log("✅ Exact coordinate crop completed:", {
+            console.log("✅ Accurate coordinate crop completed:", {
               originalRegion: region,
-              finalRegion: cropRegion,
+              scaledRegion: scaledRegion,
+              scale: scale,
               resultDataUrlLength: croppedDataUrl.length,
             });
 
@@ -446,7 +461,7 @@ export default defineBackground(() => {
     });
   }
 
-  // 🔥 FIXED: Region Selector with accurate coordinate tracking
+  // 🔥 FIXED: Region Selector with accurate coordinate tracking and capture info
   function initializeFixedRegionSelector(sessionId: string) {
     console.log("🎯 Initializing FIXED region selector for session:", sessionId);
 
@@ -457,6 +472,23 @@ export default defineBackground(() => {
       console.log("🧹 Removed existing region selector");
     }
 
+    // 🔥 FIXED: Collect accurate capture information
+    const captureInfo = {
+      devicePixelRatio: window.devicePixelRatio,
+      zoomLevel: window.outerWidth / window.innerWidth,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      screenWidth: window.screen.width,
+      screenHeight: window.screen.height,
+      scrollX: window.pageXOffset || document.documentElement.scrollLeft,
+      scrollY: window.pageYOffset || document.documentElement.scrollTop,
+      documentWidth: document.documentElement.scrollWidth,
+      documentHeight: document.documentElement.scrollHeight,
+      timestamp: Date.now(),
+    };
+
+    console.log("📊 Capture info collected:", captureInfo);
+
     // Create overlay container
     const overlay = document.createElement("div");
     overlay.id = "cellebrite-region-selector";
@@ -466,12 +498,12 @@ export default defineBackground(() => {
       left: 0 !important;
       width: 100vw !important;
       height: 100vh !important;
-      background: rgba(0, 0, 0, 0.4) !important;
+      background: rgba(0, 0, 0, 0.1) !important;
       z-index: 2147483647 !important;
       cursor: crosshair !important;
       user-select: none !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-      backdrop-filter: blur(2px) !important;
+      backdrop-filter: blur(0.2px) !important;
     `;
 
     // Create instruction panel
@@ -498,7 +530,8 @@ export default defineBackground(() => {
         <span>Click and drag to select region</span>
       </div>
       <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">
-        Preview will open automatically • Press <strong>ESC</strong> to cancel
+        Preview will open automatically • Press <strong>ESC</strong> to cancel<br>
+        <small>Zoom: ${Math.round(captureInfo.zoomLevel * 100)}% • DPR: ${captureInfo.devicePixelRatio}</small>
       </div>
     `;
 
@@ -539,15 +572,9 @@ export default defineBackground(() => {
 
     console.log("🎨 Fixed region selector UI created");
 
-    // 🔥 FIXED: Precise coordinate tracking
+    // 🔥 FIXED: Precise coordinate tracking with scroll consideration
     let isSelecting = false;
     let startX = 0, startY = 0;
-
-    // Get page scroll offset for accurate coordinates
-    const getScrollOffset = () => ({
-      x: window.pageXOffset || document.documentElement.scrollLeft || 0,
-      y: window.pageYOffset || document.documentElement.scrollTop || 0,
-    });
 
     // Mouse down - start selection
     overlay.addEventListener("mousedown", (e) => {
@@ -588,14 +615,14 @@ export default defineBackground(() => {
       selectionBox.style.width = width + "px";
       selectionBox.style.height = height + "px";
 
-      dimensionDisplay.textContent = `${width} × ${height}px`;
+      dimensionDisplay.textContent = `${width} × ${height}px (CSS)`;
       
       // Position dimension display
       let dimLeft = left + width + 12;
       let dimTop = top;
       
-      if (dimLeft + 80 > window.innerWidth) {
-        dimLeft = left - 90;
+      if (dimLeft + 120 > window.innerWidth) {
+        dimLeft = left - 130;
       }
       if (dimTop < 10) {
         dimTop = top + height + 12;
@@ -617,24 +644,22 @@ export default defineBackground(() => {
       const left = Math.min(startX, currentX);
       const top = Math.min(startY, currentY);
 
-      // 🔥 FIXED: Calculate exact coordinates including scroll offset
-      const scrollOffset = getScrollOffset();
-      const exactRegion = {
-        x: left + scrollOffset.x,
-        y: top + scrollOffset.y,
+      // 🔥 FIXED: These are CSS pixel coordinates - don't add scroll offset for viewport-based capture
+      const cssRegion = {
+        x: left,
+        y: top,
         width: width,
         height: height,
       };
 
       console.log("🖱️ Selection completed:", {
-        viewportCoords: { x: left, y: top, width, height },
-        scrollOffset: scrollOffset,
-        exactPageCoords: exactRegion,
+        cssPixelCoords: cssRegion,
+        captureInfo: captureInfo,
       });
 
       // Minimum size check
       if (width >= 10 && height >= 10) {
-        console.log("✅ Valid region selected, sending exact coordinates to background...");
+        console.log("✅ Valid region selected, sending coordinates with capture info to background...");
 
         // Show completion animation
         selectionBox.style.background = "rgba(76, 175, 80, 0.2)";
@@ -651,15 +676,16 @@ export default defineBackground(() => {
         `;
         instruction.style.background = "linear-gradient(135deg, #4caf50 0%, #45a049 100%)";
 
-        // Send exact coordinates to background script
+        // Send CSS pixel coordinates and capture info to background script
         chrome.runtime
           .sendMessage({
             type: "REGION_SELECTED",
             sessionId: sessionId,
-            region: exactRegion, // Send exact page coordinates
+            region: cssRegion,        // CSS pixel coordinates
+            captureInfo: captureInfo, // Capture environment info
           })
           .then((response) => {
-            console.log("📤 Exact coordinates sent to background:", response);
+            console.log("📤 Coordinates and capture info sent to background:", response);
             if (response && response.success) {
               console.log("✅ Background processed region successfully");
             } else {
@@ -704,7 +730,8 @@ export default defineBackground(() => {
               <span>Click and drag to select region</span>
             </div>
             <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">
-              Preview will open automatically • Press <strong>ESC</strong> to cancel
+              Preview will open automatically • Press <strong>ESC</strong> to cancel<br>
+              <small>Zoom: ${Math.round(captureInfo.zoomLevel * 100)}% • DPR: ${captureInfo.devicePixelRatio}</small>
             </div>
           `;
           instruction.style.background = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";

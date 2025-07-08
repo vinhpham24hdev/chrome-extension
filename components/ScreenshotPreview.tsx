@@ -11,6 +11,8 @@ export interface ScreenshotData {
   caseId: string;
   blob?: Blob;
   sourceUrl?: string;
+  region?: string;
+  captureInfo?: string;
 }
 
 interface ScreenshotPreviewProps {

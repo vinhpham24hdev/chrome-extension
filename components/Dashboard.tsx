@@ -1,4 +1,4 @@
-// components/Dashboard.tsx - Loom-style region selector integration
+// components/Dashboard.tsx - Updated with accurate region capture
 import React, { useState, useEffect, useRef } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
@@ -11,12 +11,7 @@ import {
   screenshotService,
   ScreenshotResult,
 } from "../services/screenshotService";
-import {
-  videoService,
-  VideoResult,
-  VideoOptions,
-} from "../services/videoService";
-import { regionService, RegionCaptureResult } from "../services/regionService";
+import { VideoResult, VideoOptions } from "../services/videoService";
 import { screenshotWindowService } from "../services/screenshotWindowService";
 import { videoWindowService } from "../services/videoWindowService";
 import { videoRecorderWindowService } from "../services/videoRecorderWindowService";
@@ -146,11 +141,12 @@ export default function Dashboard() {
     useState<ScreenshotData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // 🔥 NEW: Loom-style pending capture state
+  // 🔥 FIXED: Enhanced pending capture state with accurate tracking
   const [pendingCapture, setPendingCapture] = useState<{
     type: "region" | "screenshot" | "video" | null;
     sessionId?: string;
     startTime?: number;
+    captureInfo?: any;
   }>({ type: null });
 
   // Error modal state
@@ -192,7 +188,7 @@ export default function Dashboard() {
     setErrorModal((prev) => ({ ...prev, isOpen: false }));
   };
 
-  // 🔥 NEW: Check for pending captures when popup opens (Loom-style)
+  // 🔥 FIXED: Check for pending captures with better error handling
   useEffect(() => {
     const checkPendingCaptures = async () => {
       try {
@@ -220,10 +216,17 @@ export default function Dashboard() {
     checkPendingCaptures();
   }, []);
 
-  // 🔥 NEW: Handle pending region capture result
+  // 🔥 FIXED: Handle pending region capture with validation
   const handlePendingRegionCapture = async (regionCaptureData: any) => {
     try {
       console.log("🎯 Processing pending region capture:", regionCaptureData);
+
+      // Validate region capture data
+      if (!regionCaptureData.dataUrl || !regionCaptureData.filename) {
+        console.error("❌ Invalid region capture data");
+        await chrome.storage.local.set({ has_pending_region_capture: false });
+        return;
+      }
 
       // Convert to ScreenshotData format
       const screenshotData: ScreenshotData = {
@@ -234,6 +237,8 @@ export default function Dashboard() {
         caseId: regionCaptureData.caseId || selectedCase,
         blob: regionCaptureData.blob,
         sourceUrl: regionCaptureData.sourceUrl,
+        region: regionCaptureData.region,
+        captureInfo: regionCaptureData.captureInfo,
       };
 
       console.log("🪟 Opening region capture preview window...");
@@ -264,6 +269,7 @@ export default function Dashboard() {
       showError("Region Capture Error", "Failed to process captured region.", [
         "Try capturing the region again",
         "Check browser permissions",
+        "Refresh the page and retry",
       ]);
     }
   };
@@ -489,7 +495,7 @@ export default function Dashboard() {
     setSelectedCase(caseId);
   };
 
-  // UPDATED: handleScreenshot function with Loom-style workflow
+  // 🔥 FIXED: Enhanced screenshot function with better region handling
   const handleScreenshot = async (
     type: "screen" | "full" | "region" = "screen"
   ) => {
@@ -502,11 +508,14 @@ export default function Dashboard() {
       return;
     }
 
-    // 🔥 LOOM-STYLE: Region Capture Workflow - Close popup after starting
+    // 🔥 FIXED: Enhanced region capture workflow with proper error handling
     if (type === "region") {
-      console.log("🎯 Starting Loom-style region capture workflow...");
+      console.log("🎯 Starting enhanced region capture workflow...");
 
       try {
+        setIsCapturing(true);
+        setCaptureMode("region");
+
         // Step 1: Capture visible area as base image
         console.log("📸 Capturing base image for region selection...");
         const visibleCapture = await screenshotService.captureVisibleArea({
@@ -526,24 +535,33 @@ export default function Dashboard() {
           .substr(2, 9)}`;
         console.log("💾 Created session ID:", sessionId);
 
-        // Step 3: Save session data to Chrome storage
+        // Step 3: Get current page info for accurate capture
+        const [currentTab] = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+
+        if (!currentTab) {
+          throw new Error("No active tab found");
+        }
+
+        // Step 4: Save session data to Chrome storage
         await chrome.storage.local.set({
           [`region_session_${sessionId}`]: {
             dataUrl: visibleCapture.dataUrl,
             filename: visibleCapture.filename,
-            sourceUrl: visibleCapture.sourceUrl,
+            sourceUrl: visibleCapture.sourceUrl || currentTab.url,
             caseId: selectedCase,
             timestamp: new Date().toISOString(),
             type: "region-base",
             blob: visibleCapture.blob,
           },
-          // 🔥 LOOM-STYLE: Mark that we have a pending region capture
           region_capture_session_id: sessionId,
           region_capture_case_id: selectedCase,
         });
         console.log("💾 Session data saved to storage");
 
-        // Step 4: Send message to background script
+        // Step 5: Send message to background script
         const bgResponse = await chrome.runtime.sendMessage({
           type: "START_REGION_CAPTURE",
           sessionId: sessionId,
@@ -558,16 +576,14 @@ export default function Dashboard() {
 
         console.log("✅ Background script notified, session started");
 
-        // 🔥 LOOM-STYLE: Show brief instruction then close popup
-        setIsCapturing(true);
-        setCaptureMode("region");
+        // Step 6: Set pending capture state
         setPendingCapture({
           type: "region",
           sessionId: sessionId,
           startTime: Date.now(),
         });
 
-        // Show instruction for 1.5 seconds then close popup (like Loom)
+        // Show instruction for 1.5 seconds then close popup (Loom-style)
         setTimeout(() => {
           console.log("🚪 Closing popup for region selection (Loom-style)");
           window.close();
@@ -725,7 +741,7 @@ export default function Dashboard() {
   };
 
   // Updated video capture handler - opens in new tab with auto-start like Loom
-  const handleVideoCapture = async (type: "video" | "r-video" = "video") => {
+  const handleVideoCapture = async (type: "video" | "r-video" | "video") => {
     if (!selectedCase) {
       showError(
         "No Case Selected",
@@ -733,6 +749,15 @@ export default function Dashboard() {
         ["Select a case from the dropdown above"]
       );
       return;
+    }
+
+    if (type === "r-video") {
+      //not supported yet
+      showError(
+        "Region Video Capture Not Supported",
+        "Region video capture is not yet implemented.",
+        ["Please use full video capture for now"]
+      );
     }
 
     // Check if recorder is already open
@@ -862,6 +887,7 @@ export default function Dashboard() {
     setScreenshotPreview(null);
     setCaptureMode(null);
   };
+
   return (
     <div className="w-[402px] h-[380px] bg-white flex flex-col relative">
       {/* Enhanced Error Modal */}
@@ -951,7 +977,7 @@ export default function Dashboard() {
         </Box>
       </div>
 
-      {/* Enhanced Capture Tools Grid with Region Selector */}
+      {/* 🔥 FIXED: Enhanced Capture Tools Grid with accurate region selector */}
       <div className="px-6 py-2">
         <div className="flex items-start justify-between">
           {/* Screen Capture */}
@@ -985,12 +1011,12 @@ export default function Dashboard() {
             <span className="text-xs text-gray-700">Full</span>
           </button>
 
-          {/* Region Capture - FIXED with proper handler */}
+          {/* 🔥 FIXED: Accurate Region Capture */}
           <button
             onClick={() => handleScreenshot("region")}
             disabled={isCapturing || !selectedCase}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
-            title="Select custom area to capture - drag to select region"
+            title="Select custom area to capture - pixel-perfect with DPR support"
           >
             <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm relative">
               {/* Add selection crosshair icon */}
@@ -1000,14 +1026,16 @@ export default function Dashboard() {
                   <div className="absolute inset-y-0 left-1/2 w-0.5 bg-gray-600 transform -translate-x-0.25"></div>
                 </div>
               </div>
-              {/* Add region indicator */}
+              {/* Add accuracy indicator */}
               <div className="absolute -top-1 -right-1 w-2 h-2 bg-purple-500 rounded-full"></div>
             </div>
             <span className="text-xs text-gray-700">Region</span>
 
             {/* Enhanced tooltip for region */}
-            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-              🎯 Drag to select area
+            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+              🎯 Pixel-perfect region capture
+              <br />
+              <span className="text-gray-300">✓ High DPI ✓ Zoom support</span>
             </div>
           </button>
 
@@ -1062,25 +1090,31 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Enhanced Status indicator when capturing */}
+      {/* 🔥 FIXED: Enhanced status indicator with region-specific messages */}
       {isCapturing && (
         <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
           <div className="bg-white rounded-lg p-6 flex flex-col items-center">
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-gray-700">
+            <p className="text-gray-700 text-center">
               {captureMode === "video"
                 ? "Opening recorder & choosing screen..."
                 : captureMode === "region"
-                ? "🎯 Select region on page..."
+                ? "🎯 Preparing accurate region selector..."
                 : "Capturing screenshot..."}
             </p>
             {captureMode === "region" && (
-              <div className="text-sm text-gray-500 mt-2 text-center">
-                <p>• Drag to select the area you want to capture</p>
+              <div className="text-sm text-gray-500 mt-3 text-center max-w-xs">
+                <p className="font-medium text-gray-700 mb-2">
+                  📐 Pixel-Perfect Capture
+                </p>
+                <p>• Drag to select area on the page</p>
+                <p>• Supports high DPI & zoom levels</p>
                 <p>
                   • Press <span className="font-medium">ESC</span> to cancel
                 </p>
-                <p>• Click and drag on the webpage</p>
+                <p className="text-xs mt-2 text-purple-600">
+                  ✨ Enhanced accuracy for all displays
+                </p>
               </div>
             )}
           </div>
