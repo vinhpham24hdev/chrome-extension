@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import logo from "@/assets/logo.png";
+import { loginWithOkta } from "@/config/okta";
 
 // Tools Grid Component for disabled state
 const DisabledToolsGrid = () => (
@@ -75,7 +76,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
   // Clear error when component mounts
   useEffect(() => {
     clearError();
-  }, [clearError]);
+  }, []);
 
   // Handle successful login
   useEffect(() => {
@@ -257,6 +258,8 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
                   >
                     Sign In
                   </button>
+
+                  <button type="button" className="text-black" onClick={loginWithOkta}>Login with Okta</button>
                 </div>
               )}
             </form>

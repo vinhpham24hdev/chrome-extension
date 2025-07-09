@@ -7,6 +7,11 @@ export default defineConfig({
     description: "Chrome extension for capturing screenshots and videos with region selection and full page capture",
     version: "1.0.0",
 
+    oauth2: {
+      "client_id": "your-client-id",
+      "scopes": ["openid", "profile", "email"]
+    },
+
     permissions: [
       "activeTab",
       "tabs",
@@ -15,6 +20,7 @@ export default defineConfig({
       "tabCapture",
       "desktopCapture",
       "system.display",
+      "identity"
     ],
     host_permissions: ["<all_urls>"],
 
