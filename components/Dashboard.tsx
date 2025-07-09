@@ -102,7 +102,7 @@ const ErrorModal = ({
 };
 
 export default function Dashboard() {
-  const { state, logout } = useAuth();
+  const { state, logout, handleLogoutOkta } = useAuth();
   const [cases, setCases] = useState<CaseItem[]>([]);
   const [selectedCase, setSelectedCase] = useState<string>('');
   const [loadingCases, setLoadingCases] = useState(true);
@@ -521,6 +521,12 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     setShowUserDropdown(false);
+
+    if(state.user?.isOktaAuth) {      
+      handleLogoutOkta()
+      return
+    }
+
     try {
       await logout();
       console.log("✅ User logged out successfully");

@@ -11,6 +11,7 @@ export interface User {
   avatar?: string;
   department?: string;
   title?: string;
+  isOktaAuth?: boolean;
 }
 
 export interface LoginCredentials {
@@ -60,4 +61,11 @@ export interface RefreshTokenResponse {
   token?: string;
   expiresIn?: string;
   error?: string;
+}
+
+export interface OktaUser {
+  sub: string;
+  email: string;
+  name?: string;
+  [key: string]: any;
 }
