@@ -53,8 +53,26 @@ export async function loginWithOkta(): Promise<OktaUser | null> {
             accessToken,
             user,
           },
-          () => {
+          async () => {
             resolve(user);
+            const authState = {
+              isLoggedIn: true,
+              currentUser: user,
+              token: accessToken,
+              timestamp: Date.now(),
+            };
+
+            try {
+              if (typeof chrome !== 'undefined' && chrome.storage) {
+                await chrome.storage.local.set({ authState });
+                console.log('✅ Auth state saved to Chrome storage');
+              }
+
+              localStorage.setItem('authState', JSON.stringify(authState));
+              console.log('✅ Auth state saved to localStorage');
+            } catch (error) {
+              console.warn('⚠️ Failed to save auth state:', error);
+            }
           }
         );
       }
