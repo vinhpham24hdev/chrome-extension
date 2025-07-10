@@ -1,7 +1,7 @@
 // components/ScreenshotPreview.tsx - Enhanced with better full page handling
 import React, { useState, useEffect, useRef } from "react";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
-import { caseService } from "../services/caseService";
+import { caseService, CaseItem } from "../services/caseService";
 
 export interface ScreenshotData {
   dataUrl: string;
@@ -23,13 +23,6 @@ interface ScreenshotPreviewProps {
   onClose: () => void;
   isUploading?: boolean;
 }
-
-// Mock cases for dropdown
-const mockCases = [
-  { id: "Case-120320240830", title: "Website Bug Investigation" },
-  { id: "Case-120320240829", title: "Performance Issue Analysis" },
-  { id: "Case-120320240828", title: "User Experience Review" },
-];
 
 export default function ScreenshotPreview({
   screenshot,
@@ -58,48 +51,116 @@ export default function ScreenshotPreview({
     error: null,
   });
 
+  // 🔥 NEW: Real cases from backend instead of mock data
+  const [cases, setCases] = useState<CaseItem[]>([]);
+  const [loadingCases, setLoadingCases] = useState(true);
+  const [casesError, setCasesError] = useState<string | null>(null);
+
   // Image state and refs
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+  const [imageDimensions, setImageDimensions] = useState({
+    width: 0,
+    height: 0,
+  });
   const [isFullPage, setIsFullPage] = useState(false);
-  const [viewMode, setViewMode] = useState<'fit' | 'actual' | 'scroll'>('fit');
+  const [viewMode, setViewMode] = useState<"fit" | "actual" | "scroll">("fit");
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // 🔥 NEW: Load real cases from backend on component mount
+  useEffect(() => {
+    loadCasesFromBackend();
+  }, []);
+
+  const loadCasesFromBackend = async () => {
+    try {
+      setLoadingCases(true);
+      setCasesError(null);
+      console.log("📁 Loading cases from backend for screenshot preview...");
+
+      const fetchedCases = await caseService.getCases({
+        limit: 100, // Load more cases for selection
+        page: 1,
+      });
+
+      setCases(fetchedCases);
+      console.log(
+        "✅ Cases loaded for screenshot preview:",
+        fetchedCases.length
+      );
+
+      // If current selected case is not in the list, select first available
+      if (
+        fetchedCases.length > 0 &&
+        !fetchedCases.find((c) => c.id === formData.selectedCase)
+      ) {
+        setFormData((prev) => ({ ...prev, selectedCase: fetchedCases[0].id }));
+      }
+    } catch (error) {
+      console.error("❌ Failed to load cases for screenshot preview:", error);
+      setCasesError("Failed to load cases from backend");
+
+      // Fallback to mock cases if backend fails
+      const mockCases = [
+        {
+          id: "Case-120320240830",
+          title: "Website Bug Investigation",
+          status: "active" as const,
+        },
+        {
+          id: "Case-120320240829",
+          title: "Performance Issue Analysis",
+          status: "pending" as const,
+        },
+        {
+          id: "Case-120320240828",
+          title: "User Experience Review",
+          status: "active" as const,
+        },
+      ];
+      setCases(mockCases as CaseItem[]);
+    } finally {
+      setLoadingCases(false);
+    }
+  };
 
   // Enhanced URL detection
   useEffect(() => {
     const detectCurrentPageUrl = async () => {
       try {
         if (screenshot.sourceUrl) {
-          setFormData(prev => ({ ...prev, url: screenshot.sourceUrl! }));
+          setFormData((prev) => ({ ...prev, url: screenshot.sourceUrl! }));
           return;
         }
 
-        if (typeof chrome !== 'undefined' && chrome.tabs) {
+        if (typeof chrome !== "undefined" && chrome.tabs) {
           try {
-            const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+            const tabs = await chrome.tabs.query({
+              active: true,
+              currentWindow: true,
+            });
             if (tabs[0]?.url) {
               const currentUrl = tabs[0].url;
-              
+
               if (!isRestrictedUrl(currentUrl)) {
-                setFormData(prev => ({ ...prev, url: currentUrl }));
+                setFormData((prev) => ({ ...prev, url: currentUrl }));
                 return;
               }
             }
           } catch (error) {
-            console.warn('Could not get tab URL:', error);
+            console.warn("Could not get tab URL:", error);
           }
         }
 
-        if (typeof window !== 'undefined' && window.location) {
+        if (typeof window !== "undefined" && window.location) {
           try {
             const windowUrl = window.location.href;
             if (!isRestrictedUrl(windowUrl)) {
-              setFormData(prev => ({ ...prev, url: windowUrl }));
+              setFormData((prev) => ({ ...prev, url: windowUrl }));
               return;
             }
           } catch (error) {
-            console.warn('Could not get window location:', error);
+            console.warn("Could not get window location:", error);
           }
         }
 
@@ -107,29 +168,28 @@ export default function ScreenshotPreview({
           if (window.opener && !window.opener.closed) {
             const openerUrl = window.opener.location.href;
             if (!isRestrictedUrl(openerUrl)) {
-              setFormData(prev => ({ ...prev, url: openerUrl }));
+              setFormData((prev) => ({ ...prev, url: openerUrl }));
               return;
             }
           }
         } catch (error) {
-          console.debug('Cross-origin opener access blocked (expected)');
+          console.debug("Cross-origin opener access blocked (expected)");
         }
 
         if (document.referrer && !isRestrictedUrl(document.referrer)) {
-          setFormData(prev => ({ ...prev, url: document.referrer }));
+          setFormData((prev) => ({ ...prev, url: document.referrer }));
           return;
         }
 
         const fallbackUrl = generateFallbackUrl(screenshot);
         if (fallbackUrl) {
-          setFormData(prev => ({ ...prev, url: fallbackUrl }));
+          setFormData((prev) => ({ ...prev, url: fallbackUrl }));
         }
-
       } catch (error) {
-        console.error('Error detecting page URL:', error);
-        setFormData(prev => ({ 
-          ...prev, 
-          url: 'https://example.com'
+        console.error("Error detecting page URL:", error);
+        setFormData((prev) => ({
+          ...prev,
+          url: "https://example.com",
         }));
       }
     };
@@ -144,19 +204,21 @@ export default function ScreenshotPreview({
       const dimensions = { width: img.width, height: img.height };
       setImageDimensions(dimensions);
       setImageLoaded(true);
-      
+
       // Detect if this is a full page screenshot (very tall image)
       const aspectRatio = dimensions.height / dimensions.width;
       const isVeryTall = aspectRatio > 3; // More than 3:1 ratio suggests full page
-      const isFullPageType = screenshot.type?.includes('full') || screenshot.filename?.includes('fullpage');
-      
+      const isFullPageType =
+        screenshot.type?.includes("full") ||
+        screenshot.filename?.includes("fullpage");
+
       setIsFullPage(isVeryTall || isFullPageType);
-      
+
       // Set default view mode based on image type
       if (isVeryTall || isFullPageType) {
-        setViewMode('scroll'); // Default to scroll mode for very tall images
+        setViewMode("scroll"); // Default to scroll mode for very tall images
       } else {
-        setViewMode('fit'); // Default to fit mode for normal images
+        setViewMode("fit"); // Default to fit mode for normal images
       }
     };
     img.src = screenshot.dataUrl;
@@ -173,10 +235,10 @@ export default function ScreenshotPreview({
       /^data:/,
       /^javascript:/,
       /^chrome-search:\/\//,
-      /^chrome-devtools:\/\//
+      /^chrome-devtools:\/\//,
     ];
 
-    return restrictedPatterns.some(pattern => pattern.test(url));
+    return restrictedPatterns.some((pattern) => pattern.test(url));
   };
 
   const generateFallbackUrl = (screenshot: ScreenshotData): string | null => {
@@ -186,8 +248,8 @@ export default function ScreenshotPreview({
       return `https://${domainMatch[1]}`;
     }
 
-    if (screenshot.type?.includes('tab')) {
-      return 'https://www.example.com';
+    if (screenshot.type?.includes("tab")) {
+      return "https://www.example.com";
     }
 
     return null;
@@ -204,9 +266,15 @@ export default function ScreenshotPreview({
     onClose();
   };
 
+  // 🔥 UPDATED: Real S3 upload with backend integration
   const handleAddToCaseClick = async () => {
     if (!formData.name.trim()) {
-      alert('Please enter a name for the screenshot');
+      alert("Please enter a name for the screenshot");
+      return;
+    }
+
+    if (!formData.selectedCase) {
+      alert("Please select a case");
       return;
     }
 
@@ -225,7 +293,16 @@ export default function ScreenshotPreview({
         const response = await fetch(screenshot.dataUrl);
         blob = await response.blob();
       }
+      console.log("📸 Preparing to upload screenshot...", blob, screenshot);
+      
+      console.log("🚀 Starting real S3 upload...", {
+        filename: screenshot.filename,
+        caseId: formData.selectedCase,
+        size: blob.size,
+        screenshotType: screenshot.type,
+      });
 
+      // 🔥 NEW: Real S3 upload via backend API
       const result = await s3Service.uploadFile(
         blob,
         screenshot.filename,
@@ -233,12 +310,14 @@ export default function ScreenshotPreview({
         "screenshot",
         {
           onProgress: (progress) => {
+            console.log(`📤 Upload progress: ${progress.percentage}%`);
             setUploadState((prev) => ({
               ...prev,
               progress,
             }));
           },
           onSuccess: (result) => {
+            console.log("✅ Upload successful:", result);
             setUploadState((prev) => ({
               ...prev,
               isUploading: false,
@@ -246,6 +325,7 @@ export default function ScreenshotPreview({
             }));
           },
           onError: (error) => {
+            console.error("❌ Upload failed:", error);
             setUploadState((prev) => ({
               ...prev,
               isUploading: false,
@@ -267,6 +347,9 @@ export default function ScreenshotPreview({
       );
 
       if (result.success) {
+        console.log("🎉 Screenshot uploaded to S3 successfully!");
+
+        // 🔥 NEW: Update case metadata via real backend API
         try {
           const caseData = await caseService.getCaseById(formData.selectedCase);
           if (caseData && caseData.metadata) {
@@ -275,41 +358,55 @@ export default function ScreenshotPreview({
               totalFileSize: (caseData.metadata.totalFileSize || 0) + blob.size,
               lastActivity: new Date().toISOString(),
             });
+            console.log("✅ Case metadata updated successfully");
           }
-        } catch (error) {
-          console.error("Failed to update case metadata:", error);
+        } catch (metadataError) {
+          console.error("❌ Failed to update case metadata:", metadataError);
+          // Don't fail the entire process if metadata update fails
         }
 
-        alert(`Screenshot "${formData.name}" added to case ${formData.selectedCase} successfully!`);
+        // Show success message
+        const selectedCaseName =
+          cases.find((c) => c.id === formData.selectedCase)?.title ||
+          formData.selectedCase;
+        alert(
+          `Screenshot "${formData.name}" added to case "${selectedCaseName}" successfully!`
+        );
+
+        // Trigger success callback
         onSave();
+      } else {
+        throw new Error(result.error || "Upload failed");
       }
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error("❌ Upload process failed:", error);
       setUploadState((prev) => ({
         ...prev,
         isUploading: false,
-        error: error instanceof Error ? error.message : 'Upload failed',
+        error: error instanceof Error ? error.message : "Upload failed",
       }));
     }
   };
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({ ...prev, name: e.target.value }));
+    setFormData((prev) => ({ ...prev, name: e.target.value }));
   };
 
-  const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setFormData(prev => ({ ...prev, description: e.target.value }));
+  const handleDescriptionChange = (
+    e: React.ChangeEvent<HTMLTextAreaElement>
+  ) => {
+    setFormData((prev) => ({ ...prev, description: e.target.value }));
   };
 
   const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({ ...prev, url: e.target.value }));
+    setFormData((prev) => ({ ...prev, url: e.target.value }));
   };
 
   const handleCaseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setFormData(prev => ({ ...prev, selectedCase: e.target.value }));
+    setFormData((prev) => ({ ...prev, selectedCase: e.target.value }));
   };
 
-  const handleViewModeChange = (mode: 'fit' | 'actual' | 'scroll') => {
+  const handleViewModeChange = (mode: "fit" | "actual" | "scroll") => {
     setViewMode(mode);
   };
 
@@ -318,26 +415,26 @@ export default function ScreenshotPreview({
     if (!imageLoaded) return {};
 
     switch (viewMode) {
-      case 'fit':
+      case "fit":
         return {
-          maxWidth: '100%',
-          maxHeight: '100%',
-          objectFit: 'contain' as const,
-          width: 'auto',
-          height: 'auto',
+          maxWidth: "100%",
+          maxHeight: "70vh",
+          objectFit: "contain" as const,
+          width: "auto",
+          height: "auto",
         };
-      case 'actual':
+      case "actual":
         return {
-          width: 'auto',
-          height: 'auto',
-          maxWidth: 'none',
-          maxHeight: 'none',
+          width: "auto",
+          height: "auto",
+          maxWidth: "none",
+          maxHeight: "none",
         };
-      case 'scroll':
+      case "scroll":
         return {
-          width: '100%',
-          height: 'auto',
-          maxWidth: '100%',
+          width: "100%",
+          height: "auto",
+          maxWidth: "100%",
         };
       default:
         return {};
@@ -347,19 +444,35 @@ export default function ScreenshotPreview({
   // Get container style based on view mode
   const getContainerStyle = () => {
     switch (viewMode) {
-      case 'scroll':
+      case "scroll":
         return {
-          maxHeight: 'calc(90vh - 200px)',
-          overflowY: 'auto' as const,
-          overflowX: 'hidden' as const,
+          maxHeight: "calc(90vh - 200px)",
+          overflowY: "auto" as const,
+          overflowX: "hidden" as const,
         };
-      case 'actual':
+      case "actual":
         return {
-          maxHeight: 'calc(90vh - 200px)',
-          overflow: 'auto' as const,
+          maxHeight: "calc(90vh - 200px)",
+          overflow: "auto" as const,
         };
       default:
         return {};
+    }
+  };
+
+  // 🔥 NEW: Helper to get case status color
+  const getCaseStatusColor = (status: string) => {
+    switch (status) {
+      case "active":
+        return "bg-green-100 text-green-800";
+      case "pending":
+        return "bg-yellow-100 text-yellow-800";
+      case "closed":
+        return "bg-gray-100 text-gray-800";
+      case "archived":
+        return "bg-purple-100 text-purple-800";
+      default:
+        return "bg-gray-100 text-gray-800";
     }
   };
 
@@ -370,29 +483,46 @@ export default function ScreenshotPreview({
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center space-x-4">
             <h2 className="text-lg font-medium text-gray-900">{snapshotId}</h2>
-            
+
             {/* Image Type Badge */}
             {isFullPage && (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                 📄 Full Page
               </span>
             )}
-            
+
             {/* Image Dimensions */}
             {imageLoaded && (
               <span className="text-sm text-gray-500">
                 {imageDimensions.width} × {imageDimensions.height}px
               </span>
             )}
+
+            {/* Backend Connection Status */}
+            {casesError && (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                ⚠️ Backend Error
+              </span>
+            )}
           </div>
-          
+
           <button
             onClick={handleCloseClick}
             disabled={uploadState.isUploading}
             className="flex items-center text-gray-400 hover:text-gray-600"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -423,8 +553,16 @@ export default function ScreenshotPreview({
         {uploadState.result && (
           <div className="px-4 py-3 bg-green-50 border-b border-green-200">
             <div className="flex items-center text-sm text-green-700">
-              <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              <svg
+                className="w-4 h-4 mr-2"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                  clipRule="evenodd"
+                />
               </svg>
               <span className="font-medium">Successfully uploaded to S3</span>
             </div>
@@ -434,10 +572,38 @@ export default function ScreenshotPreview({
         {uploadState.error && (
           <div className="px-4 py-3 bg-red-50 border-b border-red-200">
             <div className="flex items-center text-sm text-red-700">
-              <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              <svg
+                className="w-4 h-4 mr-2"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                  clipRule="evenodd"
+                />
               </svg>
               <span>Upload failed: {uploadState.error}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Backend Error Message */}
+        {casesError && (
+          <div className="px-4 py-3 bg-orange-50 border-b border-orange-200">
+            <div className="flex items-center text-sm text-orange-700">
+              <svg
+                className="w-4 h-4 mr-2"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <span>Backend connection issue: {casesError}</span>
             </div>
           </div>
         )}
@@ -447,8 +613,11 @@ export default function ScreenshotPreview({
           {/* Left Side - Screenshot with Enhanced Preview */}
           <div className="flex-1 flex flex-col bg-gray-100">
             {/* Image Container */}
-            <div className="flex-1 flex items-center justify-center p-4" style={getContainerStyle()}>
-              <div 
+            <div
+              className="flex-1 flex items-center justify-center p-4"
+              style={getContainerStyle()}
+            >
+              <div
                 ref={containerRef}
                 className="max-w-full max-h-full flex items-start justify-center"
               >
@@ -458,13 +627,15 @@ export default function ScreenshotPreview({
                     <span>Loading image...</span>
                   </div>
                 )}
-                
+
                 <img
                   ref={imageRef}
                   src={screenshot.dataUrl}
                   alt="Screenshot preview"
-                  className={`${!imageLoaded ? 'hidden' : ''} border border-gray-300 bg-white shadow-sm ${
-                    viewMode === 'scroll' ? 'rounded-none' : 'rounded'
+                  className={`${
+                    !imageLoaded ? "hidden" : ""
+                  } border border-gray-300 bg-white shadow-sm ${
+                    viewMode === "scroll" ? "rounded-none" : "rounded"
                   }`}
                   style={getImageStyle()}
                   onLoad={() => setImageLoaded(true)}
@@ -489,7 +660,10 @@ export default function ScreenshotPreview({
             <div className="flex-1 p-4 space-y-4 overflow-y-auto">
               {/* Name Field */}
               <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="name"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Name
                 </label>
                 <input
@@ -505,7 +679,10 @@ export default function ScreenshotPreview({
 
               {/* Description Field */}
               <div>
-                <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="description"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Description
                 </label>
                 <textarea
@@ -521,13 +698,20 @@ export default function ScreenshotPreview({
 
               {/* URL Field */}
               <div>
-                <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="url"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Source URL
                   {formData.url && !isRestrictedUrl(formData.url) && (
-                    <span className="ml-2 text-xs text-green-600">✓ Detected</span>
+                    <span className="ml-2 text-xs text-green-600">
+                      ✓ Detected
+                    </span>
                   )}
                   {formData.url && isRestrictedUrl(formData.url) && (
-                    <span className="ml-2 text-xs text-orange-600">⚠ Restricted page</span>
+                    <span className="ml-2 text-xs text-orange-600">
+                      ⚠ Restricted page
+                    </span>
                   )}
                 </label>
                 <input
@@ -546,32 +730,83 @@ export default function ScreenshotPreview({
                 )}
               </div>
 
-              {/* Case Dropdown */}
+              {/* 🔥 NEW: Real Cases Dropdown */}
               <div>
-                <label htmlFor="case" className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="case"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Case
+                  {loadingCases && (
+                    <span className="ml-2 text-xs text-blue-600">
+                      Loading...
+                    </span>
+                  )}
+                  {casesError && (
+                    <span className="ml-2 text-xs text-red-600">
+                      Error loading cases
+                    </span>
+                  )}
                 </label>
                 <select
                   id="case"
                   value={formData.selectedCase}
                   onChange={handleCaseChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                  disabled={uploadState.isUploading}
+                  disabled={uploadState.isUploading || loadingCases}
                 >
-                  {mockCases.map((case_) => (
-                    <option key={case_.id} value={case_.id}>
-                      {case_.id} - {case_.title}
-                    </option>
-                  ))}
+                  {loadingCases ? (
+                    <option value="">Loading cases...</option>
+                  ) : cases.length === 0 ? (
+                    <option value="">No cases available</option>
+                  ) : (
+                    cases.map((case_) => (
+                      <option key={case_.id} value={case_.id}>
+                        {case_.id} - {case_.title}
+                      </option>
+                    ))
+                  )}
                 </select>
+
+                {/* 🔥 NEW: Show selected case info */}
+                {formData.selectedCase && cases.length > 0 && (
+                  <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
+                    {(() => {
+                      const selectedCase = cases.find(
+                        (c) => c.id === formData.selectedCase
+                      );
+                      if (selectedCase) {
+                        return (
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">
+                              {selectedCase.title}
+                            </span>
+                            <span
+                              className={`px-2 py-1 rounded text-xs ${getCaseStatusColor(
+                                selectedCase.status
+                              )}`}
+                            >
+                              {selectedCase.status}
+                            </span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                )}
               </div>
 
               {/* Image Info */}
               {imageLoaded && (
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Image Info</h4>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">
+                    Image Info
+                  </h4>
                   <div className="space-y-1 text-xs text-gray-600">
-                    <div>Size: {imageDimensions.width} × {imageDimensions.height}px</div>
+                    <div>
+                      Size: {imageDimensions.width} × {imageDimensions.height}px
+                    </div>
                     <div>Type: {screenshot.type}</div>
                     {isFullPage && (
                       <div className="text-blue-600 font-medium">
@@ -605,13 +840,21 @@ export default function ScreenshotPreview({
                   </>
                 ) : uploadState.result ? (
                   <>
-                    <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    <svg
+                      className="w-4 h-4 mr-2"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                     Added
                   </>
                 ) : (
-                  'Add to case'
+                  "Add to case"
                 )}
               </button>
             </div>
