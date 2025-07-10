@@ -1,5 +1,5 @@
 // services/authService.ts - Real Authentication Service
-import { User, LoginRequest, LoginResponse, LogoutResponse } from '../types/auth';
+import { User, LoginRequest, LoginResponse, LogoutResponse, LoginCredentials } from '../types/auth';
 
 interface AuthState {
   isLoggedIn: boolean;
@@ -14,11 +14,25 @@ interface ConnectionTestResult {
   status?: number;
 }
 
+const MOCK_USER = {
+  id: "demo-user-001",
+  username: "demo",
+  email: "demo.user@cellebrite.com",
+  firstName: "Demo",
+  lastName: "User",
+  role: "analyst",
+  permissions: ["screenshot", "video", "case_management"],
+  lastLogin: new Date().toISOString(),
+};
+
 class AuthService {
   private apiBaseUrl: string;
   private currentToken: string | null = null;
   private currentUser: User | null = null;
+  private authToken: string | null = null;
+  private isLoggedIn: boolean = false;
 
+  // Constructor initializes API base URL and loads auth state from storage
   constructor() {
     this.apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
     this.loadFromStorage();
@@ -124,11 +138,79 @@ class AuthService {
     await this.clearStorage();
   }
 
+  private async saveAuthState(): Promise<void> {
+    try {
+      const authData = {
+        isLoggedIn: this.isLoggedIn,
+        currentUser: this.currentUser,
+        authToken: this.authToken,
+        timestamp: Date.now(),
+      };
+
+      // Use Chrome extension storage API
+      if (typeof chrome !== "undefined" && chrome.storage) {
+        await chrome.storage.local.set({ authState: authData });
+      } else {
+        // Fallback to localStorage in development
+        localStorage.setItem("authState", JSON.stringify(authData));
+      }
+
+      console.log("💾 Auth state saved");
+    } catch (error) {
+      console.error("Failed to save auth state:", error);
+    }
+  }
+
+   private async performMockLogin(credentials: LoginCredentials): Promise<LoginResponse> {
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Check mock credentials
+    if (
+      (credentials.username === "demo" || credentials.username === "demo") &&
+      credentials.password === "password"
+    ) {
+      const mockToken = `mock_token_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      const authData = {
+        isLoggedIn: true,
+        currentUser: MOCK_USER,
+        authToken: mockToken,
+        timestamp: Date.now(),
+      };
+
+      // Set instance state
+      this.currentUser = MOCK_USER;
+      this.authToken = mockToken;
+      this.isLoggedIn = true;
+
+      // Save to storage
+      await this.saveAuthState();
+
+      console.log('✅ Mock login successful');
+
+      return {
+        success: true,
+        token: mockToken,
+        user: MOCK_USER,
+      };
+    }
+
+    return {
+      success: false,
+      error: "Invalid credentials. Use demo / password or demo / password",
+    };
+  }
+
   // Login user
   public async login(credentials: LoginRequest): Promise<LoginResponse> {
     try {
       console.log('🔐 Attempting login for:', credentials.username);
-
+      const enableMockMode = import.meta.env.VITE_ENABLE_MOCK_MODE === 'true';
+      
+      if (enableMockMode) {
+        return this.performMockLogin(credentials);
+      }
       const response = await this.apiRequest('/auth/login', {
         method: 'POST',
         body: JSON.stringify(credentials),

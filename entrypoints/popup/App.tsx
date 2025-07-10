@@ -179,8 +179,7 @@ function AppContent() {
   }
 
   // Show dashboard if authenticated, otherwise show login
-  return state.isAuthenticated ||
-    process.env.VITE_CUSTOMER_TEST_MODE == "true" ? (
+  return state.isAuthenticated ? (
     <Dashboard />
   ) : (
     <LoginComponent
