@@ -1,4 +1,4 @@
-// components/Dashboard.tsx - Updated with accurate region capture
+// components/Dashboard.tsx - Updated with Real Backend Services
 import React, { useState, useEffect, useRef } from "react";
 import Box from "@mui/material/Box";
 import InputLabel from "@mui/material/InputLabel";
@@ -7,14 +7,13 @@ import FormControl from "@mui/material/FormControl";
 import Select, { SelectChangeEvent } from "@mui/material/Select";
 
 import { useAuth } from "../contexts/AuthContext";
-import {
-  screenshotService,
-  ScreenshotResult,
-} from "../services/screenshotService";
+import { screenshotService, ScreenshotResult } from "../services/screenshotService";
 import { VideoResult, VideoOptions } from "../services/videoService";
 import { screenshotWindowService } from "../services/screenshotWindowService";
 import { videoWindowService } from "../services/videoWindowService";
 import { videoRecorderWindowService } from "../services/videoRecorderWindowService";
+import { caseService, CaseItem } from "../services/caseService";
+import { configService } from "../config/config";
 
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 
@@ -102,37 +101,11 @@ const ErrorModal = ({
   );
 };
 
-interface CaseItem {
-  id: string;
-  title: string;
-  status: "active" | "pending" | "closed";
-  createdAt: string;
-}
-
-const mockCases: CaseItem[] = [
-  {
-    id: "Case-120320240830",
-    title: "Website Bug Investigation",
-    status: "active",
-    createdAt: "2024-06-10",
-  },
-  {
-    id: "Case-120320240829",
-    title: "Performance Issue Analysis",
-    status: "pending",
-    createdAt: "2024-06-09",
-  },
-  {
-    id: "Case-120320240828",
-    title: "User Experience Review",
-    status: "active",
-    createdAt: "2024-06-08",
-  },
-];
-
 export default function Dashboard() {
   const { state, logout } = useAuth();
-  const [selectedCase, setSelectedCase] = useState<string>(mockCases[0].id);
+  const [cases, setCases] = useState<CaseItem[]>([]);
+  const [selectedCase, setSelectedCase] = useState<string>('');
+  const [loadingCases, setLoadingCases] = useState(true);
   const [captureMode, setCaptureMode] = useState<
     "screenshot" | "video" | "region" | null
   >(null);
@@ -141,7 +114,7 @@ export default function Dashboard() {
     useState<ScreenshotData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // 🔥 FIXED: Enhanced pending capture state with accurate tracking
+  // Enhanced pending capture state with accurate tracking
   const [pendingCapture, setPendingCapture] = useState<{
     type: "region" | "screenshot" | "video" | null;
     sessionId?: string;
@@ -166,6 +139,75 @@ export default function Dashboard() {
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Connection status
+  const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
+
+  // Load cases on component mount
+  useEffect(() => {
+    loadCases();
+    checkBackendConnection();
+  }, []);
+
+  // Load cases from real backend
+  const loadCases = async () => {
+    try {
+      setLoadingCases(true);
+      console.log('📁 Loading cases from backend...');
+      
+      const fetchedCases = await caseService.getCases({
+        limit: 50,
+        page: 1
+      });
+      
+      setCases(fetchedCases);
+      
+      // Auto-select first case if none selected
+      if (fetchedCases.length > 0 && !selectedCase) {
+        setSelectedCase(fetchedCases[0].id);
+      }
+      
+      console.log('✅ Cases loaded:', fetchedCases.length);
+    } catch (error) {
+      console.error('❌ Failed to load cases:', error);
+      showError(
+        'Failed to Load Cases',
+        'Could not connect to backend to load cases.',
+        [
+          'Check if the backend server is running',
+          'Verify your internet connection',
+          'Try refreshing the extension',
+        ]
+      );
+    } finally {
+      setLoadingCases(false);
+    }
+  };
+
+  // Check backend connection
+  const checkBackendConnection = async () => {
+    try {
+      const connected = await caseService.checkConnection();
+      setBackendConnected(connected);
+      
+      if (!connected) {
+        showError(
+          'Backend Connection Failed',
+          'Cannot connect to the backend server. The extension will not work properly without backend connection.',
+          [
+            'Make sure the backend server is running on the correct port',
+            'Check your VITE_API_BASE_URL environment variable',
+            'Verify firewall and network settings',
+          ]
+        );
+      } else {
+        console.log('✅ Backend connection established');
+      }
+    } catch (error) {
+      console.error('❌ Backend connection check failed:', error);
+      setBackendConnected(false);
+    }
+  };
+
   // Show enhanced error modal
   const showError = (
     title: string,
@@ -188,7 +230,7 @@ export default function Dashboard() {
     setErrorModal((prev) => ({ ...prev, isOpen: false }));
   };
 
-  // 🔥 FIXED: Check for pending captures with better error handling
+  // Check for pending captures with better error handling
   useEffect(() => {
     const checkPendingCaptures = async () => {
       try {
@@ -216,7 +258,7 @@ export default function Dashboard() {
     checkPendingCaptures();
   }, []);
 
-  // 🔥 FIXED: Handle pending region capture with validation
+  // Handle pending region capture with validation
   const handlePendingRegionCapture = async (regionCaptureData: any) => {
     try {
       console.log("🎯 Processing pending region capture:", regionCaptureData);
@@ -495,7 +537,7 @@ export default function Dashboard() {
     setSelectedCase(caseId);
   };
 
-  // 🔥 FIXED: Enhanced screenshot function with better region handling
+  // Enhanced screenshot function with better region handling
   const handleScreenshot = async (
     type: "screen" | "full" | "region" = "screen"
   ) => {
@@ -508,7 +550,21 @@ export default function Dashboard() {
       return;
     }
 
-    // 🔥 FIXED: Enhanced region capture workflow with proper error handling
+    // Check backend connection
+    if (backendConnected === false) {
+      showError(
+        "Backend Not Connected",
+        "Cannot save screenshots without backend connection.",
+        [
+          "Check if backend server is running",
+          "Verify API configuration",
+          "Try refreshing the extension",
+        ]
+      );
+      return;
+    }
+
+    // Enhanced region capture workflow with proper error handling
     if (type === "region") {
       console.log("🎯 Starting enhanced region capture workflow...");
 
@@ -631,7 +687,7 @@ export default function Dashboard() {
       return; // Exit early for region capture
     }
 
-    // Existing logic for screen and full capture (unchanged)
+    // Existing logic for screen and full capture
     setIsCapturing(true);
     setCaptureMode("screenshot");
 
@@ -751,6 +807,20 @@ export default function Dashboard() {
       return;
     }
 
+    // Check backend connection
+    if (backendConnected === false) {
+      showError(
+        "Backend Not Connected",
+        "Cannot save videos without backend connection.",
+        [
+          "Check if backend server is running",
+          "Verify API configuration",
+          "Try refreshing the extension",
+        ]
+      );
+      return;
+    }
+
     if (type === "r-video") {
       //not supported yet
       showError(
@@ -758,6 +828,7 @@ export default function Dashboard() {
         "Region video capture is not yet implemented.",
         ["Please use full video capture for now"]
       );
+      return;
     }
 
     // Check if recorder is already open
@@ -933,6 +1004,20 @@ export default function Dashboard() {
                 </p>
               </div>
 
+              {/* Backend Connection Status */}
+              <div className="px-4 py-2 border-b border-gray-100">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    backendConnected === true ? 'bg-green-500' : 
+                    backendConnected === false ? 'bg-red-500' : 'bg-yellow-500'
+                  }`}></div>
+                  <span className="text-xs text-gray-600">
+                    {backendConnected === true ? 'Connected' : 
+                     backendConnected === false ? 'Disconnected' : 'Checking...'}
+                  </span>
+                </div>
+              </div>
+
               <button
                 onClick={handleLogout}
                 className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-800 transition-colors duration-200"
@@ -949,6 +1034,11 @@ export default function Dashboard() {
         <p className="text-sm text-gray-700">
           Select your case. Captured data will wait for you there
         </p>
+        {backendConnected === false && (
+          <p className="text-xs text-red-600 mt-1">
+            ⚠️ Backend disconnected
+          </p>
+        )}
       </div>
 
       {/* Case Selector */}
@@ -964,26 +1054,44 @@ export default function Dashboard() {
               onChange={(e: SelectChangeEvent<string>) =>
                 handleCaseSelect(e.target.value)
               }
+              disabled={loadingCases || backendConnected === false}
             >
-              {mockCases.map((caseItem) => (
-                <MenuItem key={caseItem.id} value={caseItem.id}>
-                  <div className="flex justify-between items-center w-full">
-                    <span>{caseItem.title}</span>
-                  </div>
+              {loadingCases ? (
+                <MenuItem disabled>
+                  <em>Loading cases...</em>
                 </MenuItem>
-              ))}
+              ) : cases.length === 0 ? (
+                <MenuItem disabled>
+                  <em>No cases available</em>
+                </MenuItem>
+              ) : (
+                cases.map((caseItem) => (
+                  <MenuItem key={caseItem.id} value={caseItem.id}>
+                    <div className="flex justify-between items-center w-full">
+                      <span>{caseItem.title}</span>
+                      <span className={`px-2 py-1 text-xs rounded ${
+                        caseItem.status === 'active' ? 'bg-green-100 text-green-800' :
+                        caseItem.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {caseItem.status}
+                      </span>
+                    </div>
+                  </MenuItem>
+                ))
+              )}
             </Select>
           </FormControl>
         </Box>
       </div>
 
-      {/* 🔥 FIXED: Enhanced Capture Tools Grid with accurate region selector */}
+      {/* Enhanced Capture Tools Grid */}
       <div className="px-6 py-2">
         <div className="flex items-start justify-between">
           {/* Screen Capture */}
           <button
             onClick={() => handleScreenshot("screen")}
-            disabled={isCapturing || !selectedCase}
+            disabled={isCapturing || !selectedCase || backendConnected === false}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             title="Capture only visible area (what you see now)"
           >
@@ -995,10 +1103,10 @@ export default function Dashboard() {
             <span className="text-xs text-gray-700">Screen</span>
           </button>
 
-          {/* Full Page Capture - ENTIRE PAGE WITH SCROLLING */}
+          {/* Full Page Capture */}
           <button
             onClick={() => handleScreenshot("full")}
-            disabled={isCapturing || !selectedCase}
+            disabled={isCapturing || !selectedCase || backendConnected === false}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             title="Capture entire page including content below the fold"
           >
@@ -1011,10 +1119,10 @@ export default function Dashboard() {
             <span className="text-xs text-gray-700">Full</span>
           </button>
 
-          {/* 🔥 FIXED: Accurate Region Capture */}
+          {/* Accurate Region Capture */}
           <button
             onClick={() => handleScreenshot("region")}
-            disabled={isCapturing || !selectedCase}
+            disabled={isCapturing || !selectedCase || backendConnected === false}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
             title="Select custom area to capture - pixel-perfect with DPR support"
           >
@@ -1042,10 +1150,10 @@ export default function Dashboard() {
           {/* Divider */}
           <div className="w-px h-8 bg-gray-300"></div>
 
-          {/* Video Recording - Opens in New Tab with Auto Screen Selection */}
+          {/* Video Recording */}
           <button
             onClick={() => handleVideoCapture("video")}
-            disabled={isCapturing || !selectedCase}
+            disabled={isCapturing || !selectedCase || backendConnected === false}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
             title="Record screen - choose what to share"
           >
@@ -1057,23 +1165,25 @@ export default function Dashboard() {
             <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
           </button>
 
-          {/* Region Video - Opens in New Tab with Auto Screen Selection */}
+          {/* Region Video - Disabled */}
           <button
             onClick={() => handleVideoCapture("r-video")}
-            disabled={isCapturing || !selectedCase}
+            disabled={true}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
-            title="Record screen region - choose what to share"
+            title="Region video recording - coming soon"
           >
             <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm flex items-center justify-center">
-              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
             </div>
             <span className="text-xs text-gray-700">R.Video</span>
-            {/* Loom-style indicator */}
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
           </button>
 
           {/* More Options */}
-          <button className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 transition-colors">
+          <button 
+            className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 transition-colors"
+            onClick={checkBackendConnection}
+            title="Refresh connection status"
+          >
             <div className="w-4 h-6 flex flex-col justify-center items-center space-y-0.5">
               <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
               <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
@@ -1085,12 +1195,15 @@ export default function Dashboard() {
 
       {/* View Report Button */}
       <div className="flex justify-center">
-        <button className="w-[176px] bg-blue-600 border-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed">
+        <button 
+          className="w-[176px] bg-blue-600 border-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
+          disabled={!selectedCase || backendConnected === false}
+        >
           View Report
         </button>
       </div>
 
-      {/* 🔥 FIXED: Enhanced status indicator with region-specific messages */}
+      {/* Enhanced status indicator with region-specific messages */}
       {isCapturing && (
         <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
           <div className="bg-white rounded-lg p-6 flex flex-col items-center">

@@ -1,4 +1,4 @@
-// services/screenshotService.ts - Fixed Full Page Screenshot Implementation
+// services/screenshotService.ts - Original Code + Real S3 Integration
 
 // Declare global interface for temporary scroll position storage
 declare global {
@@ -861,22 +861,50 @@ class ScreenshotService {
   }
 
   /**
-   * Save screenshot to storage/upload
+   * 🔥 UPDATED: Save screenshot to storage with REAL S3 integration
    */
   async saveToStorage(result: ScreenshotResult, caseId: string): Promise<boolean> {
     try {
-      console.log('💾 Saving screenshot to storage...');
-      
-      if (!result.success || !result.blob) {
-        console.error('❌ Invalid screenshot result');
-        return false;
+      if (!result.success || !result.blob || !result.filename) {
+        throw new Error('Invalid screenshot result for saving');
       }
 
-      console.log('✅ Screenshot saved successfully');
-      return true;
+      console.log('💾 Saving screenshot to S3 via Backend API...', {
+        filename: result.filename,
+        size: result.blob.size,
+        caseId
+      });
 
+      // 🔥 NEW: Import S3 service dynamically to avoid circular dependency
+      const { s3Service } = await import('./s3Service');
+
+      // 🔥 NEW: Upload to S3 via Backend API with real progress tracking
+      const uploadResult = await s3Service.uploadFile(
+        result.blob,
+        result.filename,
+        caseId,
+        'screenshot',
+        {
+          onProgress: (progress) => {
+            console.log(`📤 Upload progress: ${progress.percentage}%`);
+          },
+          metadata: {
+            captureType: 'screenshot',
+            sourceUrl: result.sourceUrl,
+            timestamp: new Date().toISOString(),
+          }
+        }
+      );
+
+      if (uploadResult.success) {
+        console.log('✅ Screenshot saved to S3 successfully:', uploadResult.fileKey);
+        return true;
+      } else {
+        console.error('❌ Screenshot save failed:', uploadResult.error);
+        return false;
+      }
     } catch (error) {
-      console.error('❌ Save error:', error);
+      console.error('❌ Error saving screenshot:', error);
       return false;
     }
   }
@@ -895,6 +923,104 @@ class ScreenshotService {
       console.log('✅ Screenshot downloaded:', filename);
     } catch (error) {
       console.error('❌ Download error:', error);
+    }
+  }
+
+  // 🔥 NEW: Additional methods for backend integration
+
+  /**
+   * Get screenshot history from backend
+   */
+  async getScreenshotHistory(caseId?: string): Promise<any[]> {
+    try {
+      if (!caseId) {
+        console.warn('No case ID provided for screenshot history');
+        return [];
+      }
+
+      const { caseService } = await import('./caseService');
+      
+      const files = await caseService.getCaseFiles(caseId, {
+        captureType: 'screenshot',
+        limit: 50
+      });
+      
+      console.log('📸 Screenshot history loaded:', files.length);
+      return files;
+    } catch (error) {
+      console.error('❌ Failed to load screenshot history:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Delete screenshot from backend and S3
+   */
+  async deleteScreenshot(fileKey: string, caseId?: string): Promise<boolean> {
+    try {
+      console.log('🗑️ Deleting screenshot:', fileKey);
+      
+      const { s3Service } = await import('./s3Service');
+      
+      await s3Service.deleteFile(fileKey, caseId);
+      console.log('✅ Screenshot deleted successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to delete screenshot:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get screenshot statistics from backend
+   */
+  async getScreenshotStats(caseId?: string): Promise<any> {
+    try {
+      const { s3Service } = await import('./s3Service');
+      
+      const stats = await s3Service.getUploadStats({
+        caseId,
+        detailed: true
+      });
+      
+      const screenshotStats = {
+        total: stats.byType?.screenshot || 0,
+        totalSize: stats.totalSize || 0,
+        recentUploads: (stats.recentUploads || []).filter((upload: any) => 
+          upload.captureType === 'screenshot'
+        )
+      };
+      
+      console.log('📊 Screenshot stats loaded:', screenshotStats);
+      return screenshotStats;
+    } catch (error) {
+      console.error('❌ Failed to load screenshot stats:', error);
+      return {
+        total: 0,
+        totalSize: 0,
+        recentUploads: []
+      };
+    }
+  }
+
+  /**
+   * Copy screenshot to clipboard
+   */
+  async copyToClipboard(dataUrl: string): Promise<boolean> {
+    try {
+      console.log('📋 Copying screenshot to clipboard...');
+      
+      const blob = await this.dataUrlToBlob(dataUrl);
+      const clipboardItem = new ClipboardItem({
+        [blob.type]: blob
+      });
+      
+      await navigator.clipboard.write([clipboardItem]);
+      console.log('✅ Screenshot copied to clipboard');
+      return true;
+    } catch (error) {
+      console.error('❌ Clipboard copy failed:', error);
+      return false;
     }
   }
 }
