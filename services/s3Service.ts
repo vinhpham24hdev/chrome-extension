@@ -32,7 +32,7 @@ export interface PresignedUrlResponse {
   fileName: string;
   key: string;
   expiresIn: number;
-  method: 'PUT' | 'POST';
+  method: "PUT" | "POST";
   fields?: Record<string, string>;
   headers?: Record<string, string>;
   fileId: string;
@@ -48,7 +48,8 @@ class S3Service {
   private authToken: string | null = null;
 
   constructor() {
-    this.apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+    this.apiBaseUrl =
+      import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api";
     this.loadAuthToken();
   }
 
@@ -56,22 +57,22 @@ class S3Service {
   private loadAuthToken(): void {
     try {
       // Try Chrome storage first
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.get(['authState'], (result) => {
+      if (typeof chrome !== "undefined" && chrome.storage) {
+        chrome.storage.local.get(["authState"], (result) => {
           if (result.authState?.token) {
             this.authToken = result.authState.token;
           }
         });
       } else {
         // Fallback to localStorage
-        const authState = localStorage.getItem('authState');
+        const authState = localStorage.getItem("authState");
         if (authState) {
           const parsed = JSON.parse(authState);
           this.authToken = parsed.token;
         }
       }
     } catch (error) {
-      console.warn('Failed to load auth token:', error);
+      console.warn("Failed to load auth token:", error);
     }
   }
 
@@ -81,16 +82,19 @@ class S3Service {
   }
 
   // API request helper with auth
-  private async apiRequest(endpoint: string, options: RequestInit = {}): Promise<Response> {
+  private async apiRequest(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<Response> {
     const url = `${this.apiBaseUrl}${endpoint}`;
-    
+
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       ...(options.headers as Record<string, string>),
     };
 
     if (this.authToken) {
-      headers['Authorization'] = `Bearer ${this.authToken}`;
+      headers["Authorization"] = `Bearer ${this.authToken}`;
     }
 
     const response = await fetch(url, {
@@ -99,8 +103,12 @@ class S3Service {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
+      const error = await response
+        .json()
+        .catch(() => ({ error: "Request failed" }));
+      throw new Error(
+        error.error || `HTTP ${response.status}: ${response.statusText}`
+      );
     }
 
     return response;
@@ -111,28 +119,28 @@ class S3Service {
     fileName: string,
     fileType: string,
     caseId: string,
-    captureType: 'screenshot' | 'video',
+    captureType: "screenshot" | "video",
     fileSize?: number
   ): Promise<PresignedUrlResponse> {
-    console.log('🔗 Getting presigned URL from backend...');
+    console.log("🔗 Getting presigned URL from backend...");
 
-    const response = await this.apiRequest('/upload/presigned-url', {
-      method: 'POST',
+    const response = await this.apiRequest("/upload/presigned-url", {
+      method: "POST",
       body: JSON.stringify({
         fileName,
         fileType,
         caseId,
         captureType,
         fileSize,
-        uploadMethod: 'PUT' // Use PUT method for direct upload
+        uploadMethod: "PUT",
       }),
     });
 
     const result = await response.json();
-    console.log('✅ Presigned URL received:', {
+    console.log("✅ Presigned URL received:", {
       key: result.key,
       expiresIn: result.expiresIn,
-      method: result.method
+      method: result.method,
     });
 
     return result;
@@ -145,45 +153,49 @@ class S3Service {
     actualFileSize: number,
     checksum?: string
   ): Promise<void> {
-    console.log('✅ Confirming upload with backend...');
+    console.log("✅ Confirming upload with backend...");
 
-    await this.apiRequest('/upload/confirm', {
-      method: 'POST',
+    await this.apiRequest("/upload/confirm", {
+      method: "POST",
       body: JSON.stringify({
         fileId,
         fileKey,
         actualFileSize,
         checksum,
-        uploadMethod: 'PUT'
+        uploadMethod: "PUT",
       }),
     });
 
-    console.log('✅ Upload confirmed with backend');
+    console.log("✅ Upload confirmed with backend");
   }
 
-  // Upload file to S3 using presigned URL
+  /**
+   * Upload a file to S3 via presigned URL
+   *
+   * Assumes:
+   * 1. this.getPresignedUrl(...) returns {
+   *      uploadUrl: string;   // presigned PUT URL
+   *      fileUrl:  string;    // public / presigned GET url (optional)
+   *      key:      string;    // object key in S3
+   *      fileId:   string;    // internal DB id
+   *      headers?: Record<string, string>; // extra headers that were part of the signature
+   *    }
+   * 2. this.confirmUpload(...) notifies your backend after upload succeeds
+   */
   public async uploadFile(
     file: Blob,
     fileName: string,
     caseId: string,
-    captureType: 'screenshot' | 'video',
+    captureType: "screenshot" | "video",
     options: UploadOptions = {}
   ): Promise<UploadResult> {
-    const startTime = Date.now();
-    let lastProgressTime = startTime;
+    const start = Date.now();
+    let lastTick = start;
     let lastLoaded = 0;
 
     try {
-      console.log('🚀 Starting S3 upload:', {
-        fileName,
-        fileSize: file.size,
-        fileType: file.type,
-        caseId,
-        captureType
-      });
-
-      // Step 1: Get presigned URL from backend
-      const presignedData = await this.getPresignedUrl(
+      // ──────────────── 1. Presigned URL ────────────────
+      const presigned = await this.getPresignedUrl(
         fileName,
         file.type,
         caseId,
@@ -191,162 +203,125 @@ class S3Service {
         file.size
       );
 
-      // Step 2: Upload to S3 using presigned URL
-      console.log('📤 Uploading to S3...');
-
-      const uploadPromise = new Promise<UploadResult>((resolve, reject) => {
+      // ──────────────── 2. Upload via XHR PUT ────────────────
+      const result = await new Promise<UploadResult>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
 
-        // Track upload progress
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable && options.onProgress) {
-            const currentTime = Date.now();
-            const timeDiff = (currentTime - lastProgressTime) / 1000; // seconds
-            const bytesDiff = event.loaded - lastLoaded;
-            
-            let speed = 0;
-            let timeRemaining = 0;
-            
-            if (timeDiff > 0) {
-              speed = bytesDiff / timeDiff; // bytes per second
-              if (speed > 0) {
-                timeRemaining = (event.total - event.loaded) / speed;
-              }
-            }
+        // progress
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable || !options.onProgress) return;
 
-            const progress: UploadProgress = {
-              percentage: Math.round((event.loaded / event.total) * 100),
-              loaded: event.loaded,
-              total: event.total,
-              speed: speed > 0 ? speed : undefined,
-              timeRemaining: timeRemaining > 0 ? timeRemaining : undefined,
-            };
+          const now = Date.now();
+          const dt = (now - lastTick) / 1000; // seconds
+          const db = e.loaded - lastLoaded; // bytes
+          const speed = dt > 0 ? db / dt : 0; // B/s
+          const remain = speed > 0 ? (e.total - e.loaded) / speed : 0;
 
-            options.onProgress(progress);
-
-            lastProgressTime = currentTime;
-            lastLoaded = event.loaded;
-          }
-        });
-
-        // Handle upload completion
-        xhr.addEventListener('load', async () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              // Step 3: Confirm upload with backend
-              await this.confirmUpload(
-                presignedData.fileId,
-                presignedData.key,
-                file.size
-              );
-
-              const uploadTime = Date.now() - startTime;
-              const result: UploadResult = {
-                success: true,
-                fileUrl: presignedData.fileUrl,
-                fileKey: presignedData.key,
-                fileName: fileName,
-                fileSize: file.size,
-                uploadTime,
-              };
-
-              console.log('🎉 Upload completed successfully:', {
-                fileKey: result.fileKey,
-                uploadTime: `${uploadTime}ms`,
-                fileSize: `${(file.size / 1024 / 1024).toFixed(2)}MB`
-              });
-
-              options.onSuccess?.(result);
-              resolve(result);
-            } catch (confirmError) {
-              console.error('❌ Upload confirmation failed:', confirmError);
-              const errorMessage = confirmError instanceof Error ? confirmError.message : 'Upload confirmation failed';
-              options.onError?.(errorMessage);
-              reject(new Error(errorMessage));
-            }
-          } else {
-            const errorMessage = `Upload failed with status ${xhr.status}: ${xhr.statusText}`;
-            console.error('❌ S3 upload failed:', errorMessage);
-            options.onError?.(errorMessage);
-            reject(new Error(errorMessage));
-          }
-        });
-
-        // Handle upload error
-        xhr.addEventListener('error', () => {
-          const errorMessage = 'Network error during upload';
-          console.error('❌ Upload network error');
-          options.onError?.(errorMessage);
-          reject(new Error(errorMessage));
-        });
-
-        // Handle upload timeout
-        xhr.addEventListener('timeout', () => {
-          const errorMessage = 'Upload timeout';
-          console.error('❌ Upload timeout');
-          options.onError?.(errorMessage);
-          reject(new Error(errorMessage));
-        });
-
-        // Configure request
-        xhr.open('PUT', presignedData.uploadUrl);
-        xhr.timeout = options.timeout || 300000; // 5 minutes default
-
-        // Set headers
-        if (presignedData.headers) {
-          Object.entries(presignedData.headers).forEach(([key, value]) => {
-            xhr.setRequestHeader(key, value);
+          options.onProgress({
+            percentage: Math.round((e.loaded / e.total) * 100),
+            loaded: e.loaded,
+            total: e.total,
+            speed: speed || undefined,
+            timeRemaining: remain || undefined,
           });
+
+          lastTick = now;
+          lastLoaded = e.loaded;
+        };
+
+        // success
+        xhr.onload = async () => {
+          if (xhr.status < 200 || xhr.status >= 300) {
+            const msg = `Upload failed (${xhr.status} ${xhr.statusText})`;
+            options.onError?.(msg);
+            return reject(new Error(msg));
+          }
+
+          try {
+            await this.confirmUpload(
+              presigned.fileId,
+              presigned.key,
+              file.size
+            );
+
+            const uploadTime = Date.now() - start;
+            const ok: UploadResult = {
+              success: true,
+              fileUrl: presigned.fileUrl,
+              fileKey: presigned.key,
+              fileName,
+              fileSize: file.size,
+              uploadTime,
+            };
+            options.onSuccess?.(ok);
+            resolve(ok);
+          } catch (err) {
+            const msg =
+              err instanceof Error ? err.message : "Upload confirmation failed";
+            options.onError?.(msg);
+            reject(new Error(msg));
+          }
+        };
+
+        // network-level failures
+        xhr.onerror = () => {
+          reject(new Error("Network error during upload"));
+        };
+        xhr.ontimeout = () => {
+          reject(new Error("Upload timeout"));
+        };
+
+        // configure request
+        xhr.open("PUT", presigned.uploadUrl);
+        xhr.timeout = options.timeout ?? 300_000; // 5 min
+
+        // ─── Signed headers from backend ───
+        if (presigned.headers) {
+          for (const [key, value] of Object.entries(presigned.headers)) {
+            xhr.setRequestHeader(key, value);
+          }
         }
 
-        // Set content type
-        xhr.setRequestHeader('Content-Type', file.type);
+        if (!presigned.headers?.["Content-Type"] && file.type) {
+          xhr.setRequestHeader("Content-Type", file.type);
+        }
 
-        // Start upload
+        if (!presigned.headers?.["x-amz-server-side-encryption"]) {
+          xhr.setRequestHeader("x-amz-server-side-encryption", "AES256");
+        }
+
+        // send
         xhr.send(file);
       });
 
-      return await uploadPromise;
-
-    } catch (error) {
-      const uploadTime = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : 'Unknown upload error';
-      
-      console.error('❌ Upload failed:', {
-        error: errorMessage,
-        uploadTime: `${uploadTime}ms`,
-        fileName,
-        fileSize: file.size
-      });
-
-      const result: UploadResult = {
-        success: false,
-        error: errorMessage,
-        uploadTime,
-      };
-
-      options.onError?.(errorMessage);
       return result;
+    } catch (err) {
+      const uploadTime = Date.now() - start;
+      const message =
+        err instanceof Error ? err.message : "Unknown upload error";
+
+      options.onError?.(message);
+      return { success: false, error: message, uploadTime };
     }
   }
 
   // Delete file from S3
   public async deleteFile(fileKey: string, caseId?: string): Promise<boolean> {
     try {
-      console.log('🗑️ Deleting file:', fileKey);
+      console.log("🗑️ Deleting file:", fileKey);
 
-      await this.apiRequest('/upload/file', {
-        method: 'DELETE',
+      await this.apiRequest("/upload/file", {
+        method: "DELETE",
         body: JSON.stringify({
           fileKey,
           caseId,
         }),
       });
 
-      console.log('✅ File deleted successfully');
+      console.log("✅ File deleted successfully");
       return true;
     } catch (error) {
-      console.error('❌ Delete failed:', error);
+      console.error("❌ Delete failed:", error);
       throw error;
     }
   }
@@ -358,24 +333,26 @@ class S3Service {
     filename?: string
   ): Promise<string> {
     try {
-      console.log('🔗 Getting download URL for:', fileKey);
+      console.log("🔗 Getting download URL for:", fileKey);
 
       const params = new URLSearchParams({
         expiresIn: expiresIn.toString(),
-        download: 'true',
+        download: "true",
       });
 
       if (filename) {
-        params.append('filename', filename);
+        params.append("filename", filename);
       }
 
-      const response = await this.apiRequest(`/upload/download/${encodeURIComponent(fileKey)}?${params}`);
+      const response = await this.apiRequest(
+        `/upload/download/${encodeURIComponent(fileKey)}?${params}`
+      );
       const result = await response.json();
 
-      console.log('✅ Download URL generated');
+      console.log("✅ Download URL generated");
       return result.downloadUrl;
     } catch (error) {
-      console.error('❌ Failed to get download URL:', error);
+      console.error("❌ Failed to get download URL:", error);
       throw error;
     }
   }
@@ -384,11 +361,11 @@ class S3Service {
   public async getCaseFiles(
     caseId: string,
     options: {
-      captureType?: 'screenshot' | 'video';
+      captureType?: "screenshot" | "video";
       page?: number;
       limit?: number;
-      sortBy?: 'name' | 'size' | 'date';
-      sortOrder?: 'asc' | 'desc';
+      sortBy?: "name" | "size" | "date";
+      sortOrder?: "asc" | "desc";
     } = {}
   ): Promise<{
     files: any[];
@@ -396,7 +373,7 @@ class S3Service {
     summary: any;
   }> {
     try {
-      console.log('📁 Getting files for case:', caseId);
+      console.log("📁 Getting files for case:", caseId);
 
       const params = new URLSearchParams();
       Object.entries(options).forEach(([key, value]) => {
@@ -405,30 +382,34 @@ class S3Service {
         }
       });
 
-      const response = await this.apiRequest(`/upload/cases/${caseId}/files?${params}`);
+      const response = await this.apiRequest(
+        `/upload/cases/${caseId}/files?${params}`
+      );
       const result = await response.json();
 
-      console.log('✅ Case files retrieved:', {
+      console.log("✅ Case files retrieved:", {
         totalFiles: result.summary.totalFiles,
         screenshots: result.summary.screenshots,
-        videos: result.summary.videos
+        videos: result.summary.videos,
       });
 
       return result;
     } catch (error) {
-      console.error('❌ Failed to get case files:', error);
+      console.error("❌ Failed to get case files:", error);
       throw error;
     }
   }
 
   // Get upload statistics
-  public async getUploadStats(options: {
-    caseId?: string;
-    days?: number;
-    detailed?: boolean;
-  } = {}): Promise<any> {
+  public async getUploadStats(
+    options: {
+      caseId?: string;
+      days?: number;
+      detailed?: boolean;
+    } = {}
+  ): Promise<any> {
     try {
-      console.log('📊 Getting upload statistics');
+      console.log("📊 Getting upload statistics");
 
       const params = new URLSearchParams();
       Object.entries(options).forEach(([key, value]) => {
@@ -440,10 +421,10 @@ class S3Service {
       const response = await this.apiRequest(`/upload/stats?${params}`);
       const result = await response.json();
 
-      console.log('✅ Upload stats retrieved');
+      console.log("✅ Upload stats retrieved");
       return result;
     } catch (error) {
-      console.error('❌ Failed to get upload stats:', error);
+      console.error("❌ Failed to get upload stats:", error);
       throw error;
     }
   }
@@ -454,7 +435,7 @@ class S3Service {
       const response = await fetch(`${this.apiBaseUrl}/health`);
       return response.ok;
     } catch (error) {
-      console.error('❌ Backend connection check failed:', error);
+      console.error("❌ Backend connection check failed:", error);
       return false;
     }
   }
@@ -462,20 +443,20 @@ class S3Service {
   // Get storage costs estimation
   public async getStorageCosts(caseId?: string): Promise<any> {
     try {
-      console.log('💰 Getting storage costs');
+      console.log("💰 Getting storage costs");
 
       const params = new URLSearchParams();
       if (caseId) {
-        params.append('caseId', caseId);
+        params.append("caseId", caseId);
       }
 
       const response = await this.apiRequest(`/upload/costs?${params}`);
       const result = await response.json();
 
-      console.log('✅ Storage costs retrieved');
+      console.log("✅ Storage costs retrieved");
       return result;
     } catch (error) {
-      console.error('❌ Failed to get storage costs:', error);
+      console.error("❌ Failed to get storage costs:", error);
       throw error;
     }
   }
@@ -486,16 +467,16 @@ export const s3Service = new S3Service();
 
 // Helper function to format file size
 export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
+  if (bytes === 0) return "0 B";
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 }
 
 // Helper function to format upload speed
 export function formatSpeed(bytesPerSecond: number): string {
-  return formatFileSize(bytesPerSecond) + '/s';
+  return formatFileSize(bytesPerSecond) + "/s";
 }
 
 // Helper function to format time remaining

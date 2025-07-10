@@ -1,5 +1,6 @@
 // components/ScreenshotPreview.tsx - Enhanced with better full page handling
 import React, { useState, useEffect, useRef } from "react";
+import { isEmpty } from "lodash";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
 import { caseService, CaseItem } from "../services/caseService";
 
@@ -289,16 +290,19 @@ export default function ScreenshotPreview({
 
     try {
       let blob = screenshot.blob;
-      if (!blob) {
+      if ((!blob || isEmpty(blob)) && screenshot.dataUrl) {
         const response = await fetch(screenshot.dataUrl);
         blob = await response.blob();
+      }
+      if (!blob) {
+        return alert("Failed to get screenshot blob");
       }
       console.log("📸 Preparing to upload screenshot...", blob, screenshot);
       
       console.log("🚀 Starting real S3 upload...", {
         filename: screenshot.filename,
         caseId: formData.selectedCase,
-        size: blob.size,
+        size: blob?.size,
         screenshotType: screenshot.type,
       });
 

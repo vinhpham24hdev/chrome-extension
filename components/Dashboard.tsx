@@ -13,7 +13,6 @@ import { screenshotWindowService } from "../services/screenshotWindowService";
 import { videoWindowService } from "../services/videoWindowService";
 import { videoRecorderWindowService } from "../services/videoRecorderWindowService";
 import { caseService, CaseItem } from "../services/caseService";
-import { configService } from "../config/config";
 
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 
