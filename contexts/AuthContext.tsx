@@ -1,7 +1,15 @@
 // contexts/AuthContext.tsx - Simple Auth Context
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useReducer,
+  useEffect,
+  useCallback,
+} from 'react';
 import { authService } from '../services/authService';
 import { User } from '../types/auth';
+import { logoutFromOkta } from '@/config/okta';
+import { useOktaTokenExpiration } from '@/hooks/useOktaTokenExpiration';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -80,6 +88,8 @@ interface AuthContextType {
   clearError: () => void;
   checkConnection: () => Promise<boolean>;
   refreshUser: () => Promise<void>;
+  handleSuccessLoginOkta: (user: any) => void;
+  handleLogoutOkta: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -94,9 +104,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (typeof chrome !== 'undefined' && chrome.storage) {
         const result = await chrome.storage.local.get(['authState']);
         const authState = result.authState;
-        
+
         if (authState?.isLoggedIn && authState.currentUser) {
-          console.log('✅ Auth found in Chrome storage:', authState.currentUser.username);
+          console.log(
+            '✅ Auth found in Chrome storage:',
+            authState.currentUser.username
+          );
           dispatch({
             type: 'LOGIN_SUCCESS',
             payload: {
@@ -113,7 +126,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (stored) {
         const authState = JSON.parse(stored);
         if (authState?.isLoggedIn && authState.currentUser) {
-          console.log('✅ Auth found in localStorage:', authState.currentUser.username);
+          console.log(
+            '✅ Auth found in localStorage:',
+            authState.currentUser.username
+          );
           dispatch({
             type: 'LOGIN_SUCCESS',
             payload: {
@@ -139,7 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_LOADING', payload: true });
 
       const isAuthenticated = await checkAuthState();
-      
+
       if (!isAuthenticated) {
         dispatch({ type: 'SET_LOADING', payload: false });
       }
@@ -154,12 +170,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       console.log('🔐 Attempting login...');
-      
+
       const response = await authService.login(credentials);
-      
+
       if (response.success && response.user && response.token) {
         console.log('✅ Login successful:', response.user.username);
-        
+
         dispatch({
           type: 'LOGIN_SUCCESS',
           payload: {
@@ -230,6 +246,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const handleSuccessLoginOkta = (user: User) => {
+    dispatch({
+      type: 'LOGIN_SUCCESS',
+      payload: {
+        user,
+        timestamp: Date.now(),
+      },
+    });
+  };
+
+  const handleLogoutOkta = async () => {
+    try {
+      await logoutFromOkta();
+      dispatch({ type: 'LOGOUT' });
+      console.log('🔓 User logged out successfully');
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  useOktaTokenExpiration(handleLogoutOkta, Boolean(state.user?.isOktaAuth));
+
   return (
     <AuthContext.Provider
       value={{
@@ -239,6 +277,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearError,
         checkConnection,
         refreshUser,
+        handleSuccessLoginOkta,
+        handleLogoutOkta,
       }}
     >
       {children}

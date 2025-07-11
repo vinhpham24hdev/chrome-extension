@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import logo from "@/assets/logo.png";
+import { loginWithOkta } from "@/config/okta";
 
 // Tools Grid Component for disabled state
 const DisabledToolsGrid = () => (
@@ -65,7 +66,7 @@ interface LoginComponentProps {
 }
 
 export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) {
-  const { state, login, clearError } = useAuth();
+  const { state, login, clearError, handleSuccessLoginOkta } = useAuth();
   const [showLoginForm, setShowLoginForm] = useState(false);
   const [credentials, setCredentials] = useState({
     username: "demo",
@@ -75,7 +76,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
   // Clear error when component mounts
   useEffect(() => {
     clearError();
-  }, [clearError]);
+  }, []);
 
   // Handle successful login
   useEffect(() => {
@@ -127,6 +128,15 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
     setCredentials({ username: "", password: "" });
     clearError();
   };
+
+  const handleLoginOkta = async () => {
+    try {
+      const user = await loginWithOkta()
+      handleSuccessLoginOkta(user)
+    } catch (error) {
+      console.error(error)
+    }
+  }
 
   return (
     <div className="min-w-[402px] min-h-[280px] bg-white flex flex-col">
@@ -257,6 +267,8 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
                   >
                     Sign In
                   </button>
+
+                  <button type="button" className="text-black" onClick={handleLoginOkta}>Login with Okta</button>
                 </div>
               )}
             </form>
