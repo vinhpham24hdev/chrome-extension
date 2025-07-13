@@ -1159,6 +1159,9 @@ export default function Dashboard() {
         <button 
           className="w-[176px] bg-blue-600 border-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
           disabled={!selectedCase || backendConnected === false}
+          onClick={() => {
+            chrome.runtime.sendMessage({ type: 'OPEN_CASE_REPORT', data: cases.find((caseItem) => caseItem.id === selectedCase) });
+          }}
         >
           View Report
         </button>
