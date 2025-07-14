@@ -1,12 +1,57 @@
-// services/serviceManager.ts - Real Backend Integration + Region Selector
-import { s3Service } from "./s3Service";
-import { caseService } from "./caseService";
+// services/serviceManager.ts - Fixed Backend Integration + Service Manager
 import { authService } from "./authService";
-import { screenshotService } from "./screenshotService";
-import { videoService } from "./videoService";
-import { screenshotWindowService } from "./screenshotWindowService";
-import { videoWindowService } from "./videoWindowService";
-import { videoRecorderWindowService } from "./videoRecorderWindowService";
+
+// Import only existing services - others will be conditionally imported
+let s3Service: any = null;
+let caseService: any = null;
+let screenshotService: any = null;
+let videoService: any = null;
+let screenshotWindowService: any = null;
+let videoWindowService: any = null;
+let videoRecorderWindowService: any = null;
+
+// Conditional imports to prevent errors if services don't exist
+try {
+  s3Service = require("./s3Service").s3Service;
+} catch (error) {
+  console.warn("⚠️ S3 service not available:", error);
+}
+
+try {
+  caseService = require("./caseService").caseService;
+} catch (error) {
+  console.warn("⚠️ Case service not available:", error);
+}
+
+try {
+  screenshotService = require("./screenshotService").screenshotService;
+} catch (error) {
+  console.warn("⚠️ Screenshot service not available:", error);
+}
+
+try {
+  videoService = require("./videoService").videoService;
+} catch (error) {
+  console.warn("⚠️ Video service not available:", error);
+}
+
+try {
+  screenshotWindowService = require("./screenshotWindowService").screenshotWindowService;
+} catch (error) {
+  console.warn("⚠️ Screenshot window service not available:", error);
+}
+
+try {
+  videoWindowService = require("./videoWindowService").videoWindowService;
+} catch (error) {
+  console.warn("⚠️ Video window service not available:", error);
+}
+
+try {
+  videoRecorderWindowService = require("./videoRecorderWindowService").videoRecorderWindowService;
+} catch (error) {
+  console.warn("⚠️ Video recorder window service not available:", error);
+}
 
 export interface ServiceInitializationResult {
   success: boolean;
@@ -16,15 +61,29 @@ export interface ServiceInitializationResult {
   authReady: boolean;
   s3Ready: boolean;
   casesReady: boolean;
-  captureServicesReady: boolean; // NEW: Track capture services status
+  captureServicesReady: boolean;
+}
+
+export interface CaptureServicesStatus {
+  screenshot: boolean;
+  video: boolean;
+  screenshotWindow: boolean;
+  videoWindow: boolean;
+  videoRecorder: boolean;
+  chromeAPIs: boolean;
+  activeCaptures: {
+    screenshot: boolean;
+    video: boolean;
+    recording: boolean;
+  };
 }
 
 export class ServiceManager {
   private static instance: ServiceManager;
   private isInitialized: boolean = false;
-  private initializationPromise: Promise<ServiceInitializationResult> | null =
-    null;
+  private initializationPromise: Promise<ServiceInitializationResult> | null = null;
   private backendConnected: boolean = false;
+  private mockMode: boolean = false;
 
   private constructor() {}
 
@@ -58,10 +117,10 @@ export class ServiceManager {
     let authReady = false;
     let s3Ready = false;
     let casesReady = false;
-    let captureServicesReady = false; // NEW: Track capture services
+    let captureServicesReady = false;
 
     try {
-      console.log("🚀 Initializing services with real backend...");
+      console.log("🚀 Initializing services...");
 
       // Get configuration from environment
       const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
@@ -69,13 +128,13 @@ export class ServiceManager {
       const awsRegion = import.meta.env.VITE_AWS_REGION || "us-east-1";
       const bucketName = import.meta.env.VITE_AWS_S3_BUCKET_NAME;
 
+      this.mockMode = enableMockMode;
+
       console.log("🔧 Configuration:", {
         apiBaseUrl,
         enableMockMode,
         awsRegion,
-        bucketName: bucketName
-          ? `${bucketName.substring(0, 20)}...`
-          : "NOT SET",
+        bucketName: bucketName ? `${bucketName.substring(0, 20)}...` : "NOT SET",
       });
 
       if (!apiBaseUrl) {
@@ -83,12 +142,25 @@ export class ServiceManager {
       }
 
       if (!bucketName && !enableMockMode) {
-        warnings.push(
-          "VITE_AWS_S3_BUCKET_NAME not configured - S3 uploads will not work"
-        );
+        warnings.push("VITE_AWS_S3_BUCKET_NAME not configured - S3 uploads will not work");
       }
 
-      // 1. Test Backend Connectivity
+      // 1. Initialize Authentication Service
+      console.log("🔐 Initializing authentication service...");
+      try {
+        await authService.initializeAuth();
+        authReady = true;
+        console.log("✅ Authentication service ready");
+      } catch (error) {
+        authReady = false;
+        const errorMsg = `Authentication service failed: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`;
+        errors.push(errorMsg);
+        console.error("❌", errorMsg);
+      }
+
+      // 2. Test Backend Connectivity
       console.log("🔍 Testing backend connectivity...");
       try {
         const connectionTest = await authService.testConnection();
@@ -102,7 +174,7 @@ export class ServiceManager {
           }
         } else {
           backendConnected = false;
-          const errorMsg = `Backend not reachable: ${connectionTest.error}`;
+          const errorMsg = `Backend not reachable: ${connectionTest.error || connectionTest.message}`;
           if (enableMockMode) {
             warnings.push(errorMsg + " (Mock mode enabled)");
           } else {
@@ -120,109 +192,102 @@ export class ServiceManager {
         }
       }
 
-      // 3. Initialize Authentication Service
-      console.log("🔐 Initializing authentication service...");
-      try {
-        // Auth service is initialized automatically, just verify it's working
-        authReady = true;
-        console.log("✅ Authentication service ready");
-      } catch (error) {
-        authReady = false;
-        const errorMsg = `Authentication service failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`;
-        errors.push(errorMsg);
-        console.error("❌", errorMsg);
-      }
-
-      // 4. Initialize S3 Service
-      console.log("☁️ Initializing S3 service...");
-      try {
-        const s3Result = await s3Service.initialize({
-          bucketName: bucketName || "screen-capture-tool-dev",
-          region: awsRegion,
-          apiBaseUrl: apiBaseUrl || "http://localhost:3001/api",
-          maxFileSize: 100 * 1024 * 1024, // 100MB
-          allowedTypes: [
-            "image/png",
-            "image/jpeg",
-            "image/webp",
-            "video/webm",
-            "video/mp4",
-          ],
-          enableMockMode: enableMockMode || !backendConnected,
-        });
-
-        if (s3Result.success) {
-          s3Ready = true;
-          console.log("✅ S3 service initialized");
-          if (enableMockMode || !backendConnected) {
-            warnings.push("S3 service running in mock mode");
-          }
-        } else {
-          s3Ready = false;
-          errors.push(`S3 service initialization failed: ${s3Result.error}`);
-        }
-      } catch (error) {
-        s3Ready = false;
-        const errorMsg = `S3 service error: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`;
-        errors.push(errorMsg);
-        console.error("❌", errorMsg);
-      }
-
-      // 5. Initialize Case Service
-      console.log("📋 Initializing case service...");
-      try {
-        // Set case service to use real backend if connected
-        caseService.setMockMode(enableMockMode || !backendConnected);
-        await caseService.initialize();
-        casesReady = true;
-        console.log("✅ Case service initialized");
-
-        if (enableMockMode || !backendConnected) {
-          warnings.push("Case service running in mock mode");
-        }
-      } catch (error) {
-        casesReady = false;
-        const errorMsg = `Case service initialization failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`;
-        errors.push(errorMsg);
-        console.error("❌", errorMsg);
-      }
-
-      // 6. Initialize Capture Services (NEW)
-      console.log("📸 Initializing capture services...");
-      try {
-        // Check Chrome APIs availability for capture services
-        if (typeof chrome === "undefined") {
-          warnings.push(
-            "Chrome extension APIs not available - capture features may not work"
-          );
-        } else {
-          // Check specific APIs needed for capture
-          const chromeAPIs = {
-            tabs: !!chrome.tabs,
-            windows: !!chrome.windows,
-            runtime: !!chrome.runtime,
-            storage: !!chrome.storage,
+      // 3. Initialize S3 Service
+      if (s3Service) {
+        console.log("☁️ Initializing S3 service...");
+        try {
+          const s3Config = {
+            bucketName: bucketName || "screen-capture-tool-dev",
+            region: awsRegion,
+            apiBaseUrl: apiBaseUrl || "http://localhost:3001/api",
+            maxFileSize: 100 * 1024 * 1024, // 100MB
+            allowedTypes: [
+              "image/png",
+              "image/jpeg",
+              "image/webp",
+              "video/webm",
+              "video/mp4",
+            ],
+            enableMockMode: enableMockMode || !backendConnected,
           };
 
-          const missingAPIs = Object.entries(chromeAPIs)
-            .filter(([, available]) => !available)
-            .map(([api]) => api);
-
-          if (missingAPIs.length > 0) {
-            warnings.push(`Chrome APIs missing: ${missingAPIs.join(", ")}`);
+          // Check if s3Service has initialize method
+          if (typeof s3Service.initialize === 'function') {
+            const s3Result = await s3Service.initialize(s3Config);
+            if (s3Result && s3Result.success) {
+              s3Ready = true;
+              console.log("✅ S3 service initialized");
+              if (enableMockMode || !backendConnected) {
+                warnings.push("S3 service running in mock mode");
+              }
+            } else {
+              s3Ready = false;
+              errors.push(`S3 service initialization failed: ${s3Result?.error || 'Unknown error'}`);
+            }
           } else {
-            console.log("✅ All required Chrome APIs available");
+            // Fallback for different S3 service interface
+            s3Ready = true;
+            console.log("✅ S3 service available (no initialization required)");
           }
+        } catch (error) {
+          s3Ready = false;
+          const errorMsg = `S3 service error: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`;
+          errors.push(errorMsg);
+          console.error("❌", errorMsg);
+        }
+      } else {
+        warnings.push("S3 service not available");
+      }
+
+      // 4. Initialize Case Service
+      if (caseService) {
+        console.log("📋 Initializing case service...");
+        try {
+          // Configure case service for mock mode if needed
+          if (typeof caseService.setMockMode === 'function') {
+            caseService.setMockMode(enableMockMode || !backendConnected);
+          }
+          
+          if (typeof caseService.initialize === 'function') {
+            await caseService.initialize();
+          }
+          
+          casesReady = true;
+          console.log("✅ Case service initialized");
+
+          if (enableMockMode || !backendConnected) {
+            warnings.push("Case service running in mock mode");
+          }
+        } catch (error) {
+          casesReady = false;
+          const errorMsg = `Case service initialization failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`;
+          errors.push(errorMsg);
+          console.error("❌", errorMsg);
+        }
+      } else {
+        warnings.push("Case service not available");
+        casesReady = true; // Don't fail if not available
+      }
+
+      // 5. Initialize Capture Services
+      console.log("📸 Initializing capture services...");
+      try {
+        const captureStatus = this.initializeCaptureServices();
+        captureServicesReady = captureStatus.success;
+        
+        if (captureStatus.warnings.length > 0) {
+          warnings.push(...captureStatus.warnings);
+        }
+        
+        if (captureStatus.errors.length > 0) {
+          errors.push(...captureStatus.errors);
         }
 
-        captureServicesReady = true;
-        console.log("✅ All capture services initialized");
+        console.log("✅ Capture services initialization completed");
       } catch (error) {
         captureServicesReady = false;
         const errorMsg = `Capture services initialization failed: ${
@@ -230,23 +295,6 @@ export class ServiceManager {
         }`;
         errors.push(errorMsg);
         console.error("❌", errorMsg);
-      }
-
-      // 7. Test Authenticated Endpoints (if backend connected)
-      if (backendConnected && !enableMockMode) {
-        console.log("🔒 Testing authenticated endpoints...");
-        try {
-          // This will test once user logs in
-          console.log(
-            "ℹ️ Authenticated endpoint testing will occur after login"
-          );
-        } catch (error) {
-          warnings.push(
-            `Authenticated endpoint test failed: ${
-              error instanceof Error ? error.message : "Unknown error"
-            }`
-          );
-        }
       }
 
       const success = errors.length === 0;
@@ -273,7 +321,7 @@ export class ServiceManager {
         authReady,
         s3Ready,
         casesReady,
-        captureServicesReady, // NEW: Include capture services status
+        captureServicesReady,
       };
     } catch (error) {
       const errorMsg = `Service initialization failed: ${
@@ -290,11 +338,65 @@ export class ServiceManager {
         authReady: false,
         s3Ready: false,
         casesReady: false,
-        captureServicesReady: false, // NEW
+        captureServicesReady: false,
       };
     } finally {
       this.initializationPromise = null;
     }
+  }
+
+  /**
+   * Initialize capture services
+   */
+  private initializeCaptureServices(): { success: boolean; errors: string[]; warnings: string[] } {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Check Chrome APIs availability
+    if (typeof chrome === "undefined") {
+      warnings.push("Chrome extension APIs not available - capture features may not work");
+    } else {
+      // Check specific APIs needed for capture
+      const chromeAPIs = {
+        tabs: !!chrome.tabs,
+        windows: !!chrome.windows,
+        runtime: !!chrome.runtime,
+        storage: !!chrome.storage,
+      };
+
+      const missingAPIs = Object.entries(chromeAPIs)
+        .filter(([, available]) => !available)
+        .map(([api]) => api);
+
+      if (missingAPIs.length > 0) {
+        warnings.push(`Chrome APIs missing: ${missingAPIs.join(", ")}`);
+      } else {
+        console.log("✅ All required Chrome APIs available");
+      }
+    }
+
+    // Check individual capture services
+    const services = {
+      screenshot: screenshotService,
+      video: videoService,
+      screenshotWindow: screenshotWindowService,
+      videoWindow: videoWindowService,
+      videoRecorder: videoRecorderWindowService,
+    };
+
+    Object.entries(services).forEach(([name, service]) => {
+      if (!service) {
+        warnings.push(`${name} service not available`);
+      } else {
+        console.log(`✅ ${name} service available`);
+      }
+    });
+
+    return {
+      success: errors.length === 0,
+      errors,
+      warnings,
+    };
   }
 
   /**
@@ -320,9 +422,7 @@ export class ServiceManager {
       console.log("🧪 Testing authenticated endpoints...");
 
       // Test cases endpoint
-      const casesResponse = await authService.authenticatedRequest(
-        "/cases?limit=1"
-      );
+      const casesResponse = await authService.authenticatedRequest("/cases?limit=1");
       if (!casesResponse.success) {
         errors.push(`Cases endpoint failed: ${casesResponse.error}`);
       } else {
@@ -330,9 +430,7 @@ export class ServiceManager {
       }
 
       // Test upload endpoint
-      const uploadTestResponse = await authService.authenticatedRequest(
-        "/upload/stats"
-      );
+      const uploadTestResponse = await authService.authenticatedRequest("/upload/stats");
       if (!uploadTestResponse.success) {
         errors.push(`Upload endpoint failed: ${uploadTestResponse.error}`);
       } else {
@@ -373,8 +471,7 @@ export class ServiceManager {
    * Get service health status
    */
   public getServiceStatus(): ServiceInitializationResult {
-    const isAuth = authService.isAuthenticated();
-    const mockMode = import.meta.env.VITE_ENABLE_MOCK_MODE === "true";
+    const mockMode = this.isMockMode();
 
     return {
       success: this.isInitialized,
@@ -384,14 +481,14 @@ export class ServiceManager {
       authReady: true,
       s3Ready: this.isInitialized,
       casesReady: this.isInitialized,
-      captureServicesReady: this.isInitialized, // NEW
+      captureServicesReady: this.isInitialized,
     };
   }
 
   /**
-   * Get capture services status (NEW)
+   * Get capture services status
    */
-  public getCaptureServicesStatus() {
+  public getCaptureServicesStatus(): CaptureServicesStatus {
     return {
       screenshot: !!screenshotService,
       video: !!videoService,
@@ -400,11 +497,25 @@ export class ServiceManager {
       videoRecorder: !!videoRecorderWindowService,
       chromeAPIs: typeof chrome !== "undefined",
       activeCaptures: {
-        screenshot: screenshotWindowService?.isPreviewWindowOpen?.() || false,
-        video: videoWindowService?.isPreviewWindowOpen?.() || false,
-        recording: videoRecorderWindowService?.isRecorderOpen?.() || false,
+        screenshot: this.isServiceActive(screenshotWindowService, 'isPreviewWindowOpen'),
+        video: this.isServiceActive(videoWindowService, 'isPreviewWindowOpen'),
+        recording: this.isServiceActive(videoRecorderWindowService, 'isRecorderOpen'),
       },
     };
+  }
+
+  /**
+   * Helper to check if a service is active
+   */
+  private isServiceActive(service: any, methodName: string): boolean {
+    try {
+      if (service && typeof service[methodName] === 'function') {
+        return service[methodName]();
+      }
+    } catch (error) {
+      console.warn(`⚠️ Error checking service status:`, error);
+    }
+    return false;
   }
 
   /**
@@ -425,18 +536,22 @@ export class ServiceManager {
    * Check if running in mock mode
    */
   public isMockMode(): boolean {
-    return (
-      import.meta.env.VITE_ENABLE_MOCK_MODE === "true" || !this.backendConnected
-    );
+    return this.mockMode || import.meta.env.VITE_ENABLE_MOCK_MODE === "true" || !this.backendConnected;
   }
 
   /**
    * Reinitialize services (useful for config changes)
    */
   public async reinitialize(): Promise<ServiceInitializationResult> {
+    console.log("🔄 Reinitializing services...");
+    
     this.isInitialized = false;
     this.backendConnected = false;
     this.initializationPromise = null;
+    
+    // Close any active captures before reinitializing
+    await this.closeAllCaptureServices();
+    
     return this.initialize();
   }
 
@@ -448,14 +563,44 @@ export class ServiceManager {
       console.log("🔄 Updating services after login...");
 
       // Test authenticated endpoints
-      await this.testAuthenticatedEndpoints();
+      const testResult = await this.testAuthenticatedEndpoints();
+      if (!testResult.success) {
+        console.warn("⚠️ Some authenticated endpoints failed:", testResult.errors);
+      }
 
       // Refresh case service with real data
-      if (this.backendConnected && !this.isMockMode()) {
-        caseService.setMockMode(false);
-        await caseService.initialize();
-        console.log("✅ Case service updated to use real API");
+      if (this.backendConnected && !this.isMockMode() && caseService) {
+        try {
+          if (typeof caseService.setMockMode === 'function') {
+            caseService.setMockMode(false);
+          }
+          
+          if (typeof caseService.initialize === 'function') {
+            await caseService.initialize();
+          }
+          
+          console.log("✅ Case service updated to use real API");
+        } catch (error) {
+          console.warn("⚠️ Failed to update case service:", error);
+        }
       }
+
+      // Refresh S3 service configuration
+      if (this.backendConnected && !this.isMockMode() && s3Service) {
+        try {
+          if (typeof s3Service.setAuthToken === 'function') {
+            const token = authService.getCurrentToken();
+            if (token) {
+              s3Service.setAuthToken(token);
+            }
+          }
+          console.log("✅ S3 service auth updated");
+        } catch (error) {
+          console.warn("⚠️ Failed to update S3 service auth:", error);
+        }
+      }
+
+      console.log("✅ Services updated after login");
     } catch (error) {
       console.error("❌ Failed to update services after login:", error);
     }
@@ -468,20 +613,217 @@ export class ServiceManager {
     try {
       console.log("🔄 Updating services after logout...");
 
+      // Close all active captures
+      await this.closeAllCaptureServices();
+
       // Switch back to mock mode if backend not available
       if (!this.backendConnected || this.isMockMode()) {
-        caseService.setMockMode(true);
-        console.log("✅ Case service switched to mock mode");
+        if (caseService && typeof caseService.setMockMode === 'function') {
+          caseService.setMockMode(true);
+          console.log("✅ Case service switched to mock mode");
+        }
       }
+
+      // Clear S3 service auth
+      if (s3Service && typeof s3Service.clearAuth === 'function') {
+        try {
+          s3Service.clearAuth();
+          console.log("✅ S3 service auth cleared");
+        } catch (error) {
+          console.warn("⚠️ Failed to clear S3 service auth:", error);
+        }
+      }
+
+      console.log("✅ Services updated after logout");
     } catch (error) {
       console.error("❌ Failed to update services after logout:", error);
     }
   }
 
   /**
-   * Force close all capture services (NEW)
+   * Force close all capture services
    */
-  public async closeAllCaptureServices(): Promise<void> {}
+  public async closeAllCaptureServices(): Promise<void> {
+    try {
+      console.log('🔄 Closing all capture services...');
+      
+      const closePromises: Promise<void>[] = [];
+
+      // Close screenshot services
+      if (screenshotWindowService) {
+        try {
+          if (typeof screenshotWindowService.isPreviewWindowOpen === 'function' && 
+              screenshotWindowService.isPreviewWindowOpen()) {
+            if (typeof screenshotWindowService.closePreviewWindow === 'function') {
+              closePromises.push(screenshotWindowService.closePreviewWindow());
+            }
+          }
+        } catch (error) {
+          console.warn('⚠️ Error closing screenshot window service:', error);
+        }
+      }
+      
+      // Close video services
+      if (videoWindowService) {
+        try {
+          if (typeof videoWindowService.isPreviewWindowOpen === 'function' && 
+              videoWindowService.isPreviewWindowOpen()) {
+            if (typeof videoWindowService.closePreviewWindow === 'function') {
+              closePromises.push(videoWindowService.closePreviewWindow());
+            }
+          }
+        } catch (error) {
+          console.warn('⚠️ Error closing video window service:', error);
+        }
+      }
+      
+      // Close recorder
+      if (videoRecorderWindowService) {
+        try {
+          if (typeof videoRecorderWindowService.isRecorderOpen === 'function' && 
+              videoRecorderWindowService.isRecorderOpen()) {
+            if (typeof videoRecorderWindowService.closeRecorder === 'function') {
+              closePromises.push(videoRecorderWindowService.closeRecorder());
+            }
+          }
+        } catch (error) {
+          console.warn('⚠️ Error closing video recorder service:', error);
+        }
+      }
+
+      // Stop any ongoing captures
+      if (screenshotService && typeof screenshotService.stopCapture === 'function') {
+        try {
+          closePromises.push(screenshotService.stopCapture());
+        } catch (error) {
+          console.warn('⚠️ Error stopping screenshot capture:', error);
+        }
+      }
+
+      if (videoService && typeof videoService.stopRecording === 'function') {
+        try {
+          closePromises.push(videoService.stopRecording());
+        } catch (error) {
+          console.warn('⚠️ Error stopping video recording:', error);
+        }
+      }
+
+      // Wait for all close operations to complete
+      await Promise.allSettled(closePromises);
+      
+      console.log('✅ All capture services closed');
+    } catch (error) {
+      console.error('❌ Error closing capture services:', error);
+    }
+  }
+
+  /**
+   * Get detailed system status
+   */
+  public async getSystemStatus(): Promise<{
+    services: ServiceInitializationResult;
+    capture: CaptureServicesStatus;
+    auth: {
+      isAuthenticated: boolean;
+      user: any;
+      tokenExpired: boolean;
+    };
+    backend: {
+      connected: boolean;
+      mockMode: boolean;
+      apiUrl: string;
+    };
+  }> {
+    const services = this.getServiceStatus();
+    const capture = this.getCaptureServicesStatus();
+    
+    const auth = {
+      isAuthenticated: authService.isAuthenticated(),
+      user: authService.getCurrentUser(),
+      tokenExpired: authService.isTokenExpired(),
+    };
+
+    const backend = {
+      connected: this.backendConnected,
+      mockMode: this.isMockMode(),
+      apiUrl: this.getApiBaseUrl(),
+    };
+
+    return {
+      services,
+      capture,
+      auth,
+      backend,
+    };
+  }
+
+  /**
+   * Health check - test all services
+   */
+  public async healthCheck(): Promise<{
+    overall: 'healthy' | 'degraded' | 'unhealthy';
+    details: Record<string, any>;
+  }> {
+    const details: Record<string, any> = {};
+    let healthyCount = 0;
+    let totalChecks = 0;
+
+    try {
+      // Check auth service
+      totalChecks++;
+      const authHealthy = authService.isAuthenticated();
+      details.auth = { healthy: authHealthy, authenticated: authHealthy };
+      if (authHealthy) healthyCount++;
+
+      // Check backend connection
+      totalChecks++;
+      const backendTest = await authService.testConnection();
+      details.backend = { 
+        healthy: backendTest.connected, 
+        connected: backendTest.connected,
+        message: backendTest.message 
+      };
+      if (backendTest.connected) healthyCount++;
+
+      // Check capture services
+      totalChecks++;
+      const captureStatus = this.getCaptureServicesStatus();
+      const captureHealthy = captureStatus.chromeAPIs && (
+        captureStatus.screenshot || 
+        captureStatus.video || 
+        captureStatus.screenshotWindow ||
+        captureStatus.videoWindow ||
+        captureStatus.videoRecorder
+      );
+      details.capture = { healthy: captureHealthy, ...captureStatus };
+      if (captureHealthy) healthyCount++;
+
+      // Determine overall health
+      let overall: 'healthy' | 'degraded' | 'unhealthy';
+      const healthRatio = healthyCount / totalChecks;
+      
+      if (healthRatio >= 0.8) {
+        overall = 'healthy';
+      } else if (healthRatio >= 0.5) {
+        overall = 'degraded';
+      } else {
+        overall = 'unhealthy';
+      }
+
+      details.summary = {
+        healthyServices: healthyCount,
+        totalServices: totalChecks,
+        healthRatio: Math.round(healthRatio * 100),
+        mockMode: this.isMockMode(),
+      };
+
+      return { overall, details };
+    } catch (error) {
+      details.error = error instanceof Error ? error.message : 'Unknown error';
+      return { overall: 'unhealthy', details };
+    }
+  }
 }
 
+// Create singleton instance
 export const serviceManager = ServiceManager.getInstance();

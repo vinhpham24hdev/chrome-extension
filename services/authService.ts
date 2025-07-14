@@ -1,5 +1,5 @@
-// services/authService.ts - Real Authentication Service
-import { User, LoginRequest, LoginResponse, LogoutResponse, LoginCredentials } from '../types/auth';
+// services/authService.ts - Fixed Authentication Service
+import { User, LoginRequest, LoginResponse, LogoutResponse } from '../types/auth';
 
 interface AuthState {
   isLoggedIn: boolean;
@@ -12,9 +12,16 @@ interface ConnectionTestResult {
   connected: boolean;
   message?: string;
   status?: number;
+  error?: string;
 }
 
-const MOCK_USER = {
+interface AuthenticatedResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
+
+const MOCK_USER: User = {
   id: "demo-user-001",
   username: "demo",
   email: "demo.user@cellebrite.com",
@@ -29,44 +36,66 @@ class AuthService {
   private apiBaseUrl: string;
   private currentToken: string | null = null;
   private currentUser: User | null = null;
-  private authToken: string | null = null;
   private isLoggedIn: boolean = false;
+  private isInitialized: boolean = false;
 
-  // Constructor initializes API base URL and loads auth state from storage
   constructor() {
     this.apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
-    this.loadFromStorage();
+  }
+
+  // Initialize auth service
+  public async initializeAuth(): Promise<void> {
+    if (this.isInitialized) {
+      return;
+    }
+
+    try {
+      await this.loadFromStorage();
+      this.isInitialized = true;
+      console.log('✅ Auth service initialized');
+    } catch (error) {
+      console.error('❌ Auth service initialization failed:', error);
+      throw error;
+    }
   }
 
   // Load auth state from storage
   private async loadFromStorage(): Promise<void> {
     try {
+      let authState: AuthState | null = null;
+
       // Try Chrome storage first
       if (typeof chrome !== 'undefined' && chrome.storage) {
-        const result = await chrome.storage.local.get(['authState']);
-        if (result.authState) {
-          const authState: AuthState = result.authState;
-          if (authState.isLoggedIn && authState.token && authState.currentUser) {
-            this.currentToken = authState.token;
-            this.currentUser = authState.currentUser;
+        try {
+          const result = await chrome.storage.local.get(['authState']);
+          if (result.authState) {
+            authState = result.authState;
             console.log('✅ Auth state loaded from Chrome storage');
-            return;
           }
+        } catch (error) {
+          console.warn('⚠️ Chrome storage failed, trying localStorage:', error);
         }
       }
 
       // Fallback to localStorage
-      const storedState = localStorage.getItem('authState');
-      if (storedState) {
-        const authState: AuthState = JSON.parse(storedState);
-        if (authState.isLoggedIn && authState.token && authState.currentUser) {
-          this.currentToken = authState.token;
-          this.currentUser = authState.currentUser;
+      if (!authState) {
+        const storedState = localStorage.getItem('authState');
+        if (storedState) {
+          authState = JSON.parse(storedState);
           console.log('✅ Auth state loaded from localStorage');
         }
       }
+
+      // Apply loaded state
+      if (authState && authState.isLoggedIn && authState.token && authState.currentUser) {
+        this.currentToken = authState.token;
+        this.currentUser = authState.currentUser;
+        this.isLoggedIn = true;
+        console.log('🔐 User session restored:', authState.currentUser.username);
+      }
     } catch (error) {
       console.warn('⚠️ Failed to load auth state:', error);
+      // Don't throw, just continue without restored state
     }
   }
 
@@ -75,11 +104,15 @@ class AuthService {
     try {
       // Save to Chrome storage
       if (typeof chrome !== 'undefined' && chrome.storage) {
-        await chrome.storage.local.set({ authState });
-        console.log('✅ Auth state saved to Chrome storage');
+        try {
+          await chrome.storage.local.set({ authState });
+          console.log('✅ Auth state saved to Chrome storage');
+        } catch (error) {
+          console.warn('⚠️ Chrome storage save failed:', error);
+        }
       }
 
-      // Also save to localStorage as backup
+      // Always save to localStorage as backup
       localStorage.setItem('authState', JSON.stringify(authState));
       console.log('✅ Auth state saved to localStorage');
     } catch (error) {
@@ -92,8 +125,12 @@ class AuthService {
     try {
       // Clear Chrome storage
       if (typeof chrome !== 'undefined' && chrome.storage) {
-        await chrome.storage.local.remove(['authState']);
-        console.log('✅ Auth state cleared from Chrome storage');
+        try {
+          await chrome.storage.local.remove(['authState']);
+          console.log('✅ Auth state cleared from Chrome storage');
+        } catch (error) {
+          console.warn('⚠️ Chrome storage clear failed:', error);
+        }
       }
 
       // Clear localStorage
@@ -131,57 +168,76 @@ class AuthService {
     return response;
   }
 
+  // Authenticated API request helper
+  public async authenticatedRequest(endpoint: string, options: RequestInit = {}): Promise<AuthenticatedResponse> {
+    try {
+      if (!this.isAuthenticated()) {
+        return {
+          success: false,
+          error: 'Not authenticated'
+        };
+      }
+
+      const response = await this.apiRequest(endpoint, options);
+      
+      if (response.ok) {
+        let data;
+        try {
+          data = await response.json();
+        } catch {
+          data = null; // Response might not have JSON body
+        }
+        return { success: true, data };
+      } else {
+        const error = await response.json().catch(() => ({ error: 'Request failed' }));
+        return { 
+          success: false, 
+          error: error.error || `HTTP ${response.status}: ${response.statusText}` 
+        };
+      }
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Network error' 
+      };
+    }
+  }
+
   // Clear current auth state
   private async clearAuthState(): Promise<void> {
     this.currentToken = null;
     this.currentUser = null;
+    this.isLoggedIn = false;
     await this.clearStorage();
   }
 
+  // Save current auth state
   private async saveAuthState(): Promise<void> {
-    try {
-      const authData = {
-        isLoggedIn: this.isLoggedIn,
-        currentUser: this.currentUser,
-        authToken: this.authToken,
-        timestamp: Date.now(),
-      };
+    const authState: AuthState = {
+      isLoggedIn: this.isLoggedIn,
+      currentUser: this.currentUser,
+      token: this.currentToken,
+      timestamp: Date.now(),
+    };
 
-      // Use Chrome extension storage API
-      if (typeof chrome !== "undefined" && chrome.storage) {
-        await chrome.storage.local.set({ authState: authData });
-      } else {
-        // Fallback to localStorage in development
-        localStorage.setItem("authState", JSON.stringify(authData));
-      }
-
-      console.log("💾 Auth state saved");
-    } catch (error) {
-      console.error("Failed to save auth state:", error);
-    }
+    await this.saveToStorage(authState);
   }
 
-   private async performMockLogin(credentials: LoginCredentials): Promise<LoginResponse> {
+  // Perform mock login
+  private async performMockLogin(credentials: LoginRequest): Promise<LoginResponse> {
     // Simulate network delay
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Check mock credentials
     if (
-      (credentials.username === "demo" || credentials.username === "demo") &&
+      (credentials.username === "demo" || credentials.username === "admin") &&
       credentials.password === "password"
     ) {
       const mockToken = `mock_token_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      const authData = {
-        isLoggedIn: true,
-        currentUser: MOCK_USER,
-        authToken: mockToken,
-        timestamp: Date.now(),
-      };
-
       // Set instance state
       this.currentUser = MOCK_USER;
-      this.authToken = mockToken;
+      this.currentToken = mockToken;
       this.isLoggedIn = true;
 
       // Save to storage
@@ -193,12 +249,13 @@ class AuthService {
         success: true,
         token: mockToken,
         user: MOCK_USER,
+        expiresIn: '24h'
       };
     }
 
     return {
       success: false,
-      error: "Invalid credentials. Use demo / password or demo / password",
+      error: "Invalid credentials. Use demo/password or admin/password",
     };
   }
 
@@ -206,11 +263,18 @@ class AuthService {
   public async login(credentials: LoginRequest): Promise<LoginResponse> {
     try {
       console.log('🔐 Attempting login for:', credentials.username);
+      
+      // Ensure auth service is initialized
+      if (!this.isInitialized) {
+        await this.initializeAuth();
+      }
+
       const enableMockMode = import.meta.env.VITE_ENABLE_MOCK_MODE === 'true';
       
       if (enableMockMode) {
         return this.performMockLogin(credentials);
       }
+
       const response = await this.apiRequest('/auth/login', {
         method: 'POST',
         body: JSON.stringify(credentials),
@@ -231,15 +295,9 @@ class AuthService {
         // Store auth state
         this.currentToken = result.token;
         this.currentUser = result.user;
+        this.isLoggedIn = true;
 
-        const authState: AuthState = {
-          isLoggedIn: true,
-          currentUser: result.user,
-          token: result.token,
-          timestamp: Date.now(),
-        };
-
-        await this.saveToStorage(authState);
+        await this.saveAuthState();
 
         console.log('✅ Login successful:', {
           username: result.user.username,
@@ -269,19 +327,21 @@ class AuthService {
     try {
       console.log('🔓 Logging out user');
 
-      // Call backend logout endpoint
-      try {
-        const response = await this.apiRequest('/auth/logout', {
-          method: 'POST',
-        });
+      // Call backend logout endpoint if we have a token
+      if (this.currentToken) {
+        try {
+          const response = await this.apiRequest('/auth/logout', {
+            method: 'POST',
+          });
 
-        if (!response.ok) {
-          console.warn('⚠️ Backend logout failed, but continuing with local logout');
-        } else {
-          console.log('✅ Backend logout successful');
+          if (!response.ok) {
+            console.warn('⚠️ Backend logout failed, but continuing with local logout');
+          } else {
+            console.log('✅ Backend logout successful');
+          }
+        } catch (error) {
+          console.warn('⚠️ Backend logout error, but continuing with local logout:', error);
         }
-      } catch (error) {
-        console.warn('⚠️ Backend logout error, but continuing with local logout:', error);
       }
 
       // Clear local auth state
@@ -318,7 +378,7 @@ class AuthService {
 
   // Check if user is authenticated
   public isAuthenticated(): boolean {
-    return !!(this.currentToken && this.currentUser);
+    return this.isLoggedIn && !!(this.currentToken && this.currentUser);
   }
 
   // Get current user from API (refresh user data)
@@ -347,13 +407,7 @@ class AuthService {
       this.currentUser = user;
       
       // Update storage
-      const authState: AuthState = {
-        isLoggedIn: true,
-        currentUser: user,
-        token: this.currentToken,
-        timestamp: Date.now(),
-      };
-      await this.saveToStorage(authState);
+      await this.saveAuthState();
 
       console.log('✅ User data refreshed:', user.username);
       return user;
@@ -386,15 +440,9 @@ class AuthService {
       
       if (result.success && result.token) {
         this.currentToken = result.token;
+        this.isLoggedIn = true;
         
-        // Update storage
-        const authState: AuthState = {
-          isLoggedIn: true,
-          currentUser: this.currentUser!,
-          token: result.token,
-          timestamp: Date.now(),
-        };
-        await this.saveToStorage(authState);
+        await this.saveAuthState();
 
         console.log('✅ Token refreshed successfully');
         return true;
@@ -449,9 +497,19 @@ class AuthService {
     } catch (error) {
       console.error('❌ Backend connection failed:', error);
       
+      let errorMessage = 'Connection failed';
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMessage = 'Connection timeout';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       return {
         connected: false,
-        message: error instanceof Error ? error.message : 'Connection failed',
+        message: errorMessage,
+        error: errorMessage,
       };
     }
   }
