@@ -123,12 +123,12 @@ class S3Service {
     fileSize?: number
   ): Promise<PresignedUrlResponse> {
     console.log("🔗 Getting presigned URL from backend...");
-
+    
     const response = await this.apiRequest("/upload/presigned-url", {
       method: "POST",
       body: JSON.stringify({
         fileName,
-        fileType,
+        fileType: fileType || fileName.split('.').pop() || "application/octet-stream",
         caseId,
         captureType,
         fileSize,
