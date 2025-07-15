@@ -1,5 +1,4 @@
-// services/screenshotService.ts - Original Code + Real S3 Integration
-
+// services/screenshotService.ts
 // Declare global interface for temporary scroll position storage
 declare global {
   interface Window {
@@ -21,6 +20,12 @@ export interface ScreenshotResult {
   blob?: Blob;
   sourceUrl?: string;
   error?: string;
+  metadata?: {
+    captureType: string;
+    timestamp: string;
+    pageTitle?: string;
+    viewportSize?: { width: number; height: number };
+  };
 }
 
 class ScreenshotService {
@@ -46,18 +51,22 @@ class ScreenshotService {
   }
 
   /**
-   * Get current tab URL safely
+   * ✅ ENHANCED: Get current tab URL and metadata safely
    */
-  private async getCurrentTabUrl(): Promise<string | null> {
+  private async getCurrentTabInfo(): Promise<{
+    url: string | null;
+    title: string | null;
+    isRestricted: boolean;
+  }> {
     try {
       if (typeof chrome === 'undefined' || !chrome.tabs) {
-        return null;
+        return { url: null, title: null, isRestricted: false };
       }
 
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
       if (!tab?.url) {
-        return null;
+        return { url: null, title: null, isRestricted: false };
       }
 
       // Filter out restricted URLs
@@ -75,12 +84,46 @@ class ScreenshotService {
       
       if (isRestricted) {
         console.log('Current tab URL is restricted, not capturing URL');
+        return { url: null, title: null, isRestricted: true };
+      }
+
+      return { 
+        url: tab.url, 
+        title: tab.title || null, 
+        isRestricted: false 
+      };
+    } catch (error) {
+      console.warn('Could not get current tab info:', error);
+      return { url: null, title: null, isRestricted: false };
+    }
+  }
+
+  /**
+   * ✅ NEW: Get viewport size from active tab
+   */
+  private async getViewportSize(): Promise<{ width: number; height: number } | null> {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.tabs) {
         return null;
       }
 
-      return tab.url;
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab?.id) {
+        return null;
+      }
+
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => ({
+          width: window.innerWidth,
+          height: window.innerHeight
+        })
+      });
+
+      return results[0]?.result || null;
     } catch (error) {
-      console.warn('Could not get current tab URL:', error);
+      console.warn('Could not get viewport size:', error);
       return null;
     }
   }
@@ -137,7 +180,8 @@ class ScreenshotService {
     try {
       console.log('📸 Starting VISIBLE AREA capture...');
 
-      const currentUrl = await this.getCurrentTabUrl();
+      const tabInfo = await this.getCurrentTabInfo();
+      const viewportSize = await this.getViewportSize();
       const permissionCheck = await this.checkTabPermissions();
       
       if (!permissionCheck.canCapture) {
@@ -152,8 +196,15 @@ class ScreenshotService {
       // Simple visible tab capture
       const result = await this.performVisibleCapture(tab, options);
       
-      if (result.success && currentUrl) {
-        result.sourceUrl = currentUrl;
+      if (result.success && tabInfo.url) {
+        result.sourceUrl = tabInfo.url;
+        // ✅ NEW: Add enhanced metadata
+        result.metadata = {
+          captureType: 'visible-area',
+          timestamp: new Date().toISOString(),
+          pageTitle: tabInfo.title || undefined,
+          viewportSize: viewportSize || undefined,
+        };
       }
 
       return result;
@@ -174,7 +225,8 @@ class ScreenshotService {
     try {
       console.log('📄 Starting ENHANCED FULL PAGE capture...');
 
-      const currentUrl = await this.getCurrentTabUrl();
+      const tabInfo = await this.getCurrentTabInfo();
+      const viewportSize = await this.getViewportSize();
       const permissionCheck = await this.checkTabPermissions();
       
       if (!permissionCheck.canCapture) {
@@ -189,8 +241,15 @@ class ScreenshotService {
       // Enhanced full page capture with better scrolling logic
       const result = await this.performEnhancedFullPageCapture(tab, options);
       
-      if (result.success && currentUrl) {
-        result.sourceUrl = currentUrl;
+      if (result.success && tabInfo.url) {
+        result.sourceUrl = tabInfo.url;
+        // ✅ NEW: Add enhanced metadata
+        result.metadata = {
+          captureType: 'full-page',
+          timestamp: new Date().toISOString(),
+          pageTitle: tabInfo.title || undefined,
+          viewportSize: viewportSize || undefined,
+        };
       }
 
       return result;
@@ -788,7 +847,13 @@ class ScreenshotService {
         dataUrl: croppedResult.dataUrl,
         filename,
         blob: croppedResult.blob,
-        sourceUrl: fullCapture.sourceUrl
+        sourceUrl: fullCapture.sourceUrl,
+        metadata: {
+          captureType: 'region',
+          timestamp: new Date().toISOString(),
+          pageTitle: fullCapture.metadata?.pageTitle,
+          viewportSize: fullCapture.metadata?.viewportSize,
+        }
       };
 
     } catch (error) {
@@ -861,9 +926,12 @@ class ScreenshotService {
   }
 
   /**
-   * 🔥 UPDATED: Save screenshot to storage with REAL S3 integration
+   * ✅ UPDATED: Save screenshot to storage with REAL S3 integration and enhanced metadata
    */
-  async saveToStorage(result: ScreenshotResult, caseId: string): Promise<boolean> {
+  async saveToStorage(result: ScreenshotResult, caseId: string, options?: {
+    description?: string;
+    customSourceUrl?: string;
+  }): Promise<boolean> {
     try {
       if (!result.success || !result.blob || !result.filename) {
         throw new Error('Invalid screenshot result for saving');
@@ -872,13 +940,14 @@ class ScreenshotService {
       console.log('💾 Saving screenshot to S3 via Backend API...', {
         filename: result.filename,
         size: result.blob.size,
-        caseId
+        caseId,
+        sourceUrl: options?.customSourceUrl || result.sourceUrl
       });
 
-      // 🔥 NEW: Import S3 service dynamically to avoid circular dependency
+      // ✅ NEW: Import S3 service dynamically to avoid circular dependency
       const { s3Service } = await import('./s3Service');
 
-      // 🔥 NEW: Upload to S3 via Backend API with real progress tracking
+      // ✅ UPDATED: Upload to S3 via Backend API with description and sourceUrl
       const uploadResult = await s3Service.uploadFile(
         result.blob,
         result.filename,
@@ -889,10 +958,14 @@ class ScreenshotService {
             console.log(`📤 Upload progress: ${progress.percentage}%`);
           },
           metadata: {
-            captureType: 'screenshot',
-            sourceUrl: result.sourceUrl,
+            captureType: result.metadata?.captureType || 'screenshot',
+            sourceUrl: options?.customSourceUrl || result.sourceUrl,
             timestamp: new Date().toISOString(),
-          }
+            pageTitle: result.metadata?.pageTitle,
+            viewportSize: result.metadata?.viewportSize,
+          },
+          description: options?.description,           // ✅ NEW: Pass description
+          sourceUrl: options?.customSourceUrl || result.sourceUrl  // ✅ NEW: Pass source URL
         }
       );
 
@@ -926,11 +999,7 @@ class ScreenshotService {
     }
   }
 
-  // 🔥 NEW: Additional methods for backend integration
-
-  /**
-   * Get screenshot history from backend
-   */
+  // Rest of existing methods remain the same...
   async getScreenshotHistory(caseId?: string): Promise<any[]> {
     try {
       if (!caseId) {
@@ -953,9 +1022,6 @@ class ScreenshotService {
     }
   }
 
-  /**
-   * Delete screenshot from backend and S3
-   */
   async deleteScreenshot(fileKey: string, caseId?: string): Promise<boolean> {
     try {
       console.log('🗑️ Deleting screenshot:', fileKey);
@@ -971,9 +1037,6 @@ class ScreenshotService {
     }
   }
 
-  /**
-   * Get screenshot statistics from backend
-   */
   async getScreenshotStats(caseId?: string): Promise<any> {
     try {
       const { s3Service } = await import('./s3Service');
@@ -1003,9 +1066,6 @@ class ScreenshotService {
     }
   }
 
-  /**
-   * Copy screenshot to clipboard
-   */
   async copyToClipboard(dataUrl: string): Promise<boolean> {
     try {
       console.log('📋 Copying screenshot to clipboard...');

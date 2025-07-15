@@ -24,6 +24,8 @@ export interface UploadOptions {
   tags?: string[];
   metadata?: Record<string, any>;
   timeout?: number;
+  description?: string;
+  sourceUrl?: string;
 }
 
 export interface PresignedUrlResponse {
@@ -40,6 +42,8 @@ export interface PresignedUrlResponse {
     caseId: string;
     captureType: string;
     userId: string;
+    description?: string;    // ✅ NEW
+    sourceUrl?: string;      // ✅ NEW
   };
 }
 
@@ -120,7 +124,9 @@ class S3Service {
     fileType: string,
     caseId: string,
     captureType: "screenshot" | "video",
-    fileSize?: number
+    fileSize?: number,
+    description?: string,
+    sourceUrl?: string   
   ): Promise<PresignedUrlResponse> {
     console.log("🔗 Getting presigned URL from backend...");
     
@@ -133,6 +139,8 @@ class S3Service {
         captureType,
         fileSize,
         uploadMethod: "PUT",
+        description,    // ✅ NEW
+        sourceUrl,      // ✅ NEW
       }),
     });
 
@@ -141,17 +149,21 @@ class S3Service {
       key: result.key,
       expiresIn: result.expiresIn,
       method: result.method,
+      description,
+      sourceUrl,
     });
 
     return result;
   }
 
-  // Confirm upload completion to backend
+  // ✅ UPDATED: Confirm upload completion to backend with description and sourceUrl
   private async confirmUpload(
     fileId: string,
     fileKey: string,
     actualFileSize: number,
-    checksum?: string
+    checksum?: string,
+    description?: string,    // ✅ NEW
+    sourceUrl?: string       // ✅ NEW
   ): Promise<void> {
     console.log("✅ Confirming upload with backend...");
 
@@ -163,6 +175,8 @@ class S3Service {
         actualFileSize,
         checksum,
         uploadMethod: "PUT",
+        description,    // ✅ NEW
+        sourceUrl,      // ✅ NEW
       }),
     });
 
@@ -170,17 +184,7 @@ class S3Service {
   }
 
   /**
-   * Upload a file to S3 via presigned URL
-   *
-   * Assumes:
-   * 1. this.getPresignedUrl(...) returns {
-   *      uploadUrl: string;   // presigned PUT URL
-   *      fileUrl:  string;    // public / presigned GET url (optional)
-   *      key:      string;    // object key in S3
-   *      fileId:   string;    // internal DB id
-   *      headers?: Record<string, string>; // extra headers that were part of the signature
-   *    }
-   * 2. this.confirmUpload(...) notifies your backend after upload succeeds
+   * ✅ UPDATED: Upload a file to S3 via presigned URL with description and sourceUrl
    */
   public async uploadFile(
     file: Blob,
@@ -194,13 +198,15 @@ class S3Service {
     let lastLoaded = 0;
 
     try {
-      // ──────────────── 1. Presigned URL ────────────────
+      // ──────────────── 1. Presigned URL with metadata ────────────────
       const presigned = await this.getPresignedUrl(
         fileName,
         file.type,
         caseId,
         captureType,
-        file.size
+        file.size,
+        options.description,  // ✅ NEW
+        options.sourceUrl     // ✅ NEW
       );
 
       // ──────────────── 2. Upload via XHR PUT ────────────────
@@ -238,10 +244,14 @@ class S3Service {
           }
 
           try {
+            // ✅ UPDATED: Confirm upload with metadata
             await this.confirmUpload(
               presigned.fileId,
               presigned.key,
-              file.size
+              file.size,
+              undefined, // checksum
+              options.description,  // ✅ NEW
+              options.sourceUrl     // ✅ NEW
             );
 
             const uploadTime = Date.now() - start;
@@ -305,6 +315,112 @@ class S3Service {
     }
   }
 
+  // ✅ NEW: Update file metadata (description and source URL)
+  public async updateFileMetadata(
+    fileKey: string,
+    metadata: {
+      description?: string;
+      sourceUrl?: string;
+    }
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log("🔄 Updating file metadata:", fileKey);
+
+      await this.apiRequest(`/upload/file/${encodeURIComponent(fileKey)}/metadata`, {
+        method: "PATCH",
+        body: JSON.stringify(metadata),
+      });
+
+      console.log("✅ File metadata updated successfully");
+      return { success: true };
+    } catch (error) {
+      console.error("❌ Failed to update file metadata:", error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : "Update failed" 
+      };
+    }
+  }
+
+  // ✅ NEW: Search files across all cases
+  public async searchFiles(
+    query: string,
+    options: {
+      captureType?: "screenshot" | "video";
+      caseId?: string;
+      page?: number;
+      limit?: number;
+    } = {}
+  ): Promise<{
+    results: any[];
+    pagination: any;
+    summary: any;
+  }> {
+    try {
+      console.log("🔍 Searching files:", query);
+
+      const params = new URLSearchParams({
+        query,
+        ...Object.fromEntries(
+          Object.entries(options).map(([k, v]) => [k, String(v)])
+        ),
+      });
+
+      const response = await this.apiRequest(`/upload/search?${params}`);
+      const result = await response.json();
+
+      console.log("✅ Search completed:", {
+        totalMatches: result.summary.totalMatches,
+        screenshots: result.summary.screenshots,
+        videos: result.summary.videos,
+      });
+
+      return result;
+    } catch (error) {
+      console.error("❌ Failed to search files:", error);
+      throw error;
+    }
+  }
+
+  // ✅ NEW: Get files by source URL
+  public async getFilesBySourceUrl(
+    sourceUrl: string,
+    options: {
+      caseId?: string;
+      page?: number;
+      limit?: number;
+    } = {}
+  ): Promise<{
+    files: any[];
+    pagination: any;
+    summary: any;
+  }> {
+    try {
+      console.log("🌐 Getting files by source URL:", sourceUrl);
+
+      const params = new URLSearchParams(
+        Object.fromEntries(
+          Object.entries(options).map(([k, v]) => [k, String(v)])
+        )
+      );
+
+      const encodedUrl = encodeURIComponent(sourceUrl);
+      const response = await this.apiRequest(
+        `/upload/source-url/${encodedUrl}?${params}`
+      );
+      const result = await response.json();
+
+      console.log("✅ Files by URL retrieved:", {
+        totalFiles: result.summary.totalFiles,
+        uniqueCases: result.summary.uniqueCases,
+      });
+
+      return result;
+    } catch (error) {
+      console.error("❌ Failed to get files by source URL:", error);
+      throw error;
+    }
+  }
   // Delete file from S3
   public async deleteFile(fileKey: string, caseId?: string): Promise<boolean> {
     try {
@@ -366,6 +482,7 @@ class S3Service {
       limit?: number;
       sortBy?: "name" | "size" | "date";
       sortOrder?: "asc" | "desc";
+      search?: string;
     } = {}
   ): Promise<{
     files: any[];
@@ -391,6 +508,8 @@ class S3Service {
         totalFiles: result.summary.totalFiles,
         screenshots: result.summary.screenshots,
         videos: result.summary.videos,
+        filesWithDescription: result.summary.filesWithDescription,      // ✅ NEW
+        filesWithSourceUrl: result.summary.filesWithSourceUrl,          // ✅ NEW
       });
 
       return result;
@@ -429,7 +548,6 @@ class S3Service {
     }
   }
 
-  // Check connection to backend
   public async checkConnection(): Promise<boolean> {
     try {
       const response = await fetch(`${this.apiBaseUrl}/health`);
@@ -440,7 +558,6 @@ class S3Service {
     }
   }
 
-  // Get storage costs estimation
   public async getStorageCosts(caseId?: string): Promise<any> {
     try {
       console.log("💰 Getting storage costs");

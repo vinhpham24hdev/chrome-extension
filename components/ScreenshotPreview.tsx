@@ -1,4 +1,4 @@
-// components/ScreenshotPreview.tsx - Enhanced with better full page handling
+// components/ScreenshotPreview.tsx - Enhanced with better full page handling and description/sourceUrl
 import React, { useState, useEffect, useRef } from "react";
 import { isEmpty } from "lodash";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
@@ -14,6 +14,11 @@ export interface ScreenshotData {
   sourceUrl?: string;
   region?: string;
   captureInfo?: string;
+  metadata?: {
+    captureType?: string;
+    pageTitle?: string;
+    viewportSize?: { width: number; height: number };
+  };
 }
 
 interface ScreenshotPreviewProps {
@@ -35,7 +40,7 @@ export default function ScreenshotPreview({
 }: ScreenshotPreviewProps) {
   const [formData, setFormData] = useState({
     name: screenshot.filename.replace(/\.[^/.]+$/, ""),
-    description: "",
+    description: "", 
     url: screenshot.sourceUrl || "",
     selectedCase: screenshot.caseId,
   });
@@ -52,7 +57,7 @@ export default function ScreenshotPreview({
     error: null,
   });
 
-  // 🔥 NEW: Real cases from backend instead of mock data
+  // Real cases from backend
   const [cases, setCases] = useState<CaseItem[]>([]);
   const [loadingCases, setLoadingCases] = useState(true);
   const [casesError, setCasesError] = useState<string | null>(null);
@@ -68,7 +73,14 @@ export default function ScreenshotPreview({
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 🔥 NEW: Load real cases from backend on component mount
+  const [showUrlSuggestions, setShowUrlSuggestions] = useState(false);
+  const [urlSuggestions, setUrlSuggestions] = useState<string[]>([]);
+  const [showDescriptionSuggestions, setShowDescriptionSuggestions] =
+    useState(false);
+  const [descriptionSuggestions, setDescriptionSuggestions] = useState<
+    string[]
+  >([]);
+
   useEffect(() => {
     loadCasesFromBackend();
   }, []);
@@ -80,7 +92,7 @@ export default function ScreenshotPreview({
       console.log("📁 Loading cases from backend for screenshot preview...");
 
       const fetchedCases = await caseService.getCases({
-        limit: 100, // Load more cases for selection
+        limit: 100,
         page: 1,
       });
 
@@ -90,7 +102,6 @@ export default function ScreenshotPreview({
         fetchedCases.length
       );
 
-      // If current selected case is not in the list, select first available
       if (
         fetchedCases.length > 0 &&
         !fetchedCases.find((c) => c.id === formData.selectedCase)
@@ -125,69 +136,89 @@ export default function ScreenshotPreview({
     }
   };
 
-  // Enhanced URL detection
+  // ✅ ENHANCED: URL detection with better fallbacks and page title
   useEffect(() => {
-    const detectCurrentPageUrl = async () => {
+    const detectCurrentPageInfo = async () => {
       try {
-        if (screenshot.sourceUrl) {
-          setFormData((prev) => ({ ...prev, url: screenshot.sourceUrl! }));
-          return;
-        }
+        let detectedUrl = screenshot.sourceUrl;
+        let pageTitle = screenshot.metadata?.pageTitle;
 
-        if (typeof chrome !== "undefined" && chrome.tabs) {
-          try {
-            const tabs = await chrome.tabs.query({
-              active: true,
-              currentWindow: true,
-            });
-            if (tabs[0]?.url) {
-              const currentUrl = tabs[0].url;
-
-              if (!isRestrictedUrl(currentUrl)) {
-                setFormData((prev) => ({ ...prev, url: currentUrl }));
-                return;
+        // If no sourceUrl from screenshot, try to detect from various sources
+        if (!detectedUrl) {
+          // Try Chrome tabs API
+          if (typeof chrome !== "undefined" && chrome.tabs) {
+            try {
+              const tabs = await chrome.tabs.query({
+                active: true,
+                currentWindow: true,
+              });
+              if (tabs[0]?.url && !isRestrictedUrl(tabs[0].url)) {
+                detectedUrl = tabs[0].url;
+                pageTitle = tabs[0].title || pageTitle;
               }
+            } catch (error) {
+              console.warn("Could not get tab URL:", error);
             }
-          } catch (error) {
-            console.warn("Could not get tab URL:", error);
+          }
+
+          // Fallback to window location
+          if (
+            !detectedUrl &&
+            typeof window !== "undefined" &&
+            window.location
+          ) {
+            try {
+              const windowUrl = window.location.href;
+              if (!isRestrictedUrl(windowUrl)) {
+                detectedUrl = windowUrl;
+                pageTitle = document.title || pageTitle;
+              }
+            } catch (error) {
+              console.warn("Could not get window location:", error);
+            }
+          }
+
+          // Try opener window
+          if (!detectedUrl) {
+            try {
+              if (window.opener && !window.opener.closed) {
+                const openerUrl = window.opener.location.href;
+                if (!isRestrictedUrl(openerUrl)) {
+                  detectedUrl = openerUrl;
+                  pageTitle = window.opener.document.title || pageTitle;
+                }
+              }
+            } catch (error) {
+              console.debug("Cross-origin opener access blocked (expected)");
+            }
+          }
+
+          // Use referrer as last resort
+          if (
+            !detectedUrl &&
+            document.referrer &&
+            !isRestrictedUrl(document.referrer)
+          ) {
+            detectedUrl = document.referrer;
           }
         }
 
-        if (typeof window !== "undefined" && window.location) {
-          try {
-            const windowUrl = window.location.href;
-            if (!isRestrictedUrl(windowUrl)) {
-              setFormData((prev) => ({ ...prev, url: windowUrl }));
-              return;
-            }
-          } catch (error) {
-            console.warn("Could not get window location:", error);
-          }
-        }
+        // Update form data
+        setFormData((prev) => ({
+          ...prev,
+          url: detectedUrl || "https://cellebrite.com",
+          name: pageTitle
+            ? `${pageTitle.substring(0, 30)}${
+                pageTitle.length > 30 ? "..." : ""
+              } - ${prev.name}`
+            : prev.name,
+        }));
 
-        try {
-          if (window.opener && !window.opener.closed) {
-            const openerUrl = window.opener.location.href;
-            if (!isRestrictedUrl(openerUrl)) {
-              setFormData((prev) => ({ ...prev, url: openerUrl }));
-              return;
-            }
-          }
-        } catch (error) {
-          console.debug("Cross-origin opener access blocked (expected)");
-        }
-
-        if (document.referrer && !isRestrictedUrl(document.referrer)) {
-          setFormData((prev) => ({ ...prev, url: document.referrer }));
-          return;
-        }
-
-        const fallbackUrl = generateFallbackUrl(screenshot);
-        if (fallbackUrl) {
-          setFormData((prev) => ({ ...prev, url: fallbackUrl }));
+        if (detectedUrl) {
+          loadUrlSuggestions(detectedUrl);
         }
       } catch (error) {
-        console.error("Error detecting page URL:", error);
+        console.error("Error detecting page info:", error);
         setFormData((prev) => ({
           ...prev,
           url: "https://example.com",
@@ -195,8 +226,54 @@ export default function ScreenshotPreview({
       }
     };
 
-    detectCurrentPageUrl();
+    detectCurrentPageInfo();
   }, [screenshot]);
+
+  const loadUrlSuggestions = async (currentUrl: string) => {
+    try {
+      const domain = new URL(currentUrl).hostname;
+      const { s3Service } = await import("../services/s3Service");
+
+      const searchResults = await s3Service.searchFiles(domain, {
+        limit: 5,
+      });
+
+      const suggestions = searchResults.results
+        .map((file) => file.sourceUrl)
+        .filter((url: string) => url && url !== currentUrl)
+        .slice(0, 3);
+
+      setUrlSuggestions(suggestions);
+    } catch (error) {
+      console.warn("Failed to load URL suggestions:", error);
+    }
+  };
+
+  const loadDescriptionSuggestions = async (query: string) => {
+    if (query.length < 3) return;
+
+    try {
+      const { s3Service } = await import("../services/s3Service");
+
+      const searchResults = await s3Service.searchFiles(query, {
+        captureType: "screenshot",
+        limit: 5,
+      });
+
+      const suggestions = searchResults.results
+        .map((file) => file.description)
+        .filter(
+          (desc: string) =>
+            desc && desc.toLowerCase().includes(query.toLowerCase())
+        )
+        .slice(0, 3);
+
+      setDescriptionSuggestions(suggestions);
+      setShowDescriptionSuggestions(suggestions.length > 0);
+    } catch (error) {
+      console.warn("Failed to load description suggestions:", error);
+    }
+  };
 
   // Detect image dimensions and type
   useEffect(() => {
@@ -211,7 +288,8 @@ export default function ScreenshotPreview({
       const isVeryTall = aspectRatio > 3; // More than 3:1 ratio suggests full page
       const isFullPageType =
         screenshot.type?.includes("full") ||
-        screenshot.filename?.includes("fullpage");
+        screenshot.filename?.includes("fullpage") ||
+        screenshot.metadata?.captureType === "full-page";
 
       setIsFullPage(isVeryTall || isFullPageType);
 
@@ -240,20 +318,6 @@ export default function ScreenshotPreview({
     ];
 
     return restrictedPatterns.some((pattern) => pattern.test(url));
-  };
-
-  const generateFallbackUrl = (screenshot: ScreenshotData): string | null => {
-    const filename = screenshot.filename;
-    const domainMatch = filename.match(/(\w+\.\w+)/);
-    if (domainMatch) {
-      return `https://${domainMatch[1]}`;
-    }
-
-    if (screenshot.type?.includes("tab")) {
-      return "https://www.example.com";
-    }
-
-    return null;
   };
 
   // Generate unique snapshot ID
@@ -296,12 +360,12 @@ export default function ScreenshotPreview({
       if (!blob) {
         return alert("Failed to get screenshot blob");
       }
+
       console.log("📸 Preparing to upload screenshot...", blob, screenshot);
       const isCustomerTestMode =
         import.meta.env.VITE_CUSTOMER_TEST_MODE === "true";
       const customerBucket = import.meta.env.VITE_CUSTOMER_S3_BUCKET || "";
 
-      // 🔥 NEW: Check upload destination
       if (isCustomerTestMode) {
         console.log("🧪 Using customer bucket for upload...", {
           bucket: customerBucket,
@@ -310,7 +374,6 @@ export default function ScreenshotPreview({
           size: blob.size,
         });
 
-        // Import customer S3 service
         const { customerS3Service } = await import(
           "../services/customerS3Service"
         );
@@ -325,10 +388,7 @@ export default function ScreenshotPreview({
               console.log(
                 `📤 Customer upload progress: ${progress.percentage}%`
               );
-              setUploadState((prev) => ({
-                ...prev,
-                progress,
-              }));
+              setUploadState((prev) => ({ ...prev, progress }));
             },
             onSuccess: (result) => {
               console.log("✅ Customer upload successful:", result);
@@ -356,7 +416,12 @@ export default function ScreenshotPreview({
               imageDimensions: imageDimensions,
               isFullPage: isFullPage,
               testMode: "customer-bucket",
+              pageTitle: screenshot.metadata?.pageTitle,
+              viewportSize: screenshot.metadata?.viewportSize,
             },
+            // ✅ NEW: Pass description and sourceUrl to upload
+            description: formData.description.trim() || undefined,
+            sourceUrl: formData.url.trim() || undefined,
           }
         );
 
@@ -364,8 +429,6 @@ export default function ScreenshotPreview({
           console.log(
             "🎉 Screenshot uploaded to customer bucket successfully!"
           );
-
-          // Show detailed success message for customer test
           alert(
             `✅ Customer Bucket Test Successful!\n\n` +
               `File: ${result.fileName}\n` +
@@ -374,8 +437,6 @@ export default function ScreenshotPreview({
               `Size: ${(result.fileSize! / 1024).toFixed(1)} KB\n` +
               `URL: ${result.fileUrl}`
           );
-
-          // Trigger success callback
           onSave();
         } else {
           throw new Error(result.error || "Customer bucket upload failed");
@@ -388,7 +449,7 @@ export default function ScreenshotPreview({
           screenshotType: screenshot.type,
         });
 
-        // 🔥 ORIGINAL: Backend S3 upload via API
+        // ✅ UPDATED: Backend S3 upload with description and sourceUrl
         const result = await s3Service.uploadFile(
           blob,
           screenshot.filename,
@@ -399,10 +460,7 @@ export default function ScreenshotPreview({
               console.log(
                 `📤 Backend upload progress: ${progress.percentage}%`
               );
-              setUploadState((prev) => ({
-                ...prev,
-                progress,
-              }));
+              setUploadState((prev) => ({ ...prev, progress }));
             },
             onSuccess: (result) => {
               console.log("✅ Backend upload successful:", result);
@@ -430,14 +488,18 @@ export default function ScreenshotPreview({
               caseName: formData.name,
               imageDimensions: imageDimensions,
               isFullPage: isFullPage,
+              pageTitle: screenshot.metadata?.pageTitle,
+              viewportSize: screenshot.metadata?.viewportSize,
             },
+            description: formData.description.trim() || undefined,
+            sourceUrl: formData.url.trim() || undefined,
           }
         );
 
         if (result.success) {
           console.log("🎉 Screenshot uploaded to backend S3 successfully!");
 
-          // 🔥 NEW: Update case metadata via real backend API
+          // Update case metadata via real backend API
           try {
             const caseData = await caseService.getCaseById(
               formData.selectedCase
@@ -453,7 +515,6 @@ export default function ScreenshotPreview({
             }
           } catch (metadataError) {
             console.error("❌ Failed to update case metadata:", metadataError);
-            // Don't fail the entire process if metadata update fails
           }
 
           // Show success message
@@ -464,7 +525,6 @@ export default function ScreenshotPreview({
             `Screenshot "${formData.name}" added to case "${selectedCaseName}" successfully!`
           );
 
-          // Trigger success callback
           onSave();
         } else {
           throw new Error(result.error || "Backend upload failed");
@@ -484,14 +544,26 @@ export default function ScreenshotPreview({
     setFormData((prev) => ({ ...prev, name: e.target.value }));
   };
 
+  // ✅ NEW: Enhanced description change with suggestions
   const handleDescriptionChange = (
     e: React.ChangeEvent<HTMLTextAreaElement>
   ) => {
-    setFormData((prev) => ({ ...prev, description: e.target.value }));
+    const value = e.target.value;
+    setFormData((prev) => ({ ...prev, description: value }));
+
+    // Load suggestions as user types
+    if (value.length >= 3) {
+      loadDescriptionSuggestions(value);
+    } else {
+      setShowDescriptionSuggestions(false);
+    }
   };
 
+  // ✅ NEW: Enhanced URL change with suggestions
   const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData((prev) => ({ ...prev, url: e.target.value }));
+    const value = e.target.value;
+    setFormData((prev) => ({ ...prev, url: value }));
+    setShowUrlSuggestions(false);
   };
 
   const handleCaseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -500,6 +572,17 @@ export default function ScreenshotPreview({
 
   const handleViewModeChange = (mode: "fit" | "actual" | "scroll") => {
     setViewMode(mode);
+  };
+
+  // ✅ NEW: Handle suggestion clicks
+  const handleUrlSuggestionClick = (url: string) => {
+    setFormData((prev) => ({ ...prev, url }));
+    setShowUrlSuggestions(false);
+  };
+
+  const handleDescriptionSuggestionClick = (description: string) => {
+    setFormData((prev) => ({ ...prev, description }));
+    setShowDescriptionSuggestions(false);
   };
 
   // Get image style based on view mode
@@ -552,7 +635,7 @@ export default function ScreenshotPreview({
     }
   };
 
-  // 🔥 NEW: Helper to get case status color
+  // Helper to get case status color
   const getCaseStatusColor = (status: string) => {
     switch (status) {
       case "active":
@@ -587,6 +670,13 @@ export default function ScreenshotPreview({
             {imageLoaded && (
               <span className="text-sm text-gray-500">
                 {imageDimensions.width} × {imageDimensions.height}px
+              </span>
+            )}
+
+            {/* ✅ NEW: Page Title Badge */}
+            {screenshot.metadata?.pageTitle && (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                📰 {screenshot.metadata.pageTitle.substring(0, 20)}...
               </span>
             )}
 
@@ -769,8 +859,8 @@ export default function ScreenshotPreview({
                 />
               </div>
 
-              {/* Description Field */}
-              <div>
+              {/* ✅ ENHANCED: Description Field with suggestions */}
+              <div className="relative">
                 <label
                   htmlFor="description"
                   className="block text-sm font-medium text-gray-700 mb-1"
@@ -783,13 +873,31 @@ export default function ScreenshotPreview({
                   onChange={handleDescriptionChange}
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter description"
                   disabled={uploadState.isUploading}
                 />
+
+                {/* Description Suggestions */}
+                {showDescriptionSuggestions &&
+                  descriptionSuggestions.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-32 overflow-y-auto">
+                      {descriptionSuggestions.map((suggestion, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          onClick={() =>
+                            handleDescriptionSuggestionClick(suggestion)
+                          }
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  )}
               </div>
 
-              {/* URL Field */}
-              <div>
+              {/* ✅ ENHANCED: URL Field with auto-detection and suggestions */}
+              <div className="relative">
                 <label
                   htmlFor="url"
                   className="block text-sm font-medium text-gray-700 mb-1"
@@ -797,7 +905,7 @@ export default function ScreenshotPreview({
                   Source URL
                   {formData.url && !isRestrictedUrl(formData.url) && (
                     <span className="ml-2 text-xs text-green-600">
-                      ✓ Detected
+                      ✓ Auto-detected
                     </span>
                   )}
                   {formData.url && isRestrictedUrl(formData.url) && (
@@ -811,10 +919,33 @@ export default function ScreenshotPreview({
                   id="url"
                   value={formData.url}
                   onChange={handleUrlChange}
+                  onFocus={() =>
+                    setShowUrlSuggestions(urlSuggestions.length > 0)
+                  }
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="https://example.com"
                   disabled={uploadState.isUploading}
                 />
+
+                {/* URL Suggestions */}
+                {showUrlSuggestions && urlSuggestions.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-32 overflow-y-auto">
+                    <div className="px-3 py-2 text-xs text-gray-500 border-b">
+                      Similar URLs from this domain:
+                    </div>
+                    {urlSuggestions.map((suggestion, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        onClick={() => handleUrlSuggestionClick(suggestion)}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 focus:bg-gray-100 focus:outline-none truncate"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {formData.url && isRestrictedUrl(formData.url) && (
                   <p className="mt-1 text-xs text-orange-600">
                     Browser internal page - URL auto-detection limited
@@ -822,7 +953,7 @@ export default function ScreenshotPreview({
                 )}
               </div>
 
-              {/* 🔥 NEW: Real Cases Dropdown */}
+              {/* Real Cases Dropdown */}
               <div>
                 <label
                   htmlFor="case"
@@ -860,7 +991,7 @@ export default function ScreenshotPreview({
                   )}
                 </select>
 
-                {/* 🔥 NEW: Show selected case info */}
+                {/* Show selected case info */}
                 {formData.selectedCase && cases.length > 0 && (
                   <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
                     {(() => {
@@ -889,7 +1020,7 @@ export default function ScreenshotPreview({
                 )}
               </div>
 
-              {/* Image Info */}
+              {/* ✅ ENHANCED: Image Info with metadata */}
               {imageLoaded && (
                 <div className="bg-gray-50 rounded-lg p-3">
                   <h4 className="text-sm font-medium text-gray-700 mb-2">
@@ -900,6 +1031,15 @@ export default function ScreenshotPreview({
                       Size: {imageDimensions.width} × {imageDimensions.height}px
                     </div>
                     <div>Type: {screenshot.type}</div>
+                    {screenshot.metadata?.captureType && (
+                      <div>Capture: {screenshot.metadata.captureType}</div>
+                    )}
+                    {screenshot.metadata?.viewportSize && (
+                      <div>
+                        Viewport: {screenshot.metadata.viewportSize.width} ×{" "}
+                        {screenshot.metadata.viewportSize.height}px
+                      </div>
+                    )}
                     {isFullPage && (
                       <div className="text-blue-600 font-medium">
                         📄 Full page capture detected
