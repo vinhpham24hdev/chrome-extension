@@ -73,14 +73,6 @@ export default function ScreenshotPreview({
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [showUrlSuggestions, setShowUrlSuggestions] = useState(false);
-  const [urlSuggestions, setUrlSuggestions] = useState<string[]>([]);
-  const [showDescriptionSuggestions, setShowDescriptionSuggestions] =
-    useState(false);
-  const [descriptionSuggestions, setDescriptionSuggestions] = useState<
-    string[]
-  >([]);
-
   useEffect(() => {
     loadCasesFromBackend();
   }, []);
@@ -243,7 +235,6 @@ export default function ScreenshotPreview({
         .filter((url: string) => url && url !== currentUrl)
         .slice(0, 3);
 
-      setUrlSuggestions(suggestions);
     } catch (error) {
       console.warn("Failed to load URL suggestions:", error);
     }
@@ -267,9 +258,6 @@ export default function ScreenshotPreview({
             desc && desc.toLowerCase().includes(query.toLowerCase())
         )
         .slice(0, 3);
-
-      setDescriptionSuggestions(suggestions);
-      setShowDescriptionSuggestions(suggestions.length > 0);
     } catch (error) {
       console.warn("Failed to load description suggestions:", error);
     }
@@ -550,20 +538,12 @@ export default function ScreenshotPreview({
   ) => {
     const value = e.target.value;
     setFormData((prev) => ({ ...prev, description: value }));
-
-    // Load suggestions as user types
-    if (value.length >= 3) {
-      loadDescriptionSuggestions(value);
-    } else {
-      setShowDescriptionSuggestions(false);
-    }
   };
 
   // ✅ NEW: Enhanced URL change with suggestions
   const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setFormData((prev) => ({ ...prev, url: value }));
-    setShowUrlSuggestions(false);
   };
 
   const handleCaseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -572,17 +552,6 @@ export default function ScreenshotPreview({
 
   const handleViewModeChange = (mode: "fit" | "actual" | "scroll") => {
     setViewMode(mode);
-  };
-
-  // ✅ NEW: Handle suggestion clicks
-  const handleUrlSuggestionClick = (url: string) => {
-    setFormData((prev) => ({ ...prev, url }));
-    setShowUrlSuggestions(false);
-  };
-
-  const handleDescriptionSuggestionClick = (description: string) => {
-    setFormData((prev) => ({ ...prev, description }));
-    setShowDescriptionSuggestions(false);
   };
 
   // Get image style based on view mode
@@ -875,25 +844,6 @@ export default function ScreenshotPreview({
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                   disabled={uploadState.isUploading}
                 />
-
-                {/* Description Suggestions */}
-                {showDescriptionSuggestions &&
-                  descriptionSuggestions.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-32 overflow-y-auto">
-                      {descriptionSuggestions.map((suggestion, index) => (
-                        <button
-                          key={index}
-                          type="button"
-                          onClick={() =>
-                            handleDescriptionSuggestionClick(suggestion)
-                          }
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
-                        >
-                          {suggestion}
-                        </button>
-                      ))}
-                    </div>
-                  )}
               </div>
 
               {/* ✅ ENHANCED: URL Field with auto-detection and suggestions */}
@@ -919,33 +869,10 @@ export default function ScreenshotPreview({
                   id="url"
                   value={formData.url}
                   onChange={handleUrlChange}
-                  onFocus={() =>
-                    setShowUrlSuggestions(urlSuggestions.length > 0)
-                  }
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="https://example.com"
+                  placeholder="https://cellebrite.com"
                   disabled={uploadState.isUploading}
                 />
-
-                {/* URL Suggestions */}
-                {showUrlSuggestions && urlSuggestions.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-32 overflow-y-auto">
-                    <div className="px-3 py-2 text-xs text-gray-500 border-b">
-                      Similar URLs from this domain:
-                    </div>
-                    {urlSuggestions.map((suggestion, index) => (
-                      <button
-                        key={index}
-                        type="button"
-                        onClick={() => handleUrlSuggestionClick(suggestion)}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 focus:bg-gray-100 focus:outline-none truncate"
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
                 {formData.url && isRestrictedUrl(formData.url) && (
                   <p className="mt-1 text-xs text-orange-600">
                     Browser internal page - URL auto-detection limited
