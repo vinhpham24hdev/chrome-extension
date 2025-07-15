@@ -1,4 +1,4 @@
-// services/videoService.ts - Fixed Video Recording Service with proper pause/resume timing
+// services/videoService.ts - Enhanced with S3 save integration
 export interface VideoOptions {
   type: "tab" | "desktop" | "window";
   format: "webm" | "mp4";
@@ -15,6 +15,13 @@ export interface VideoResult {
   duration?: number;
   size?: number;
   error?: string;
+  metadata?: {
+    captureType?: string;
+    recordingType?: string;
+    quality?: string;
+    sourceUrl?: string;
+    pageTitle?: string;
+  };
 }
 
 export interface RecordingState {
@@ -98,7 +105,55 @@ export class VideoService {
   }
 
   /**
-   * Start video recording
+   * ✅ ENHANCED: Get current tab URL and metadata safely
+   */
+  private async getCurrentTabInfo(): Promise<{
+    url: string | null;
+    title: string | null;
+    isRestricted: boolean;
+  }> {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.tabs) {
+        return { url: null, title: null, isRestricted: false };
+      }
+
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab?.url) {
+        return { url: null, title: null, isRestricted: false };
+      }
+
+      // Filter out restricted URLs
+      const restrictedPatterns = [
+        /^chrome:\/\//,
+        /^chrome-extension:\/\//,
+        /^moz-extension:\/\//,
+        /^about:/,
+        /^edge:\/\//,
+        /^file:\/\//,
+        /^data:/
+      ];
+
+      const isRestricted = restrictedPatterns.some(pattern => pattern.test(tab.url!));
+      
+      if (isRestricted) {
+        console.log('Current tab URL is restricted, not capturing URL');
+        return { url: null, title: null, isRestricted: true };
+      }
+
+      return { 
+        url: tab.url, 
+        title: tab.title || null, 
+        isRestricted: false 
+      };
+    } catch (error) {
+      console.warn('Could not get current tab info:', error);
+      return { url: null, title: null, isRestricted: false };
+    }
+  }
+
+  /**
+   * Start video recording with enhanced metadata
    */
   async startRecording(
     options: VideoOptions = { type: "tab", format: "webm", quality: "medium" },
@@ -148,7 +203,7 @@ export class VideoService {
       this.totalPausedDuration = 0;
       this.pauseStartTime = 0;
 
-      // Setup event handlers
+      // Setup event handlers with enhanced metadata
       this.setupMediaRecorderEvents(options);
 
       // Start recording
@@ -185,10 +240,10 @@ export class VideoService {
   }
 
   /**
-   * Stop recording and return result
+   * ✅ ENHANCED: Stop recording and return result with metadata
    */
   private async stopRecording(): Promise<VideoResult> {
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
       if (!this.mediaRecorder) {
         resolve({
           success: false,
@@ -201,6 +256,9 @@ export class VideoService {
 
       // Stop progress tracking
       this.stopProgressTracking();
+
+      // Get tab info for metadata
+      const tabInfo = await this.getCurrentTabInfo();
 
       // Setup one-time event listener for dataavailable
       const handleFinalData = () => {
@@ -235,6 +293,7 @@ export class VideoService {
             size: blob.size,
           });
 
+          // ✅ ENHANCED: Add metadata to result
           resolve({
             success: true,
             blob,
@@ -242,6 +301,13 @@ export class VideoService {
             filename,
             duration: Math.round(finalDuration),
             size: blob.size,
+            metadata: {
+              captureType: 'video-recording',
+              recordingType: 'desktop', // or tab based on options
+              quality: 'medium', // or from options
+              sourceUrl: tabInfo.url || undefined,
+              pageTitle: tabInfo.title || undefined,
+            }
           });
         } catch (error) {
           this.cleanup();
@@ -663,6 +729,162 @@ export class VideoService {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  }
+
+  /**
+   * ✅ NEW: Save video to storage with REAL S3 integration and enhanced metadata
+   */
+  async saveToStorage(result: VideoResult, caseId: string, options?: {
+    description?: string;
+    customSourceUrl?: string;
+    customName?: string;
+  }): Promise<boolean> {
+    try {
+      if (!result.success || !result.blob || !result.filename) {
+        throw new Error('Invalid video result for saving');
+      }
+
+      console.log('💾 Saving video to S3 via Backend API...', {
+        filename: result.filename,
+        size: result.blob.size,
+        duration: result.duration,
+        caseId,
+        sourceUrl: options?.customSourceUrl || result.metadata?.sourceUrl
+      });
+
+      // ✅ Import S3 service dynamically to avoid circular dependency
+      const { s3Service } = await import('./s3Service');
+
+      // ✅ Upload to S3 via Backend API with description and sourceUrl
+      const uploadResult = await s3Service.uploadFile(
+        result.blob,
+        result.filename,
+        caseId,
+        'video',
+        {
+          onProgress: (progress) => {
+            console.log(`📤 Video upload progress: ${progress.percentage}%`);
+          },
+          metadata: {
+            captureType: result.metadata?.captureType || 'video-recording',
+            recordingType: result.metadata?.recordingType || 'desktop',
+            quality: result.metadata?.quality || 'medium',
+            sourceUrl: options?.customSourceUrl || result.metadata?.sourceUrl,
+            pageTitle: result.metadata?.pageTitle,
+            timestamp: new Date().toISOString(),
+            duration: result.duration,
+            videoSize: result.size,
+          },
+          description: options?.description,           // ✅ NEW: Pass description
+          sourceUrl: options?.customSourceUrl || result.metadata?.sourceUrl  // ✅ NEW: Pass source URL
+        }
+      );
+
+      if (uploadResult.success) {
+        console.log('✅ Video saved to S3 successfully:', uploadResult.fileKey);
+
+        // Update case metadata
+        try {
+          const { caseService } = await import('./caseService');
+          const caseData = await caseService.getCaseById(caseId);
+          if (caseData && caseData.metadata) {
+            await caseService.updateCaseMetadata(caseId, {
+              totalVideos: (caseData.metadata.totalVideos || 0) + 1,
+              totalFileSize: (caseData.metadata.totalFileSize || 0) + result.blob.size,
+              lastActivity: new Date().toISOString(),
+            });
+            console.log('✅ Case metadata updated successfully');
+          }
+        } catch (metadataError) {
+          console.warn('⚠️ Failed to update case metadata:', metadataError);
+        }
+
+        return true;
+      } else {
+        console.error('❌ Video save failed:', uploadResult.error);
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Error saving video:', error);
+      return false;
+    }
+  }
+
+  /**
+   * ✅ NEW: Get video history for a case
+   */
+  async getVideoHistory(caseId?: string): Promise<any[]> {
+    try {
+      if (!caseId) {
+        console.warn('No case ID provided for video history');
+        return [];
+      }
+
+      const { caseService } = await import('./caseService');
+      
+      const files = await caseService.getCaseFiles(caseId, {
+        captureType: 'video',
+        limit: 50
+      });
+      
+      console.log('🎬 Video history loaded:', files.length);
+      return files;
+    } catch (error) {
+      console.error('❌ Failed to load video history:', error);
+      return [];
+    }
+  }
+
+  /**
+   * ✅ NEW: Delete video from storage
+   */
+  async deleteVideo(fileKey: string, caseId?: string): Promise<boolean> {
+    try {
+      console.log('🗑️ Deleting video:', fileKey);
+      
+      const { s3Service } = await import('./s3Service');
+      
+      await s3Service.deleteFile(fileKey, caseId);
+      console.log('✅ Video deleted successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to delete video:', error);
+      return false;
+    }
+  }
+
+  /**
+   * ✅ NEW: Get video statistics
+   */
+  async getVideoStats(caseId?: string): Promise<any> {
+    try {
+      const { s3Service } = await import('./s3Service');
+      
+      const stats = await s3Service.getUploadStats({
+        caseId,
+        detailed: true
+      });
+      
+      const videoStats = {
+        total: stats.byType?.video || 0,
+        totalSize: stats.totalSize || 0,
+        totalDuration: stats.totalDuration || 0,
+        recentUploads: (stats.recentUploads || []).filter((upload: any) => 
+          upload.captureType === 'video' || upload.captureType === 'video-recording'
+        )
+      };
+      
+      console.log('📊 Video stats loaded:', videoStats);
+      return videoStats;
+    } catch (error) {
+      console.error('❌ Failed to load video stats:', error);
+      return {
+        total: 0,
+        totalSize: 0,
+        totalDuration: 0,
+        recentUploads: []
+      };
+    }
   }
 
   /**

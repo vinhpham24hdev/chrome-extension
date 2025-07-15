@@ -9,6 +9,8 @@ import {
   RecordingState,
   RecordingControls,
 } from "../services/videoService";
+import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
+import { caseService } from "../services/caseService";
 
 interface VideoRecorderProps {
   caseId: string;
@@ -41,6 +43,20 @@ export default function VideoRecorder({
   const [error, setError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(true);
   const [isInitializing, setIsInitializing] = useState(false);
+  
+  // ✅ ADDED: S3 Upload State (minimal addition)
+  const [uploadState, setUploadState] = useState<{
+    isUploading: boolean;
+    progress: UploadProgress | null;
+    result: UploadResult | null;
+    error: string | null;
+  }>({
+    isUploading: false,
+    progress: null,
+    result: null,
+    error: null,
+  });
+
   const [videoForm, setVideoForm] = useState({
     name: "",
     description: "",
@@ -56,8 +72,8 @@ export default function VideoRecorder({
     }));
   };
 
+  // Set default video name when video result is available
   useEffect(() => {
-    // Set default video name when video result is available
     if (videoResult && videoResult.filename && !videoForm.name) {
       const defaultName = videoResult.filename.replace(/\.[^/.]+$/, ""); // Remove extension
       setVideoForm((prev) => ({
@@ -135,22 +151,108 @@ export default function VideoRecorder({
     recordingControls?.resume();
   };
 
-  const handleSaveVideo = () => {
-    if (videoResult && videoForm.name.trim()) {
-      // Enhance video result with form data
-      const enhancedResult = {
-        ...videoResult,
-        metadata: {
-          name: videoForm.name.trim(),
-          description: videoForm.description.trim(),
-          url: videoForm.url.trim(),
-          caseId: caseId,
-          savedAt: new Date().toISOString(),
-        },
-      };
+  // ✅ UPDATED: Enhanced save video with S3 upload (keeping original logic)
+  const handleSaveVideo = async () => {
+    if (!videoResult || !videoForm.name.trim()) {
+      alert("Please enter a name for this video");
+      return;
+    }
 
-      // Call original callback to save to case
-      onVideoCapture?.(enhancedResult);
+    setUploadState({
+      isUploading: true,
+      progress: null,
+      result: null,
+      error: null,
+    });
+
+    try {
+      console.log("🎬 Uploading video to S3 via Backend API...", {
+        filename: videoResult.filename,
+        size: videoResult.size,
+        caseId: caseId,
+        name: videoForm.name,
+        description: videoForm.description,
+        url: videoForm.url,
+      });
+
+      // ✅ Upload to S3 via Backend API with description and sourceUrl
+      const result = await s3Service.uploadFile(
+        videoResult.blob!,
+        videoResult.filename!,
+        caseId,
+        "video",
+        {
+          onProgress: (progress) => {
+            console.log(`📤 Video upload progress: ${progress.percentage}%`);
+            setUploadState((prev) => ({ ...prev, progress }));
+          },
+          onSuccess: (result) => {
+            console.log("✅ Video upload successful:", result);
+            setUploadState((prev) => ({
+              ...prev,
+              isUploading: false,
+              result,
+            }));
+          },
+          onError: (error) => {
+            console.error("❌ Video upload failed:", error);
+            setUploadState((prev) => ({
+              ...prev,
+              isUploading: false,
+              error,
+            }));
+          },
+          tags: ["video", "recording", "capture", videoForm.name],
+          metadata: {
+            capturedAt: new Date().toISOString(),
+            originalFilename: videoResult.filename,
+            description: videoForm.description,
+            sourceUrl: videoForm.url,
+            captureType: "video-recording",
+            recordingType: videoOptions.type,
+            quality: videoOptions.quality,
+            caseName: videoForm.name,
+            duration: videoResult.duration,
+          },
+          description: videoForm.description.trim() || undefined,
+          sourceUrl: videoForm.url.trim() || undefined,
+        }
+      );
+
+      if (result.success) {
+        console.log("🎉 Video uploaded to S3 successfully!");
+
+        // Update case metadata via real backend API
+        try {
+          const caseData = await caseService.getCaseById(caseId);
+          if (caseData && caseData.metadata) {
+            await caseService.updateCaseMetadata(caseId, {
+              totalVideos: (caseData.metadata.totalVideos || 0) + 1,
+              totalFileSize: (caseData.metadata.totalFileSize || 0) + (videoResult.size || 0),
+              lastActivity: new Date().toISOString(),
+            });
+            console.log("✅ Case metadata updated successfully");
+          }
+        } catch (metadataError) {
+          console.error("❌ Failed to update case metadata:", metadataError);
+        }
+
+        // Show success message
+        alert(
+          `Video "${videoForm.name}" added to case "${caseId}" successfully!\n\n` +
+            `Duration: ${videoService.formatDuration(videoResult.duration || 0)}\n` +
+            `Size: ${videoService.formatFileSize(videoResult.size || 0)}`
+        );
+      } else {
+        throw new Error(result.error || "Upload failed");
+      }
+    } catch (error) {
+      console.error("❌ Video upload process failed:", error);
+      setUploadState((prev) => ({
+        ...prev,
+        isUploading: false,
+        error: error instanceof Error ? error.message : "Video upload failed",
+      }));
     }
   };
 
@@ -170,6 +272,12 @@ export default function VideoRecorder({
   const handleRetakeVideo = () => {
     setVideoResult(null);
     setError(null);
+    setUploadState({
+      isUploading: false,
+      progress: null,
+      result: null,
+      error: null,
+    });
     // Reset to initial state
   };
 
@@ -320,7 +428,7 @@ export default function VideoRecorder({
     );
   }
 
-  // Video Preview State - Show result in same tab
+  // Video Preview State - Show result in same tab (ORIGINAL DESIGN)
   if (videoResult && videoResult.success && videoResult.dataUrl) {
     return (
       <div className="relative items-center justify-center z-50">
@@ -330,6 +438,71 @@ export default function VideoRecorder({
         >
           <FaTimes className="w-4 h-4" />
         </button>
+
+        {/* ✅ ADDED: Upload Progress Overlay (minimal addition) */}
+        {uploadState.isUploading && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <div className="text-center">
+                <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  Uploading Video to S3
+                </h3>
+                {uploadState.progress && (
+                  <>
+                    <div className="text-sm text-gray-600 mb-3">
+                      {uploadState.progress.percentage}% complete
+                      {uploadState.progress.speed && (
+                        <span className="ml-2">
+                          ({Math.round(uploadState.progress.speed / 1024)} KB/s)
+                        </span>
+                      )}
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${uploadState.progress.percentage}%` }}
+                      ></div>
+                    </div>
+                  </>
+                )}
+                <p className="text-sm text-gray-500">
+                  Please wait while we save your video...
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ✅ ADDED: Upload Error Modal */}
+        {uploadState.error && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <div className="text-center">
+                <div className="text-red-500 text-4xl mb-4">⚠️</div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  Upload Failed
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">{uploadState.error}</p>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => setUploadState((prev) => ({ ...prev, error: null }))}
+                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveVideo}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Retry
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white rounded-lg w-full max-w-6xl flex">
           <div className="flex-1 flex flex-col">
             {/* Header */}
@@ -360,37 +533,64 @@ export default function VideoRecorder({
             </div>
           </div>
 
-          {/* Phần phải: Details form */}
+          {/* Right Side: Details form (ORIGINAL LAYOUT) */}
           <div className="w-80 p-6 flex flex-col">
             <h3 className="text-lg font-medium text-gray-900 mb-6">Details</h3>
             <input
               type="text"
               placeholder="Name"
+              value={videoForm.name}
+              onChange={(e) => handleFormChange("name", e.target.value)}
               className="mt-1 mb-4 w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={uploadState.isUploading}
             />
             <textarea
               placeholder="Description"
               rows={4}
+              value={videoForm.description}
+              onChange={(e) => handleFormChange("description", e.target.value)}
               className="mt-1 mb-4 w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={uploadState.isUploading}
             />
             <div className="py-2">
               <label className="text-sm font-medium text-gray-700">URL</label>
-              <p className="mt-1 mb-6 text-sm text-blue-600 break-all">
-                https://www.washingtonpost.com/
-              </p>
+              <input
+                type="url"
+                value={videoForm.url}
+                onChange={(e) => handleFormChange("url", e.target.value)}
+                className="mt-1 mb-6 w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="https://..."
+                disabled={uploadState.isUploading}
+              />
             </div>
             <div className="mt-auto flex justify-end space-x-2 pt-6 border-t">
               <button
                 onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-100"
+                disabled={uploadState.isUploading}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveVideo}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border-blue-600  rounded hover:bg-blue-700"
+                disabled={uploadState.isUploading || !videoForm.name.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border-blue-600  rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
               >
-                Add to case
+                {uploadState.isUploading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Saving...
+                  </>
+                ) : uploadState.result ? (
+                  <>
+                    <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Saved
+                  </>
+                ) : (
+                  "Add to case"
+                )}
               </button>
             </div>
           </div>
