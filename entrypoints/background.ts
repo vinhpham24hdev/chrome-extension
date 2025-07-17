@@ -48,6 +48,20 @@ export default defineBackground(() => {
           sendResponse({ success: true });
           break;
 
+        case "OPEN_CASE_REPORT":
+          console.log("🎯 Handling OPEN_CASE_REPORT");
+          chrome.tabs.create({
+              url: `chrome-extension://${chrome.runtime.id}/case-report.html?case_id=${message.data.id}`,
+            }, () => {
+              setTimeout(() => {
+                chrome.runtime.sendMessage({
+                  type: 'LOAD_CASE_DATA',
+                  payload: message.data,
+                });
+              }, 200);
+            });
+          break;
+
         default:
           console.log("🤷‍♂️ Unknown message type:", message.type);
           sendResponse({ success: false, error: "Unknown message type" });

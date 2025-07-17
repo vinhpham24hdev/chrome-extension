@@ -1,4 +1,13 @@
 // services/caseService.ts - Real Case Management Service
+
+interface FileItem {
+  fileName: string
+  url: string
+  fileSize: number
+  fileType: string
+  uploadedAt: string
+}
+
 export interface CaseItem {
   id: string;
   title: string;
@@ -14,6 +23,8 @@ export interface CaseItem {
     totalVideos?: number;
     lastActivity?: string;
     totalFileSize?: number;
+    files: FileItem[]
+    reportHtml: string
   };
 }
 

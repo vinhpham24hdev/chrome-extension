@@ -1,10 +1,5 @@
 // components/Dashboard.tsx - Updated with Real Backend Services
-import React, { useState, useEffect, useRef } from "react";
-import Box from "@mui/material/Box";
-import InputLabel from "@mui/material/InputLabel";
-import MenuItem from "@mui/material/MenuItem";
-import FormControl from "@mui/material/FormControl";
-import Select, { SelectChangeEvent } from "@mui/material/Select";
+import { useState, useEffect, useRef } from "react";
 
 import { useAuth } from "../contexts/AuthContext";
 import { screenshotService, ScreenshotResult } from "../services/screenshotService";
@@ -17,6 +12,7 @@ import { caseService, CaseItem } from "../services/caseService";
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 
 import logo from "@/assets/logo.png";
+import CaseSelector from "./CaseSelector";
 
 // Error Modal Component for better UX
 const ErrorModal = ({
@@ -182,7 +178,6 @@ export default function Dashboard() {
     }
   };
 
-  // Check backend connection
   const checkBackendConnection = async () => {
     try {
       const connected = await caseService.checkConnection();
@@ -965,7 +960,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="w-[402px] h-[380px] bg-white flex flex-col relative">
+    <div className="w-[402px] min-h-[380px] bg-white flex flex-col relative">
       {/* Enhanced Error Modal */}
       <ErrorModal
         isOpen={errorModal.isOpen}
@@ -1048,46 +1043,7 @@ export default function Dashboard() {
 
       {/* Case Selector */}
       <div className="p-6">
-        <Box>
-          <FormControl fullWidth>
-            <InputLabel id="case-select-label">Case ID</InputLabel>
-            <Select
-              labelId="case-select-label"
-              id="case-select"
-              value={selectedCase}
-              label="Select Case"
-              onChange={(e: SelectChangeEvent<string>) =>
-                handleCaseSelect(e.target.value)
-              }
-              disabled={loadingCases || backendConnected === false}
-            >
-              {loadingCases ? (
-                <MenuItem disabled>
-                  <em>Loading cases...</em>
-                </MenuItem>
-              ) : cases.length === 0 ? (
-                <MenuItem disabled>
-                  <em>No cases available</em>
-                </MenuItem>
-              ) : (
-                cases.map((caseItem) => (
-                  <MenuItem key={caseItem.id} value={caseItem.id}>
-                    <div className="flex justify-between items-center w-full">
-                      <span>{caseItem.title}</span>
-                      <span className={`px-2 py-1 text-xs rounded ${
-                        caseItem.status === 'active' ? 'bg-green-100 text-green-800' :
-                        caseItem.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {caseItem.status}
-                      </span>
-                    </div>
-                  </MenuItem>
-                ))
-              )}
-            </Select>
-          </FormControl>
-        </Box>
+        <CaseSelector selectedCase={selectedCase} cases={cases}  onCaseSelected={setSelectedCase} />
       </div>
 
       {/* Enhanced Capture Tools Grid */}
@@ -1203,6 +1159,9 @@ export default function Dashboard() {
         <button 
           className="w-[176px] bg-blue-600 border-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
           disabled={!selectedCase || backendConnected === false}
+          onClick={() => {
+            chrome.runtime.sendMessage({ type: 'OPEN_CASE_REPORT', data: cases.find((caseItem) => caseItem.id === selectedCase) });
+          }}
         >
           View Report
         </button>

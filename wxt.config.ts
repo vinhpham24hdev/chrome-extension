@@ -62,6 +62,8 @@ export default defineConfig({
           "video-recorder.html",
           "video-recorder.js",
           "video-recorder-init.js",
+          "case-report.html",
+          "case-report.js",
           "assets/*",
         ],
         matches: ["<all_urls>"],
