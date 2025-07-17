@@ -1,168 +1,293 @@
-import { CaseItem } from '@/services/caseService';
-import { useEffect, useState } from 'react';
+import { CaseItem, caseService } from '@/services/caseService';
+import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import ReactQuill, { Quill } from 'react-quill-new';
+import { Button } from '@mui/material';
+import ImageResize from 'quill-image-resize-module-react';
+
+Quill.register('modules/imageResize', ImageResize);
 
 export default function CaseReportApp() {
-  const [caseData, setCaseData] = useState<CaseItem>();
+  const [caseData, setCaseData] = useState<CaseItem | null>();
+  const [reportHtml, setReportHtml] = useState(``);
+  const quillRef = useRef<ReactQuill>(null);
+  const [dropHandlerBound, setDropHandlerBound] = useState(false);
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const caseId = urlParams.get('case_id');
+
+  const loadCaseData = async (caseId: string) => {
+    try {
+      const fetchedCases = await caseService.getCases({
+        limit: 50,
+        page: 1,
+      });
+      const currentCase = fetchedCases.find(
+        (caseItem) => caseItem.id === caseId
+      );
+      if (currentCase) {
+        console.log({ fetchedCases });
+
+        setCaseData(currentCase);
+        setReportHtml(currentCase?.metadata?.reportHtml || '');
+      }
+    } catch (error) {
+      console.error('❌ Failed to load cases:', error);
+    }
+  };
+
+  const handleSaveReport = async () => {
+    if (!caseId) return;
+
+    const metadata = {
+      totalScreenshots: 12,
+      totalVideos: 1,
+      lastActivity: '2024-06-09T16:45:00Z',
+      totalFileSize: 28311552,
+      files: [
+        {
+          fileName: 'splash-performance-chart.png',
+          url: 'https://images.unsplash.com/photo-1749741340022-434e924e8312?q=80&w=1171&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDF8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+          fileSize: 1832040,
+          fileType: 'image/png',
+          uploadedAt: '2024-06-09T10:20:00Z',
+        },
+        {
+          fileName: 'backend-response-log.json',
+          url: 'https://cafefcdn.com/thumb_w/640/203337114487263232/2022/2/28/photo1646035428299-16460354285181819837363.png',
+          fileSize: 94328,
+          fileType: 'application/json',
+          uploadedAt: '2024-06-09T10:25:00Z',
+        },
+        {
+          fileName: 'slow-render-debug.mp4',
+          url: 'https://cdn-media.sforum.vn/storage/app/media/chitam/google-maps-ra-mat-2.jpg',
+          fileSize: 8245100,
+          fileType: 'video/mp4',
+          uploadedAt: '2024-06-09T10:35:00Z',
+          duration: 43200,
+        },
+      ],
+    };
+
+    const newCaseMetaData = {
+      ...(caseData?.metadata || {}),
+      ...metadata,
+      reportHtml,
+    };
+
+    try {
+      await caseService.updateCaseMetadata(caseId, newCaseMetaData);
+      await loadCaseData(caseId);
+      alert('Saved !');
+    } catch (error) {
+      alert('Error');
+    }
+  };
 
   useEffect(() => {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'LOAD_CASE_DATA') {
-        setCaseData(message.payload);
+        setReportHtml(message.payload.metadata.reportHtml);
       }
     });
   }, []);
 
-  if (!caseData) return <div className="p-4">Loading...</div>;
+  useEffect(() => {
+    if (caseId) {
+      loadCaseData(caseId);
+    }
+  }, [caseId]);
+
+  const handleSelectionChange = () => {
+    if (!dropHandlerBound && quillRef.current) {
+      const editor = quillRef.current.getEditor();
+      const editorRoot = quillRef?.current?.editor?.root;
+
+      if (editor && editorRoot) {
+        editorRoot.addEventListener('drop', (e: DragEvent) => {
+          e.preventDefault();
+          const url = e.dataTransfer?.getData('text/uri-list');
+          if (url) {
+            const range = editor.getSelection(true);
+            editor.insertEmbed(range.index, 'image', url);
+            editor.setSelection(range.index + 1);
+
+            setTimeout(() => {
+              const img = document.querySelector(
+                `img[src="${url}"]`
+              ) as HTMLImageElement;
+              if (img) {
+                img.style.width = '400px';
+                img.style.maxWidth = '100%';
+              }
+            }, 100);
+          }
+        });
+
+        setDropHandlerBound(true);
+      }
+    }
+  };
+
+  if (!caseData?.id) return <div className="p-4">Loading...</div>;
+
   return (
-    <div
-      className="flex h-screen w-screen bg-white text-gray-900 overflow-hidden"
-      style={{
-        display: 'flex',
-        flexDirection: 'row',
-        overflow: 'hidden',
-        height: '100vh',
-      }}
-    >
+    <div>
       <div
         style={{
-          padding: '16px 32px',
+          display: 'grid',
+          gridTemplateColumns: 'auto auto auto',
+          alignItems: 'center',
+          padding: '0 24px',
         }}
       >
-        <div
+        <h1>{caseData.title}</h1>
+        <p
           style={{
-            background: '#F8FAFB',
-            padding: '12px 24px',
+            color: '#959494',
           }}
         >
-          <h2
-            style={{
-              fontSize: '30px',
-              fontWeight: 'bold',
-              textAlign: 'center',
-            }}
-          >
-            {caseData.title}
-          </h2>
-          <div
-            style={{
-              height: '3px',
-              background: '#f87171',
-            }}
-          />
-
-          <div
-            style={{
-              fontSize: '16px',
-              color: '#121E28',
-              fontWeight: 500,
-            }}
-          >
-            <p
-              style={{
-                fontSize: '16px',
-                fontWeight: 500,
-                lineHeight: '1.5',
-              }}
-            >
-              HOMICIDE INVESTIGATION SUMMARY REPORT <br />
-              Detective in Charge: D. Valer (#3472) <br />
-              Case ID: H-2025-0411 <br />
-              Lisa M. Holloway, Female, 38 <br />
-              Date of Incident: April 6, 2025 <br />
-              Location: 317 Pinecrest Drive, Crestwood, NY <br />
-              Date of Report: April 12, 2025
-            </p>
-          </div>
-
-          <h3
-            style={{
-              fontSize: '24px',
-              fontWeight: 600,
-              marginBottom: 0,
-            }}
-          >
-            Executive Summary
-          </h3>
-          <p
-            style={{
-              fontSize: '16px',
-              lineHeight: '1.5',
-              margin: '8px 0',
-              padding: 0,
-            }}
-          >
-            On April 6, 2025, at approximately 22:41 hours, officers responded
-            to a 911 call reporting a disturbance at 317 Pinecrest Drive. Upon
-            arrival, they discovered the body of Lisa Holloway lying face down
-            in the kitchen with a single stab wound to the left side of the
-            neck. The residence showed no signs of forced entry. The victim's
-            estranged husband, Brandon Holloway, was later arrested based on
-            collected evidence and inconsistencies in his alibi. This report
-            outlines the sequence of events, supporting forensic findings,
-            witness statements, and investigative conclusions.
-          </p>
-        </div>
+          Document saved: {caseData.updatedAt}
+        </p>
+        <Button
+          sx={{ marginLeft: 'auto' }}
+          size="small"
+          variant="contained"
+          onClick={handleSaveReport}
+        >
+          Save
+        </Button>
       </div>
 
-      <aside
+      <div
         style={{
-          overflow: 'auto',
-          maxHeight: '100vh',
-          background: '#5E6974',
-          padding: '24px',
-          color: 'white',
+          display: 'flex',
         }}
       >
-        <div className="text-sm font-medium mb-2">
-          Captured by: <span className="font-light">All</span>
-        </div>
         <div
           style={{
-            fontSize: '20px',
-            fontWeight: '700',
+            padding: '0 12px',
           }}
         >
-          Snapshots and highlights
+          <ReactQuill
+            theme="snow"
+            ref={quillRef}
+            modules={editorModule}
+            formats={editorFormat}
+            value={reportHtml}
+            onChange={setReportHtml}
+            onChangeSelection={handleSelectionChange}
+          />
         </div>
+        <aside
+          style={{
+            overflow: 'auto',
+            height: 'calc(100vh - 110px)',
+            maxHeight: 'calc(100vh - 110px)',
+            background: '#5E6974',
+            padding: '24px',
+            color: 'white',
+            width: '45%',
+            minWidth: '45%',
+            maxWidth: '45%',
+          }}
+        >
+          <div className="text-sm font-medium mb-2">
+            Captured by: <span className="font-light">All</span>
+          </div>
+          <div
+            style={{
+              fontSize: '20px',
+              fontWeight: '700',
+            }}
+          >
+            Snapshots and highlights
+          </div>
 
-        <div
-          style={{
-            margin: '12px 0',
-          }}
-        >
-          {caseData?.metadata &&
-            caseData?.metadata.files.map((f, i) => (
-              <div
-                key={i}
-                style={{
-                  marginBottom: '8px',
-                }}
-              >
-                <img
-                  src={f.url}
-                  alt={f.fileName}
-                  style={{
-                    width: '100%',
-                    objectFit: 'cover',
-                    borderRadius: '4px',
-                  }}
-                />
+          <div
+            style={{
+              margin: '12px 0',
+            }}
+          >
+            {caseData?.metadata &&
+              caseData?.metadata?.files?.map((f, i) => (
                 <div
+                  key={i}
                   style={{
-                    padding: '4px',
-                    fontSize: '14px',
+                    marginBottom: '8px',
                   }}
                 >
-                  {f.fileName} <br />
+                  <img
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', f.url);
+                      e.dataTransfer.setData('fileName', f.fileName);
+                    }}
+                    src={f.url}
+                    alt={f.fileName}
+                    style={{
+                      width: '100%',
+                      objectFit: 'cover',
+                      borderRadius: '4px',
+                    }}
+                  />
+                  <div
+                    style={{
+                      padding: '4px',
+                      fontSize: '14px',
+                    }}
+                  >
+                    {f.fileName} <br />
+                  </div>
                 </div>
-              </div>
-            ))}
-        </div>
-      </aside>
+              ))}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
+
+const editorModule = {
+  toolbar: [
+    [{ header: '1' }, { header: '2' }, { font: [] }],
+    [{ size: [] }],
+    ['bold', 'italic', 'underline', 'strike', 'blockquote'],
+    [
+      { list: 'ordered' },
+      { list: 'bullet' },
+      { indent: '-1' },
+      { indent: '+1' },
+    ],
+    ['link', 'image', 'video'],
+    ['clean'],
+  ],
+  clipboard: {
+    matchVisual: false,
+  },
+  imageResize: {
+    // parchment: Quill.import('parchment'),
+    modules: ['Resize', 'DisplaySize'],
+  },
+};
+
+const editorFormat = [
+  'header',
+  'font',
+  'size',
+  'bold',
+  'italic',
+  'underline',
+  'strike',
+  'blockquote',
+  'list',
+  'bullet',
+  'indent',
+  'link',
+  'image',
+  'video',
+];
 
 // Initialize the app function
 export function initializeCaseReportApp() {

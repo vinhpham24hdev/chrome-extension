@@ -50,11 +50,8 @@ export default defineBackground(() => {
 
         case "OPEN_CASE_REPORT":
           console.log("🎯 Handling OPEN_CASE_REPORT");
-          chrome.windows.create({
-            url: chrome.runtime.getURL('case-report.html'),
-            type: 'popup',
-            width: 1000,
-            height: 800
+          chrome.tabs.create({
+              url: `chrome-extension://${chrome.runtime.id}/case-report.html?case_id=${message.data.id}`,
             }, () => {
               setTimeout(() => {
                 chrome.runtime.sendMessage({

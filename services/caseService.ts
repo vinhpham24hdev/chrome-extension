@@ -24,6 +24,7 @@ export interface CaseItem {
     lastActivity?: string;
     totalFileSize?: number;
     files: FileItem[]
+    reportHtml: string
   };
 }
 
