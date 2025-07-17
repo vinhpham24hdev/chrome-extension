@@ -69,7 +69,7 @@ function ServiceInitializer({ children }: { children: React.ReactNode }) {
   // Show loading state
   if (initializationState.isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <div className="flex min-w-[402px] max-w-full items-center justify-center min-h-screen bg-gray-100">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-600">Initializing services...</p>

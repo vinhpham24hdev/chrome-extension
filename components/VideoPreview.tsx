@@ -1,4 +1,4 @@
-// components/VideoPreview.tsx - Enhanced with larger video and better controls
+// components/VideoPreview.tsx - Enhanced with better full page handling and description/sourceUrl
 import React, { useState, useRef, useEffect } from "react";
 import {
   FaPlay,
@@ -41,6 +41,8 @@ export default function VideoPreview({
   isUploading = false,
 }: VideoPreviewProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
+  
+  // ✅ ADDED: S3 Upload State (minimal addition)
   const [uploadState, setUploadState] = useState<{
     isUploading: boolean;
     progress: UploadProgress | null;
@@ -55,7 +57,7 @@ export default function VideoPreview({
 
   // Case form state
   const [caseForm, setCaseForm] = useState({
-    name: `Video Recording - ${new Date().toLocaleDateString()}`,
+    name: "",
     description: "",
     url: window.location.href || "",
   });
@@ -138,8 +140,13 @@ export default function VideoPreview({
     };
   }, [controlsTimeout]);
 
-  // Upload to S3
-  const handleUploadToS3 = async () => {
+  // ✅ UPDATED: Add to case with S3 integration (keeping original logic)
+  const handleAddToCase = async () => {
+    if (!caseForm.name.trim()) {
+      alert("Please enter a name for this video");
+      return;
+    }
+
     setUploadState({
       isUploading: true,
       progress: null,
@@ -148,6 +155,16 @@ export default function VideoPreview({
     });
 
     try {
+      console.log("🎬 Uploading video to S3 via Backend API...", {
+        filename: video.filename,
+        size: video.size,
+        caseId: video.caseId,
+        name: caseForm.name,
+        description: caseForm.description,
+        url: caseForm.url,
+      });
+
+      // ✅ Upload to S3 via Backend API with description and sourceUrl
       const result = await s3Service.uploadFile(
         video.blob,
         video.filename,
@@ -155,21 +172,19 @@ export default function VideoPreview({
         "video",
         {
           onProgress: (progress) => {
-            setUploadState((prev) => ({
-              ...prev,
-              progress,
-            }));
+            console.log(`📤 Video upload progress: ${progress.percentage}%`);
+            setUploadState((prev) => ({ ...prev, progress }));
           },
           onSuccess: (result) => {
+            console.log("✅ Video upload successful:", result);
             setUploadState((prev) => ({
               ...prev,
               isUploading: false,
               result,
             }));
-
-            updateCaseMetadata(video.caseId);
           },
           onError: (error) => {
+            console.error("❌ Video upload failed:", error);
             setUploadState((prev) => ({
               ...prev,
               isUploading: false,
@@ -186,38 +201,42 @@ export default function VideoPreview({
             caseDescription: caseForm.description,
             caseUrl: caseForm.url,
           },
+          description: caseForm.description.trim() || undefined,
+          sourceUrl: caseForm.url.trim() || undefined,
         }
       );
 
-      if (!result.success) {
-        setUploadState((prev) => ({
-          ...prev,
-          isUploading: false,
-          error: result.error || "Upload failed",
-        }));
+      if (result.success) {
+        console.log("🎉 Video uploaded to S3 successfully!");
+
+        // Update case metadata via real backend API
+        try {
+          const caseData = await caseService.getCaseById(video.caseId);
+          if (caseData && caseData.metadata) {
+            await caseService.updateCaseMetadata(video.caseId, {
+              totalVideos: (caseData.metadata.totalVideos || 0) + 1,
+              totalFileSize: (caseData.metadata.totalFileSize || 0) + video.size,
+              lastActivity: new Date().toISOString(),
+            });
+            console.log("✅ Case metadata updated successfully");
+          }
+        } catch (metadataError) {
+          console.error("❌ Failed to update case metadata:", metadataError);
+        }
+
+        // Show success message and call original onSave
+        alert(`Video "${caseForm.name}" added to case "${video.caseId}" successfully!`);
+        onSave();
+      } else {
+        throw new Error(result.error || "Upload failed");
       }
     } catch (error) {
+      console.error("❌ Video upload process failed:", error);
       setUploadState((prev) => ({
         ...prev,
         isUploading: false,
         error: error instanceof Error ? error.message : "Upload failed",
       }));
-    }
-  };
-
-  // Update case metadata after successful upload
-  const updateCaseMetadata = async (caseId: string) => {
-    try {
-      const caseData = await caseService.getCaseById(caseId);
-      if (caseData && caseData.metadata) {
-        await caseService.updateCaseMetadata(caseId, {
-          totalVideos: (caseData.metadata.totalVideos || 0) + 1,
-          totalFileSize: (caseData.metadata.totalFileSize || 0) + video.size,
-          lastActivity: new Date().toISOString(),
-        });
-      }
-    } catch (error) {
-      console.error("Failed to update case metadata:", error);
     }
   };
 
@@ -272,35 +291,11 @@ export default function VideoPreview({
     setIsFullscreen(!isFullscreen);
   };
 
-  const handleDownload = () => {
-    const url = URL.createObjectURL(video.blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = video.filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
   const handleFormChange = (field: keyof typeof caseForm, value: string) => {
     setCaseForm((prev) => ({
       ...prev,
       [field]: value,
     }));
-  };
-
-  const handleAddToCase = async () => {
-    if (!caseForm.name.trim()) {
-      alert("Please enter a name for this video");
-      return;
-    }
-
-    // Automatically upload to S3 when adding to case
-    await handleUploadToS3();
-
-    // Call the onSave callback
-    onSave();
   };
 
   return (
@@ -334,7 +329,52 @@ export default function VideoPreview({
           </button>
         </div>
 
-        <div className="flex-1 flex min-h-0">
+        {/* ✅ ADDED: Upload Progress (minimal UI addition) */}
+        {uploadState.isUploading && uploadState.progress && (
+          <div className="px-4 py-3 bg-blue-50 border-b border-blue-200">
+            <div className="flex items-center justify-between text-sm mb-2">
+              <span className="text-blue-700 font-medium">
+                Uploading to S3... {uploadState.progress.percentage}%
+              </span>
+              {uploadState.progress.speed && (
+                <span className="text-blue-600">
+                  {Math.round(uploadState.progress.speed / 1024)} KB/s
+                </span>
+              )}
+            </div>
+            <div className="w-full bg-blue-200 rounded-full h-2">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${uploadState.progress.percentage}%` }}
+              ></div>
+            </div>
+          </div>
+        )}
+
+        {/* ✅ ADDED: Success/Error Messages */}
+        {uploadState.result && (
+          <div className="px-4 py-3 bg-green-50 border-b border-green-200">
+            <div className="flex items-center text-sm text-green-700">
+              <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+              <span className="font-medium">Successfully uploaded to S3</span>
+            </div>
+          </div>
+        )}
+
+        {uploadState.error && (
+          <div className="px-4 py-3 bg-red-50 border-b border-red-200">
+            <div className="flex items-center text-sm text-red-700">
+              <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <span>Upload failed: {uploadState.error}</span>
+            </div>
+          </div>
+        )}
+
+        <div className="flex-1 flex overflow-hidden">
           {/* Video Preview Area - Much Larger */}
           <div
             className="flex-1 bg-black flex items-center justify-center relative"
@@ -438,59 +478,6 @@ export default function VideoPreview({
 
           {/* Details Panel - Reduced Width */}
           <div className="w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
-            {/* Upload Status */}
-            {(uploadState.isUploading ||
-              uploadState.progress ||
-              uploadState.result ||
-              uploadState.error) && (
-              <div className="p-4 border-b border-gray-200 bg-gray-50">
-                {uploadState.isUploading && uploadState.progress && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-blue-600 font-medium">
-                        Uploading... {uploadState.progress.percentage}%
-                      </span>
-                      <span className="text-gray-500">
-                        {uploadState.progress.speed &&
-                          `${Math.round(
-                            uploadState.progress.speed / 1024
-                          )} KB/s`}
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${uploadState.progress.percentage}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                )}
-
-                {uploadState.result && (
-                  <div className="flex items-center text-sm text-green-600">
-                    <svg
-                      className="w-4 h-4 mr-2"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    <span className="font-medium">Successfully uploaded</span>
-                  </div>
-                )}
-
-                {uploadState.error && (
-                  <div className="text-sm text-red-600">
-                    <span>Upload failed: {uploadState.error}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Details Form */}
             <div className="flex-1 p-4 space-y-4 overflow-y-auto">
               <div>
@@ -503,6 +490,7 @@ export default function VideoPreview({
                       onChange={(e) => handleFormChange("name", e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       placeholder="Name"
+                      disabled={uploadState.isUploading}
                     />
                   </div>
 
@@ -517,6 +505,7 @@ export default function VideoPreview({
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       placeholder="Description"
+                      disabled={uploadState.isUploading}
                     />
                   </div>
 
@@ -535,6 +524,7 @@ export default function VideoPreview({
                       onChange={(e) => handleFormChange("url", e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       placeholder="https://..."
+                      disabled={uploadState.isUploading}
                     />
                   </div>
                 </div>
@@ -580,24 +570,37 @@ export default function VideoPreview({
               </div>
             </div>
 
-            {/* Action Buttons */}
+            {/* Action Buttons - ORIGINAL LAYOUT (chỉ Add to case + Cancel) */}
             <div className="p-4 border-t border-gray-200 bg-gray-50">
-              <div className="flex w-full justify-between">
+              <div className="flex space-x-3">
                 <button
-                  onClick={handleAddToCase}
-                  disabled={uploadState.isUploading || !caseForm.name.trim()}
-                  className="w-full bg-blue-600 border-blue-600  text-white px-4 py-2.5 rounded-md transition-colors font-medium"
+                  onClick={onClose}
+                  disabled={uploadState.isUploading}
+                  className="flex-1 px-4 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {uploadState.isUploading
-                    ? "Adding to Case..."
-                    : "Add to case"}
+                  Cancel
                 </button>
 
                 <button
-                  onClick={onClose}
-                  className="w-full px-4 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                  onClick={handleAddToCase}
+                  disabled={uploadState.isUploading || !caseForm.name.trim()}
+                  className="flex-1 bg-blue-600 border-blue-600 text-white px-4 py-2 rounded-md transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                 >
-                  Cancel
+                  {uploadState.isUploading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      Adding...
+                    </>
+                  ) : uploadState.result ? (
+                    <>
+                      <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                      Added
+                    </>
+                  ) : (
+                    "Add to case"
+                  )}
                 </button>
               </div>
             </div>
@@ -641,8 +644,7 @@ export default function VideoPreview({
             <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 text-white px-3 py-2 rounded">
               <p className="text-sm">{video.filename}</p>
               <p className="text-xs opacity-75">
-                {formatDuration(video.duration)} • {formatFileSize(video.size)}{" "}
-                • {formatTimestamp(video.timestamp)}
+                {formatDuration(video.duration)} • {formatFileSize(video.size)} • {formatTimestamp(video.timestamp)}
               </p>
             </div>
           </div>
