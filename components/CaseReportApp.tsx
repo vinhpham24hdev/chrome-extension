@@ -39,40 +39,8 @@ export default function CaseReportApp() {
   const handleSaveReport = async () => {
     if (!caseId) return;
 
-    const metadata = {
-      totalScreenshots: 12,
-      totalVideos: 1,
-      lastActivity: '2024-06-09T16:45:00Z',
-      totalFileSize: 28311552,
-      files: [
-        {
-          fileName: 'splash-performance-chart.png',
-          url: 'https://images.unsplash.com/photo-1749741340022-434e924e8312?q=80&w=1171&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDF8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
-          fileSize: 1832040,
-          fileType: 'image/png',
-          uploadedAt: '2024-06-09T10:20:00Z',
-        },
-        {
-          fileName: 'backend-response-log.json',
-          url: 'https://cafefcdn.com/thumb_w/640/203337114487263232/2022/2/28/photo1646035428299-16460354285181819837363.png',
-          fileSize: 94328,
-          fileType: 'application/json',
-          uploadedAt: '2024-06-09T10:25:00Z',
-        },
-        {
-          fileName: 'slow-render-debug.mp4',
-          url: 'https://cdn-media.sforum.vn/storage/app/media/chitam/google-maps-ra-mat-2.jpg',
-          fileSize: 8245100,
-          fileType: 'video/mp4',
-          uploadedAt: '2024-06-09T10:35:00Z',
-          duration: 43200,
-        },
-      ],
-    };
-
     const newCaseMetaData = {
       ...(caseData?.metadata || {}),
-      ...metadata,
       reportHtml,
     };
 
