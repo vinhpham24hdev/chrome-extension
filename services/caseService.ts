@@ -154,9 +154,14 @@ class CaseService {
   }
 
   // Get all cases with filtering and pagination
-  public async getCases(filters: CaseFilters = {}): Promise<CaseItem[]> {
+  public async getCases(filters: CaseFilters = {}, token?: string): Promise<CaseItem[]> {
     try {
       console.log("📁 Getting cases with filters:", filters);
+
+
+      if(token){
+        this.authToken = token
+      }
 
       const params = new URLSearchParams();
 

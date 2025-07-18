@@ -17,6 +17,7 @@ interface AuthState {
   user: User | null;
   error: string | null;
   lastLoginTime: number | null;
+  authToken: string
 }
 
 type AuthAction =
@@ -25,7 +26,8 @@ type AuthAction =
   | { type: 'LOGIN_FAILURE'; payload: string }
   | { type: 'LOGOUT' }
   | { type: 'CLEAR_ERROR' }
-  | { type: 'UPDATE_USER'; payload: User };
+  | { type: 'UPDATE_USER'; payload: User }
+  | { type: 'SAVE_TOKEN'; payload: string };
 
 const initialState: AuthState = {
   isAuthenticated: false,
@@ -33,12 +35,19 @@ const initialState: AuthState = {
   user: null,
   error: null,
   lastLoginTime: null,
+  authToken: ''
 };
 
 function authReducer(state: AuthState, action: AuthAction): AuthState {
   switch (action.type) {
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
+
+    case 'SAVE_TOKEN':
+      return {
+        ...state,
+        authToken: action.payload
+      };
 
     case 'LOGIN_SUCCESS':
       return {
@@ -183,6 +192,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             timestamp: Date.now(),
           },
         });
+        dispatch({
+          type: 'SAVE_TOKEN',
+          payload: response.token
+        })
       } else {
         throw new Error(response.error || 'Login failed');
       }

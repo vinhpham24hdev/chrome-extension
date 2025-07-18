@@ -152,7 +152,7 @@ export default function Dashboard() {
       const fetchedCases = await caseService.getCases({
         limit: 50,
         page: 1
-      });
+      }, state.authToken);
       
       setCases(fetchedCases);
       
