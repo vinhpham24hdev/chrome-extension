@@ -166,7 +166,7 @@ export default function VideoRecorder({
     });
 
     try {
-      console.log("🎬 Uploading video to S3 via Backend API...", {
+      console.log("🎬 Preparing to upload video...", {
         filename: videoResult.filename,
         size: videoResult.size,
         caseId: caseId,
@@ -175,76 +175,163 @@ export default function VideoRecorder({
         url: videoForm.url,
       });
 
-      // ✅ Upload to S3 via Backend API with description and sourceUrl
-      const result = await s3Service.uploadFile(
-        videoResult.blob!,
-        videoResult.filename!,
-        caseId,
-        "video",
-        {
-          onProgress: (progress) => {
-            console.log(`📤 Video upload progress: ${progress.percentage}%`);
-            setUploadState((prev) => ({ ...prev, progress }));
-          },
-          onSuccess: (result) => {
-            console.log("✅ Video upload successful:", result);
-            setUploadState((prev) => ({
-              ...prev,
-              isUploading: false,
-              result,
-            }));
-          },
-          onError: (error) => {
-            console.error("❌ Video upload failed:", error);
-            setUploadState((prev) => ({
-              ...prev,
-              isUploading: false,
-              error,
-            }));
-          },
-          tags: ["video", "recording", "capture", videoForm.name],
-          metadata: {
-            capturedAt: new Date().toISOString(),
-            originalFilename: videoResult.filename,
-            description: videoForm.description,
-            sourceUrl: videoForm.url,
-            captureType: "video-recording",
-            recordingType: videoOptions.type,
-            quality: videoOptions.quality,
-            caseName: videoForm.name,
-            duration: videoResult.duration,
-          },
-          description: videoForm.description.trim() || undefined,
-          sourceUrl: videoForm.url.trim() || undefined,
-        }
-      );
+      const isCustomerTestMode =
+        import.meta.env.VITE_CUSTOMER_TEST_MODE === "true";
+      const customerBucket = import.meta.env.VITE_CUSTOMER_S3_BUCKET || "";
 
-      if (result.success) {
-        console.log("🎉 Video uploaded to S3 successfully!");
+      if (isCustomerTestMode) {
+        console.log("🧪 Using customer bucket for video upload...", {
+          bucket: customerBucket,
+          filename: videoResult.filename,
+          caseId: caseId,
+          size: videoResult.size,
+        });
 
-        // Update case metadata via real backend API
-        try {
-          const caseData = await caseService.getCaseById(caseId);
-          if (caseData && caseData.metadata) {
-            await caseService.updateCaseMetadata(caseId, {
-              totalVideos: (caseData.metadata.totalVideos || 0) + 1,
-              totalFileSize: (caseData.metadata.totalFileSize || 0) + (videoResult.size || 0),
-              lastActivity: new Date().toISOString(),
-            });
-            console.log("✅ Case metadata updated successfully");
-          }
-        } catch (metadataError) {
-          console.error("❌ Failed to update case metadata:", metadataError);
-        }
-
-        // Show success message
-        alert(
-          `Video "${videoForm.name}" added to case "${caseId}" successfully!\n\n` +
-            `Duration: ${videoService.formatDuration(videoResult.duration || 0)}\n` +
-            `Size: ${videoService.formatFileSize(videoResult.size || 0)}`
+        const { customerS3Service } = await import(
+          "../services/customerS3Service"
         );
+
+        const result = await customerS3Service.uploadFile(
+          videoResult.blob!,
+          videoResult.filename!,
+          caseId,
+          "video",
+          {
+            onProgress: (progress) => {
+              console.log(
+                `📤 Customer video upload progress: ${progress.percentage}%`
+              );
+              setUploadState((prev) => ({ ...prev, progress }));
+            },
+            onSuccess: (result) => {
+              console.log("✅ Customer video upload successful:", result);
+              setUploadState((prev) => ({
+                ...prev,
+                isUploading: false,
+                result,
+              }));
+            },
+            onError: (error) => {
+              console.error("❌ Customer video upload failed:", error);
+              setUploadState((prev) => ({
+                ...prev,
+                isUploading: false,
+                error,
+              }));
+            },
+            metadata: {
+              capturedAt: new Date().toISOString(),
+              originalFilename: videoResult.filename,
+              description: videoForm.description,
+              sourceUrl: videoForm.url,
+              captureType: "video-recording",
+              recordingType: videoOptions.type,
+              quality: videoOptions.quality,
+              caseName: videoForm.name,
+              duration: videoResult.duration,
+              testMode: "customer-bucket",
+            },
+            description: videoForm.description.trim() || undefined,
+            sourceUrl: videoForm.url.trim() || undefined,
+          }
+        );
+
+        if (result.success) {
+          console.log(
+            "🎉 Video uploaded to customer bucket successfully!"
+          );
+          alert(
+            `✅ Customer Bucket Test Successful!\n\n` +
+              `File: ${result.fileName}\n` +
+              `Bucket: ${customerBucket}\n` +
+              `Key: ${result.fileKey}\n` +
+              `Size: ${videoService.formatFileSize(result.fileSize || 0)}\n` +
+              `Duration: ${videoService.formatDuration(videoResult.duration || 0)}\n` +
+              `URL: ${result.fileUrl}`
+          );
+          onClose?.();
+        } else {
+          throw new Error(result.error || "Customer bucket upload failed");
+        }
       } else {
-        throw new Error(result.error || "Upload failed");
+        console.log("🚀 Using backend S3 service for video...", {
+          filename: videoResult.filename,
+          caseId: caseId,
+          size: videoResult.size,
+        });
+
+        // ✅ Backend S3 upload with description and sourceUrl
+        const result = await s3Service.uploadFile(
+          videoResult.blob!,
+          videoResult.filename!,
+          caseId,
+          "video",
+          {
+            onProgress: (progress) => {
+              console.log(`📤 Backend video upload progress: ${progress.percentage}%`);
+              setUploadState((prev) => ({ ...prev, progress }));
+            },
+            onSuccess: (result) => {
+              console.log("✅ Backend video upload successful:", result);
+              setUploadState((prev) => ({
+                ...prev,
+                isUploading: false,
+                result,
+              }));
+            },
+            onError: (error) => {
+              console.error("❌ Backend video upload failed:", error);
+              setUploadState((prev) => ({
+                ...prev,
+                isUploading: false,
+                error,
+              }));
+            },
+            tags: ["video", "recording", "capture", videoForm.name],
+            metadata: {
+              capturedAt: new Date().toISOString(),
+              originalFilename: videoResult.filename,
+              description: videoForm.description,
+              sourceUrl: videoForm.url,
+              captureType: "video-recording",
+              recordingType: videoOptions.type,
+              quality: videoOptions.quality,
+              caseName: videoForm.name,
+              duration: videoResult.duration,
+            },
+            description: videoForm.description.trim() || undefined,
+            sourceUrl: videoForm.url.trim() || undefined,
+          }
+        );
+
+        if (result.success) {
+          console.log("🎉 Video uploaded to backend S3 successfully!");
+
+          // Update case metadata via real backend API
+          try {
+            const caseData = await caseService.getCaseById(caseId);
+            if (caseData && caseData.metadata) {
+              await caseService.updateCaseMetadata(caseId, {
+                totalVideos: (caseData.metadata.totalVideos || 0) + 1,
+                totalFileSize: (caseData.metadata.totalFileSize || 0) + (videoResult.size || 0),
+                lastActivity: new Date().toISOString(),
+              });
+              console.log("✅ Case metadata updated successfully");
+            }
+          } catch (metadataError) {
+            console.error("❌ Failed to update case metadata:", metadataError);
+          }
+
+          // Show success message
+          alert(
+            `Video "${videoForm.name}" added to case "${caseId}" successfully!\n\n` +
+              `Duration: ${videoService.formatDuration(videoResult.duration || 0)}\n` +
+              `Size: ${videoService.formatFileSize(videoResult.size || 0)}`
+          );
+          onClose?.();
+        } else {
+          throw new Error(result.error || "Backend upload failed");
+        }
       }
     } catch (error) {
       console.error("❌ Video upload process failed:", error);
