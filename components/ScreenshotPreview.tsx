@@ -103,26 +103,6 @@ export default function ScreenshotPreview({
     } catch (error) {
       console.error("❌ Failed to load cases for screenshot preview:", error);
       setCasesError("Failed to load cases from backend");
-
-      // Fallback to mock cases if backend fails
-      const mockCases = [
-        {
-          id: "Case-120320240830",
-          title: "Website Bug Investigation",
-          status: "active" as const,
-        },
-        {
-          id: "Case-120320240829",
-          title: "Performance Issue Analysis",
-          status: "pending" as const,
-        },
-        {
-          id: "Case-120320240828",
-          title: "User Experience Review",
-          status: "active" as const,
-        },
-      ];
-      setCases(mockCases as CaseItem[]);
     } finally {
       setLoadingCases(false);
     }
@@ -205,10 +185,6 @@ export default function ScreenshotPreview({
               } - ${prev.name}`
             : prev.name,
         }));
-
-        if (detectedUrl) {
-          loadUrlSuggestions(detectedUrl);
-        }
       } catch (error) {
         console.error("Error detecting page info:", error);
         setFormData((prev) => ({
@@ -220,48 +196,6 @@ export default function ScreenshotPreview({
 
     detectCurrentPageInfo();
   }, [screenshot]);
-
-  const loadUrlSuggestions = async (currentUrl: string) => {
-    try {
-      const domain = new URL(currentUrl).hostname;
-      const { s3Service } = await import("../services/s3Service");
-
-      const searchResults = await s3Service.searchFiles(domain, {
-        limit: 5,
-      });
-
-      const suggestions = searchResults.results
-        .map((file) => file.sourceUrl)
-        .filter((url: string) => url && url !== currentUrl)
-        .slice(0, 3);
-
-    } catch (error) {
-      console.warn("Failed to load URL suggestions:", error);
-    }
-  };
-
-  const loadDescriptionSuggestions = async (query: string) => {
-    if (query.length < 3) return;
-
-    try {
-      const { s3Service } = await import("../services/s3Service");
-
-      const searchResults = await s3Service.searchFiles(query, {
-        captureType: "screenshot",
-        limit: 5,
-      });
-
-      const suggestions = searchResults.results
-        .map((file) => file.description)
-        .filter(
-          (desc: string) =>
-            desc && desc.toLowerCase().includes(query.toLowerCase())
-        )
-        .slice(0, 3);
-    } catch (error) {
-      console.warn("Failed to load description suggestions:", error);
-    }
-  };
 
   // Detect image dimensions and type
   useEffect(() => {
@@ -407,7 +341,6 @@ export default function ScreenshotPreview({
               pageTitle: screenshot.metadata?.pageTitle,
               viewportSize: screenshot.metadata?.viewportSize,
             },
-            // ✅ NEW: Pass description and sourceUrl to upload
             description: formData.description.trim() || undefined,
             sourceUrl: formData.url.trim() || undefined,
           }

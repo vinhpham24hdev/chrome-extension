@@ -9,7 +9,6 @@ import {
 } from "react-icons/fa6";
 import { FaExpandAlt } from "react-icons/fa";
 
-import { VideoResult } from "../services/videoService";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
 import { caseService } from "../services/caseService";
 

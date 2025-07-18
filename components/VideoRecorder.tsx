@@ -256,31 +256,6 @@ export default function VideoRecorder({
     }
   };
 
-  const handleDownloadVideo = () => {
-    if (videoResult && videoResult.blob && videoResult.filename) {
-      const url = URL.createObjectURL(videoResult.blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = videoResult.filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }
-  };
-
-  const handleRetakeVideo = () => {
-    setVideoResult(null);
-    setError(null);
-    setUploadState({
-      isUploading: false,
-      progress: null,
-      result: null,
-      error: null,
-    });
-    // Reset to initial state
-  };
-
   const handleCancelRecording = () => {
     recordingControls?.cancel();
     setRecordingControls(null);
