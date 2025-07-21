@@ -163,7 +163,8 @@ class S3Service {
     actualFileSize: number,
     checksum?: string,
     description?: string,    // ✅ NEW
-    sourceUrl?: string       // ✅ NEW
+    sourceUrl?: string   ,
+    caseId?: string       // ✅ NEW
   ): Promise<void> {
     console.log("✅ Confirming upload with backend...");
 
@@ -175,8 +176,9 @@ class S3Service {
         actualFileSize,
         checksum,
         uploadMethod: "PUT",
-        description,    // ✅ NEW
-        sourceUrl,      // ✅ NEW
+        description, // ✅ NEW
+        sourceUrl,
+        caseId, 
       }),
     });
 
@@ -251,7 +253,8 @@ class S3Service {
               file.size,
               undefined, // checksum
               options.description,  // ✅ NEW
-              options.sourceUrl     // ✅ NEW
+              options.sourceUrl, 
+              caseId,     // ✅ NEW
             );
 
             const uploadTime = Date.now() - start;

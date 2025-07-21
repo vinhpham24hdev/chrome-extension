@@ -18,16 +18,9 @@ export default function CaseReportApp() {
 
   const loadCaseData = async (caseId: string) => {
     try {
-      const fetchedCases = await caseService.getCases({
-        limit: 50,
-        page: 1,
-      });
-      const currentCase = fetchedCases.find(
-        (caseItem) => caseItem.id === caseId
-      );
+      const currentCase = await caseService.getCaseById(caseId);
+      const files = await caseService.getCaseFiles(caseId);
       if (currentCase) {
-        console.log({ fetchedCases });
-
         setCaseData(currentCase);
         setReportHtml(currentCase?.metadata?.reportHtml || '');
       }
