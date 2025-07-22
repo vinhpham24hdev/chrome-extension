@@ -15,7 +15,7 @@ export interface CaseItem {
   status: "active" | "pending" | "closed" | "archived";
   priority: "low" | "medium" | "high" | "critical";
   createdAt: string;
-  updatedAt?: string;
+  updated_at?: string;
   assignedTo?: string;
   tags?: string[];
   metadata?: {
