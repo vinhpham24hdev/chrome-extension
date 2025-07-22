@@ -16,6 +16,7 @@ export interface CaseItem {
   priority: "low" | "medium" | "high" | "critical";
   createdAt: string;
   updated_at?: string;
+  updatedAt?: string;
   assignedTo?: string;
   tags?: string[];
   metadata?: {
