@@ -5,6 +5,7 @@ import ReactQuill, { Quill } from 'react-quill-new';
 import { Button } from '@mui/material';
 import ImageResize from 'quill-image-resize-module-react';
 import { produce } from 'immer';
+import { Download } from 'lucide-react';
 
 Quill.register('modules/imageResize', ImageResize);
 
@@ -43,7 +44,6 @@ export default function CaseReportApp() {
     try {
       await caseService.updateCaseMetadata(caseId, newCaseMetaData);
       await loadCaseData(caseId);
-      alert('Saved !');
     } catch (error) {
       alert('Error');
     }
@@ -51,6 +51,8 @@ export default function CaseReportApp() {
 
   useEffect(() => {
     chrome.runtime.onMessage.addListener((message) => {
+      console.log({ message });
+
       if (message.type === 'LOAD_CASE_DATA') {
         setCaseData((prev) =>
           produce(prev, (draft: any) => {
@@ -60,6 +62,10 @@ export default function CaseReportApp() {
             }
           })
         );
+      }
+
+      if (message.type === 'SAVE_SCREENSHOT' && caseId) {
+        handleSaveReport();
       }
     });
   }, []);
@@ -85,7 +91,7 @@ export default function CaseReportApp() {
                 `img[src="${url}"]`
               ) as HTMLImageElement;
               if (img) {
-                img.style.maxWidth = '400px';
+                img.style.maxWidth = '800px';
                 img.style.width = '100%';
               }
             }, 100);
@@ -105,23 +111,48 @@ export default function CaseReportApp() {
           gridTemplateColumns: 'auto auto auto',
           alignItems: 'center',
           padding: '0 24px',
+          background: '#121E28E5',
+          color: 'white',
         }}
       >
-        <h1>{caseData.caseInfo.title}</h1>
-        <p style={{ color: '#959494' }}>
+        <h3>{caseData.caseInfo.title}</h3>
+        <p style={{ color: '#959494', textAlign: 'center' }}>
           Document saved: {caseData.caseInfo.updated_at}
         </p>
-        <Button
-          sx={{ marginLeft: 'auto' }}
-          size="small"
-          variant="contained"
-          onClick={handleSaveReport}
+        <div
+          style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            gap: '12px',
+          }}
         >
-          Save
-        </Button>
+          <Button
+            sx={{ color: 'white', fontSize: '12px' }}
+            size="small"
+            variant="outlined"
+            onClick={handleSaveReport}
+          >
+            Save
+          </Button>
+          <Button
+            sx={{ color: 'white', fontSize: '12px' }}
+            size="small"
+            variant="outlined"
+            startIcon={<Download />}
+          >
+            Download
+          </Button>
+        </div>
       </div>
 
-      <div style={{ display: 'flex' }}>
+      <div
+        style={{
+          display: 'flex',
+          paddingInline: '15%',
+          height: 'calc(100vh - 45px)',
+          overflow: 'auto',
+        }}
+      >
         <div style={{ padding: '0 12px', flex: 1 }}>
           <ReactQuill
             theme="snow"
@@ -143,22 +174,26 @@ export default function CaseReportApp() {
         <aside
           style={{
             overflow: 'auto',
-            height: 'calc(100vh - 110px)',
             background: '#5E6974',
             padding: '24px',
             color: 'white',
-            width: '45%',
+            width: '350px',
           }}
         >
           <div className="text-sm font-medium mb-2">
             Captured by: <span className="font-light">All</span>
           </div>
-          <div style={{ fontSize: '20px', fontWeight: '700' }}>
+          <div
+            style={{ fontSize: '20px', fontWeight: '700', marginTop: '24px' }}
+          >
             Snapshots and highlights
           </div>
           <div style={{ margin: '12px 0' }}>
             {caseData.caseFiles?.map((f, i) => (
-              <div key={i} style={{ marginBottom: '8px' }}>
+              <div
+                key={i}
+                style={{ marginBottom: '16px', position: 'relative' }}
+              >
                 <img
                   draggable
                   onDragStart={(e) => {
@@ -173,7 +208,18 @@ export default function CaseReportApp() {
                     borderRadius: '4px',
                   }}
                 />
-                <div style={{ padding: '4px', fontSize: '14px' }}>
+                <div
+                  style={{
+                    padding: '4px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    position: 'absolute',
+                    bottom: '3px',
+                    background: '#00000088',
+                    color: 'white',
+                    fontWeight: 700,
+                  }}
+                >
                   {f.file_name}
                 </div>
               </div>

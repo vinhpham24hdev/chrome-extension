@@ -32,7 +32,7 @@ const ErrorModal = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[100vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <div className="flex items-center space-x-3">
@@ -960,7 +960,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="w-[402px] min-h-[380px] bg-white flex flex-col relative">
+    <div className={`w-[402px] bg-white flex flex-col relative ${errorModal.isOpen ? 'min-h-[470px]' : 'min-h-[380px]'}`}>
       {/* Enhanced Error Modal */}
       <ErrorModal
         isOpen={errorModal.isOpen}

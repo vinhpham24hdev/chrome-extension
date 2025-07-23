@@ -9,9 +9,43 @@
       margin: 0 !important;
     }
 
+    /* width */
+    ::-webkit-scrollbar {
+      width: 5px;
+      border-radius: 4px;
+    }
+
+    /* Track */
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    /* Handle */
+    ::-webkit-scrollbar-thumb {
+      background: #C5CCD6;
+      border-radius: 10px
+    }
+
+    /* Handle on hover */
+    ::-webkit-scrollbar-thumb:hover {
+      background: #a8b1bd;
+    }
+
+    .ql-toolbar,
+    .ql-container {
+      border-color: #cecece78 !important;
+      background: white !important;
+    }
+
+    .ql-container {
+      max-width: 100%;
+      word-break: break-word;
+    }
+
     .ql-editor {
-      max-height: calc(100vh - 130px);
-      overflow: 'auto';
+      height: calc(100vh - 89px) !important;
+      max-height: calc(100vh - 89px) !important;
+      overflow: auto !important;
     }
   </style>
   <link href="https://cdn.jsdelivr.net/npm/react-quill-new@3.4.6/dist/quill.snow.min.css" rel="stylesheet">
