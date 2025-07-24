@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import VideoPreview, { VideoData } from './VideoPreview';
-
+import { ToastContainer } from './ToastContainer';
 interface PreviewWindowState {
   video: VideoData | null;
   isLoading: boolean;
@@ -13,7 +13,7 @@ function VideoPreviewWindow() {
   const [state, setState] = useState<PreviewWindowState>({
     video: null,
     isLoading: true,
-    error: null
+    error: null,
   });
 
   useEffect(() => {
@@ -30,16 +30,19 @@ function VideoPreviewWindow() {
     loadVideoData();
 
     // Listen for messages from popup window
-    const messageListener = (message: any, sender: chrome.runtime.MessageSender) => {
+    const messageListener = (
+      message: any,
+      sender: chrome.runtime.MessageSender
+    ) => {
       if (message.type === 'VIDEO_DATA') {
-        setState(prev => ({
+        setState((prev) => ({
           ...prev,
           video: message.data,
           isLoading: false,
-          error: null
+          error: null,
         }));
       }
-      
+
       if (message.type === 'CLOSE_PREVIEW') {
         window.close();
       }
@@ -54,11 +57,13 @@ function VideoPreviewWindow() {
     const handleBeforeUnload = () => {
       // Notify popup that preview window is closing
       if (typeof chrome !== 'undefined' && chrome.runtime) {
-        chrome.runtime.sendMessage({
-          type: 'PREVIEW_WINDOW_CLOSED'
-        }).catch(() => {
-          // Ignore errors if popup is closed
-        });
+        chrome.runtime
+          .sendMessage({
+            type: 'PREVIEW_WINDOW_CLOSED',
+          })
+          .catch(() => {
+            // Ignore errors if popup is closed
+          });
       }
     };
 
@@ -335,7 +340,7 @@ function VideoPreviewWindow() {
     const styleElement = document.createElement('style');
     styleElement.textContent = css;
     document.head.appendChild(styleElement);
-    
+
     console.log('Enhanced CSS injected into video preview window');
   };
 
@@ -344,21 +349,23 @@ function VideoPreviewWindow() {
       // Try to get data from URL parameters first
       const urlParams = new URLSearchParams(window.location.search);
       const videoId = urlParams.get('id');
-      
+
       if (videoId) {
         // Get data from Chrome storage
         if (typeof chrome !== 'undefined' && chrome.storage) {
-          const result = await chrome.storage.local.get([`video_preview_${videoId}`]);
+          const result = await chrome.storage.local.get([
+            `video_preview_${videoId}`,
+          ]);
           const data = result[`video_preview_${videoId}`];
-          
+
           if (data) {
-            setState(prev => ({
+            setState((prev) => ({
               ...prev,
               video: data,
               isLoading: false,
-              error: null
+              error: null,
             }));
-            
+
             // Clean up storage after loading
             chrome.storage.local.remove([`video_preview_${videoId}`]);
             return;
@@ -367,18 +374,17 @@ function VideoPreviewWindow() {
       }
 
       // If no data found, wait for message from popup
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         isLoading: true,
-        error: null
+        error: null,
       }));
-
     } catch (error) {
       console.error('Failed to load video data:', error);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         isLoading: false,
-        error: error instanceof Error ? error.message : 'Failed to load video'
+        error: error instanceof Error ? error.message : 'Failed to load video',
       }));
     }
   };
@@ -388,10 +394,10 @@ function VideoPreviewWindow() {
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({
         type: 'SAVE_VIDEO',
-        data: state.video
+        data: state.video,
       });
     }
-    
+
     // Close window after save
     setTimeout(() => {
       window.close();
@@ -415,10 +421,10 @@ function VideoPreviewWindow() {
     // Send retake request back to popup
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({
-        type: 'RETAKE_VIDEO'
+        type: 'RETAKE_VIDEO',
       });
     }
-    
+
     window.close();
   };
 
@@ -483,7 +489,12 @@ export function initializeVideoPreviewApp() {
     const rootElement = document.getElementById('root');
     if (rootElement) {
       const root = createRoot(rootElement);
-      root.render(<VideoPreviewWindow />);
+      root.render(
+        <>
+          <ToastContainer />
+          <VideoPreviewWindow />
+        </>
+      );
     }
   };
 

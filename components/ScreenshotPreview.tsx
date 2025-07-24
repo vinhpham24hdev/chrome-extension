@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { isEmpty } from "lodash";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
 import { caseService, CaseItem } from "../services/caseService";
+import { toast } from "react-toastify";
 
 export interface ScreenshotData {
   dataUrl: string;
@@ -255,12 +256,12 @@ export default function ScreenshotPreview({
 
   const handleAddToCaseClick = async () => {
     if (!formData.name.trim()) {
-      alert("Please enter a name for the screenshot");
+      toast.error("Please enter a name for the screenshot");
       return;
     }
 
     if (!formData.selectedCase) {
-      alert("Please select a case");
+      toast.error("Please select a case");
       return;
     }
 
@@ -280,7 +281,7 @@ export default function ScreenshotPreview({
         blob = await response.blob();
       }
       if (!blob) {
-        return alert("Failed to get screenshot blob");
+        return toast.error("Failed to get screenshot blob");
       }
 
       console.log("📸 Preparing to upload screenshot...", blob, screenshot);
@@ -350,14 +351,7 @@ export default function ScreenshotPreview({
           console.log(
             "🎉 Screenshot uploaded to customer bucket successfully!"
           );
-          alert(
-            `✅ Customer Bucket Test Successful!\n\n` +
-              `File: ${result.fileName}\n` +
-              `Bucket: ${customerBucket}\n` +
-              `Key: ${result.fileKey}\n` +
-              `Size: ${(result.fileSize! / 1024).toFixed(1)} KB\n` +
-              `URL: ${result.fileUrl}`
-          );
+          toast.success(`✅ Customer Bucket Test Successful!\n\n`)
           onSave();
         } else {
           throw new Error(result.error || "Customer bucket upload failed");
@@ -442,9 +436,7 @@ export default function ScreenshotPreview({
           const selectedCaseName =
             cases.find((c) => c.id === formData.selectedCase)?.title ||
             formData.selectedCase;
-          alert(
-            `Screenshot "${formData.name}" added to case "${selectedCaseName}" successfully!`
-          );
+          toast.success(`Screenshot added to case successfully!`);
 
           onSave();
         } else {
@@ -559,7 +551,7 @@ export default function ScreenshotPreview({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center space-x-4">
-            <h2 className="text-lg font-medium text-gray-900">{snapshotId}</h2>
+            <h2 className="text-lg font-medium text-gray-900 mr-2">{snapshotId}</h2>
 
             {/* Image Type Badge */}
             {isFullPage && (
@@ -571,7 +563,7 @@ export default function ScreenshotPreview({
             {/* Image Dimensions */}
             {imageLoaded && (
               <span className="text-sm text-gray-500">
-                {imageDimensions.width} × {imageDimensions.height}px
+                {imageDimensions.width}px × {imageDimensions.height}px
               </span>
             )}
 

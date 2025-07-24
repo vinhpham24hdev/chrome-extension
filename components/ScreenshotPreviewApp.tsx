@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
+import { ToastContainer } from "./ToastContainer";
 
 interface PreviewWindowState {
   screenshot: ScreenshotData | null;
@@ -555,7 +556,11 @@ export function initializeScreenPreviewApp() {
     const rootElement = document.getElementById("root");
     if (rootElement) {
       const root = createRoot(rootElement);
-      root.render(<ScreenshotPreviewWindow />);
+      root.render(
+      <>
+        <ToastContainer />
+        <ScreenshotPreviewWindow />
+      </>);
     }
   };
 

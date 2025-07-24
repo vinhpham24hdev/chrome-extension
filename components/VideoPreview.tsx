@@ -11,6 +11,7 @@ import { FaExpandAlt } from "react-icons/fa";
 
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
 import { caseService } from "../services/caseService";
+import { toast } from "react-toastify";
 
 export interface VideoData {
   blob: Blob;
@@ -142,7 +143,7 @@ export default function VideoPreview({
   // ✅ UPDATED: Add to case with S3 integration (keeping original logic)
   const handleAddToCase = async () => {
     if (!caseForm.name.trim()) {
-      alert("Please enter a name for this video");
+      toast.error("Please enter a name for this video");
       return;
     }
 
@@ -224,7 +225,7 @@ export default function VideoPreview({
         }
 
         // Show success message and call original onSave
-        alert(`Video "${caseForm.name}" added to case "${video.caseId}" successfully!`);
+        toast.error(`Video "${caseForm.name}" added to case "${video.caseId}" successfully!`);
         onSave();
       } else {
         throw new Error(result.error || "Upload failed");

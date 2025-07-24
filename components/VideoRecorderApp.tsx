@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import VideoRecorder from './VideoRecorder';
 import { VideoResult } from '../services/videoService';
+import { ToastContainer } from './ToastContainer';
 
 interface RecorderWindowState {
   caseId: string | null;
@@ -18,7 +19,7 @@ function VideoRecorderWindow() {
     options: {},
     autoStart: false,
     isLoading: true,
-    error: null
+    error: null,
   });
 
   useEffect(() => {
@@ -35,21 +36,24 @@ function VideoRecorderWindow() {
     loadRecordingData();
 
     // Listen for messages from popup window
-    const messageListener = (message: any, sender: chrome.runtime.MessageSender) => {
+    const messageListener = (
+      message: any,
+      sender: chrome.runtime.MessageSender
+    ) => {
       console.log('🎬 Recorder received message:', message);
-      
+
       if (message.type === 'RECORDING_DATA') {
         console.log('📝 Received recording data:', message.data);
-        setState(prev => ({
+        setState((prev) => ({
           ...prev,
           caseId: message.data.caseId,
           options: message.data.options || {},
           autoStart: message.data.autoStart || false,
           isLoading: false,
-          error: null
+          error: null,
         }));
       }
-      
+
       if (message.type === 'CLOSE_RECORDER') {
         console.log('🔐 Received close recorder command');
         window.close();
@@ -66,13 +70,15 @@ function VideoRecorderWindow() {
       console.log('📄 Recorder window closing, notifying popup...');
       // Notify popup that recording window is closing
       if (typeof chrome !== 'undefined' && chrome.runtime) {
-        chrome.runtime.sendMessage({
-          type: 'RECORDING_WINDOW_CLOSED',
-          timestamp: Date.now()
-        }).catch(() => {
-          // Ignore errors if popup is closed
-          console.log('⚠️ Could not notify popup (popup may be closed)');
-        });
+        chrome.runtime
+          .sendMessage({
+            type: 'RECORDING_WINDOW_CLOSED',
+            timestamp: Date.now(),
+          })
+          .catch(() => {
+            // Ignore errors if popup is closed
+            console.log('⚠️ Could not notify popup (popup may be closed)');
+          });
       }
     };
 
@@ -89,9 +95,11 @@ function VideoRecorderWindow() {
 
     // Add page title and favicon for better tab experience
     document.title = '🎬 Video Recorder - Cellebrite';
-    
+
     // Add favicon if available
-    const favicon = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
+    const favicon = document.querySelector(
+      "link[rel*='icon']"
+    ) as HTMLLinkElement;
     if (favicon) {
       favicon.href = chrome.runtime.getURL('assets/react.svg');
     }
@@ -473,7 +481,7 @@ function VideoRecorderWindow() {
     const styleElement = document.createElement('style');
     styleElement.textContent = css;
     document.head.appendChild(styleElement);
-    
+
     console.log('✨ Enhanced CSS injected into video recorder tab');
   };
 
@@ -482,26 +490,28 @@ function VideoRecorderWindow() {
       // Try to get data from URL parameters first
       const urlParams = new URLSearchParams(window.location.search);
       const recordingId = urlParams.get('id');
-      
+
       console.log('🔍 Loading recording data for ID:', recordingId);
-      
+
       if (recordingId) {
         // Get data from Chrome storage
         if (typeof chrome !== 'undefined' && chrome.storage) {
-          const result = await chrome.storage.local.get([`video_recording_${recordingId}`]);
+          const result = await chrome.storage.local.get([
+            `video_recording_${recordingId}`,
+          ]);
           const data = result[`video_recording_${recordingId}`];
-          
+
           if (data) {
             console.log('✅ Recording data loaded from storage:', data);
-            setState(prev => ({
+            setState((prev) => ({
               ...prev,
               caseId: data.caseId,
               options: data.options || {},
               autoStart: data.autoStart || false,
               isLoading: false,
-              error: null
+              error: null,
             }));
-            
+
             // Clean up storage after loading
             chrome.storage.local.remove([`video_recording_${recordingId}`]);
             return;
@@ -511,38 +521,43 @@ function VideoRecorderWindow() {
 
       // If no data found, wait for message from popup
       console.log('⏳ No stored data found, waiting for popup message...');
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         isLoading: true,
-        error: null
+        error: null,
       }));
-
     } catch (error) {
       console.error('❌ Failed to load recording data:', error);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         isLoading: false,
-        error: error instanceof Error ? error.message : 'Failed to load recording data'
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to load recording data',
       }));
     }
   };
 
   const handleVideoCapture = (result: VideoResult) => {
     console.log('🎬 Video capture completed:', result);
-    
+
     // Send video capture result back to popup
     if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({
-        type: 'VIDEO_RECORDED',
-        data: result,
-        timestamp: Date.now()
-      }).then(() => {
-        console.log('📤 Video result sent to popup successfully');
-      }).catch(error => {
-        console.error('❌ Failed to send video result to popup:', error);
-      });
+      chrome.runtime
+        .sendMessage({
+          type: 'VIDEO_RECORDED',
+          data: result,
+          timestamp: Date.now(),
+        })
+        .then(() => {
+          console.log('📤 Video result sent to popup successfully');
+        })
+        .catch((error) => {
+          console.error('❌ Failed to send video result to popup:', error);
+        });
     }
-    
+
     // Close recorder tab after a short delay
     setTimeout(() => {
       console.log('📄 Closing recorder tab...');
@@ -552,17 +567,19 @@ function VideoRecorderWindow() {
 
   const handleClose = () => {
     console.log('🔐 Closing recorder tab (user action)...');
-    
+
     // Notify popup about cancellation
     if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({
-        type: 'RECORDING_CANCELLED',
-        timestamp: Date.now()
-      }).catch(() => {
-        console.log('⚠️ Could not notify popup about cancellation');
-      });
+      chrome.runtime
+        .sendMessage({
+          type: 'RECORDING_CANCELLED',
+          timestamp: Date.now(),
+        })
+        .catch(() => {
+          console.log('⚠️ Could not notify popup about cancellation');
+        });
     }
-    
+
     window.close();
   };
 
@@ -572,7 +589,9 @@ function VideoRecorderWindow() {
       <div className="loading-container">
         <div className="loading-card">
           <div className="spinner"></div>
-          <div className="text-xl font-semibold mb-2">🎬 Setting up video recorder...</div>
+          <div className="text-xl font-semibold mb-2">
+            🎬 Setting up video recorder...
+          </div>
           <div className="text-gray-600">
             Please wait while we prepare the recording interface for you...
           </div>
@@ -587,7 +606,9 @@ function VideoRecorderWindow() {
       <div className="error-container">
         <div className="error-card">
           <div className="text-6xl mb-4">⚠️</div>
-          <div className="text-xl font-semibold text-red-900 mb-2">Failed to load recorder</div>
+          <div className="text-xl font-semibold text-red-900 mb-2">
+            Failed to load recorder
+          </div>
           <div className="text-red-700 mb-6">{state.error}</div>
           <div className="space-x-4">
             <button
@@ -655,7 +676,12 @@ export function initializeRecorderApp() {
     const rootElement = document.getElementById('root');
     if (rootElement) {
       const root = createRoot(rootElement);
-      root.render(<VideoRecorderWindow />);
+      root.render(
+        <>
+          <ToastContainer />
+          <VideoRecorderWindow />
+        </>
+      );
       console.log('✅ Video recorder app initialized successfully');
     } else {
       console.error('❌ Root element not found');

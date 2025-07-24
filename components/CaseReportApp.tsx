@@ -6,6 +6,8 @@ import { Button } from '@mui/material';
 import ImageResize from 'quill-image-resize-module-react';
 import { produce } from 'immer';
 import { Download } from 'lucide-react';
+import { ToastContainer } from './ToastContainer';
+import { toast } from 'react-toastify';
 
 Quill.register('modules/imageResize', ImageResize);
 
@@ -45,7 +47,7 @@ export default function CaseReportApp() {
       await caseService.updateCaseMetadata(caseId, newCaseMetaData);
       await loadCaseData(caseId);
     } catch (error) {
-      alert('Error');
+      toast.error('Fail to save report');
     }
   };
 
@@ -194,20 +196,29 @@ export default function CaseReportApp() {
                 key={i}
                 style={{ marginBottom: '16px', position: 'relative' }}
               >
-                <img
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData('text/plain', f.file_url);
-                    e.dataTransfer.setData('fileName', f.file_name);
-                  }}
-                  src={f.file_url}
-                  alt={f.file_name}
-                  style={{
-                    width: '100%',
-                    objectFit: 'cover',
-                    borderRadius: '4px',
-                  }}
-                />
+                {f.capture_type === 'video' ? (
+                  <>
+                    <video width="345" height="240" controls>
+                      <source src={f.file_url} type="video/mp4" />
+                      Your browser does not support the video tag.
+                    </video>
+                  </>
+                ) : (
+                  <img
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', f.file_url);
+                      e.dataTransfer.setData('fileName', f.file_name);
+                    }}
+                    src={f.file_url}
+                    alt={f.file_name}
+                    style={{
+                      width: '100%',
+                      objectFit: 'cover',
+                      borderRadius: '4px',
+                    }}
+                  />
+                )}
                 <div
                   style={{
                     padding: '4px',
@@ -275,7 +286,12 @@ export function initializeCaseReportApp() {
     const rootElement = document.getElementById('root');
     if (rootElement) {
       const root = createRoot(rootElement);
-      root.render(<CaseReportApp />);
+      root.render(
+        <>
+          <ToastContainer />
+          <CaseReportApp />
+        </>
+      );
     }
   };
 

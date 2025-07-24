@@ -11,6 +11,7 @@ import {
 } from "../services/videoService";
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
 import { caseService } from "../services/caseService";
+import { toast } from "react-toastify";
 
 interface VideoRecorderProps {
   caseId: string;
@@ -154,7 +155,7 @@ export default function VideoRecorder({
   // ✅ UPDATED: Enhanced save video with S3 upload (keeping original logic)
   const handleSaveVideo = async () => {
     if (!videoResult || !videoForm.name.trim()) {
-      alert("Please enter a name for this video");
+      toast.error("Please enter a name for this video");
       return;
     }
 
@@ -240,15 +241,7 @@ export default function VideoRecorder({
           console.log(
             "🎉 Video uploaded to customer bucket successfully!"
           );
-          alert(
-            `✅ Customer Bucket Test Successful!\n\n` +
-              `File: ${result.fileName}\n` +
-              `Bucket: ${customerBucket}\n` +
-              `Key: ${result.fileKey}\n` +
-              `Size: ${videoService.formatFileSize(result.fileSize || 0)}\n` +
-              `Duration: ${videoService.formatDuration(videoResult.duration || 0)}\n` +
-              `URL: ${result.fileUrl}`
-          );
+          toast.success(`✅ Customer Bucket Test Successful!\n\n`);
           onClose?.();
         } else {
           throw new Error(result.error || "Customer bucket upload failed");
@@ -323,11 +316,7 @@ export default function VideoRecorder({
           }
 
           // Show success message
-          alert(
-            `Video "${videoForm.name}" added to case "${caseId}" successfully!\n\n` +
-              `Duration: ${videoService.formatDuration(videoResult.duration || 0)}\n` +
-              `Size: ${videoService.formatFileSize(videoResult.size || 0)}`
-          );
+          toast.success(`Video "${videoForm.name}" added to case "${caseId}" successfully!`);
           onClose?.();
         } else {
           throw new Error(result.error || "Backend upload failed");
