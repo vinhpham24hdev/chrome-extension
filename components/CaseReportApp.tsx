@@ -46,6 +46,7 @@ export default function CaseReportApp() {
     try {
       await caseService.updateCaseMetadata(caseId, newCaseMetaData);
       await loadCaseData(caseId);
+      toast.success('Report saved !');
     } catch (error) {
       toast.error('Fail to save report');
     }

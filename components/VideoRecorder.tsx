@@ -317,7 +317,11 @@ export default function VideoRecorder({
 
           // Show success message
           toast.success(`Video "${videoForm.name}" added to case "${caseId}" successfully!`);
-          onClose?.();
+
+          setTimeout(() => {
+            onClose?.();
+          }, 2000)
+          
         } else {
           throw new Error(result.error || "Backend upload failed");
         }
