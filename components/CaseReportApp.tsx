@@ -12,7 +12,7 @@ import { CustomVideoBlot } from './CustomVideoBlot';
 
 Quill.register('modules/imageResize', ImageResize);
 
-Quill.register(CustomVideoBlot);
+Quill.register('formats/video', CustomVideoBlot);
 
 type CaseData = {
   caseInfo: CaseItem | null;
