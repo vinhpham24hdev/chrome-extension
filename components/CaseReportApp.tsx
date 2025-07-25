@@ -8,8 +8,11 @@ import { produce } from 'immer';
 import { Download } from 'lucide-react';
 import { ToastContainer } from './ToastContainer';
 import { toast } from 'react-toastify';
+import { CustomVideoBlot } from './CustomVideoBlot';
 
 Quill.register('modules/imageResize', ImageResize);
+
+Quill.register(CustomVideoBlot);
 
 type CaseData = {
   caseInfo: CaseItem | null;
@@ -84,18 +87,32 @@ export default function CaseReportApp() {
       if (editor && editorRoot) {
         editorRoot.addEventListener('drop', (e: DragEvent) => {
           e.preventDefault();
-          const url = e.dataTransfer?.getData('text/uri-list');
+          const url = e.dataTransfer?.getData('text/plain');
+          const fileType = e.dataTransfer?.getData('captureType');
           if (url) {
+            const isVideo = fileType?.includes('video');
+            const embedType = isVideo ? 'video' : 'image';
             const range = editor.getSelection(true);
-            editor.insertEmbed(range.index, 'image', url);
+            editor.insertEmbed(range.index, embedType, url);
             editor.setSelection(range.index + 1);
+
             setTimeout(() => {
-              const img = document.querySelector(
-                `img[src="${url}"]`
-              ) as HTMLImageElement;
-              if (img) {
-                img.style.maxWidth = '800px';
-                img.style.width = '100%';
+              if (embedType === 'image') {
+                const img = document.querySelector(
+                  `img[src="${url}"]`
+                ) as HTMLImageElement;
+                if (img) {
+                  img.style.maxWidth = '800px';
+                  img.style.width = '100%';
+                }
+              } else if (embedType === 'video') {
+                const iframe = document.querySelector(
+                  `iframe[src="${url}"]`
+                ) as HTMLIFrameElement;
+                if (iframe) {
+                  iframe.style.maxWidth = '800px';
+                  iframe.style.width = '100%';
+                }
               }
             }, 100);
           }
@@ -151,12 +168,11 @@ export default function CaseReportApp() {
       <div
         style={{
           display: 'flex',
-          paddingInline: '15%',
           height: 'calc(100vh - 45px)',
           overflow: 'auto',
         }}
       >
-        <div style={{ padding: '0 12px', flex: 1 }}>
+        <div style={{ flex: 1 }}>
           <ReactQuill
             theme="snow"
             ref={quillRef}
@@ -180,14 +196,23 @@ export default function CaseReportApp() {
             background: '#5E6974',
             padding: '24px',
             color: 'white',
-            width: '350px',
+            width: '400px',
+            direction: 'rtl',
           }}
         >
-          <div className="text-sm font-medium mb-2">
+          <div
+            className="text-sm font-medium mb-2"
+            style={{ direction: 'ltr' }}
+          >
             Captured by: <span className="font-light">All</span>
           </div>
           <div
-            style={{ fontSize: '20px', fontWeight: '700', marginTop: '24px' }}
+            style={{
+              fontSize: '20px',
+              fontWeight: '700',
+              marginTop: '24px',
+              direction: 'ltr',
+            }}
           >
             Snapshots and highlights
           </div>
@@ -195,11 +220,24 @@ export default function CaseReportApp() {
             {caseData.caseFiles?.map((f, i) => (
               <div
                 key={i}
-                style={{ marginBottom: '16px', position: 'relative' }}
+                style={{
+                  marginBottom: '16px',
+                  position: 'relative',
+                  direction: 'ltr',
+                }}
               >
                 {f.capture_type === 'video' ? (
                   <>
-                    <video width="345" height="240" controls>
+                    <video
+                      width="345"
+                      height="240"
+                      controls
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', f.file_url);
+                        e.dataTransfer.setData('captureType', f.capture_type);
+                      }}
+                    >
                       <source src={f.file_url} type="video/mp4" />
                       Your browser does not support the video tag.
                     </video>
@@ -210,6 +248,7 @@ export default function CaseReportApp() {
                     onDragStart={(e) => {
                       e.dataTransfer.setData('text/plain', f.file_url);
                       e.dataTransfer.setData('fileName', f.file_name);
+                      e.dataTransfer.setData('captureType', f.capture_type);
                     }}
                     src={f.file_url}
                     alt={f.file_name}
