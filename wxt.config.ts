@@ -1,4 +1,4 @@
-// wxt.config.ts - Updated configuration for WXT with Region Selector
+// wxt.config.ts - Fixed configuration to suppress MUI warnings
 import { defineConfig } from "wxt";
 
 export default defineConfig({
@@ -72,7 +72,6 @@ export default defineConfig({
       },
     ],
 
-    // Content scripts for region selector
     content_scripts: [
       {
         matches: ["<all_urls>"],
@@ -82,6 +81,80 @@ export default defineConfig({
       },
     ],
   },
+
+  // 🔥 FIX: Build configuration to handle MUI warnings
+  vite: () => ({
+    // Suppress "use client" directive warnings
+    build: {
+      rollupOptions: {
+        onwarn(warning, warn) {
+          // Skip "use client" directive warnings from MUI
+          if (
+            warning.code === 'MODULE_LEVEL_DIRECTIVE' && 
+            warning.message.includes('"use client"')
+          ) {
+            return;
+          }
+          
+          // Skip sourcemap resolution errors for MUI
+          if (
+            warning.code === 'SOURCEMAP_ERROR' &&
+            warning.message.includes('@mui/material')
+          ) {
+            return;
+          }
+          
+          // Show other warnings
+          warn(warning);
+        },
+        
+        external: (id) => {
+          // Don't externalize anything - we want everything bundled
+          return false;
+        }
+      },
+      
+      // Optimize chunk splitting for better performance
+      chunkSizeWarningLimit: 1000,
+      
+      // Source map configuration
+      sourcemap: false, // Disable sourcemaps in production to avoid MUI sourcemap issues
+    },
+    
+    // Define configuration for Node.js environment variables
+    define: {
+      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
+    },
+    
+    // Optimize dependencies
+    optimizeDeps: {
+      include: [
+        '@mui/material',
+        '@emotion/react',
+        '@emotion/styled',
+        'react',
+        'react-dom'
+      ],
+      exclude: [
+        // Exclude problematic packages if any
+      ]
+    },
+    
+    // ESBuild configuration
+    esbuild: {
+      // Drop console.log in production
+      drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
+      
+      // Handle JSX properly
+      jsx: 'automatic',
+      
+      // Suppress "use client" directive warnings
+      logOverride: {
+        'this-is-undefined-in-esm': 'silent',
+        'commonjs-variable-in-esm': 'silent'
+      }
+    }
+  }),
 
   // Additional build configuration
   runner: {

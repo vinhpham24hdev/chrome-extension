@@ -847,7 +847,7 @@ export default function Dashboard() {
     const defaultOptions: Partial<VideoOptions> = {
       type: type === "video" ? "desktop" : "tab",
       format: "webm",
-      quality: "medium",
+      quality: "high",
       maxDuration: 300,
       includeAudio: false,
     };
