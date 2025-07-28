@@ -1,4 +1,4 @@
-// components/LoginComponent.tsx - Simple Login Form with Conditional Display
+// components/LoginComponent.tsx - Clean Login Form (No Mock Mode)
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import logo from "@/assets/logo.png";
@@ -155,13 +155,6 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
         {!showLoginForm ? (
           /* Initial Login Button */
           <div className="w-full max-w-sm">
-            {/* Demo tip for development */}
-            {import.meta.env.VITE_ENABLE_MOCK_MODE === 'true' && (
-              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-center">
-                <p className="text-sm text-blue-600">Demo: demo / password</p>
-              </div>
-            )}
-            
             <button
               onClick={handleLoginClick}
               disabled={state.isLoading}
@@ -181,13 +174,6 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
           /* Login Form */
           <div className="w-full max-w-sm">
             <form onSubmit={handleSubmit}>
-              {/* Demo tip for development */}
-              {import.meta.env.VITE_ENABLE_MOCK_MODE === 'true' && !state.isLoading && (
-                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-center">
-                  <p className="text-sm text-blue-600">Demo: demo / password</p>
-                </div>
-              )}
-              
               {/* Error Message */}
               {state.error && !state.isLoading && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
@@ -238,7 +224,7 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
               {/* Action Buttons */}
               {state.isLoading ? (
                 /* Loading State - Only show loading button */
-                <div className="flex justify-center">
+                <div className="flex justify-center mb-6">
                   <button
                     type="button"
                     disabled
@@ -267,8 +253,19 @@ export default function LoginComponent({ onLoginSuccess }: LoginComponentProps) 
                   >
                     Sign In
                   </button>
+                </div>
+              )}
 
-                  <button type="button" className="text-black" onClick={handleLoginOkta}>Login with Okta</button>
+              {/* OKTA Login Button */}
+              {!state.isLoading && (
+                <div className="text-center">
+                  <button 
+                    type="button" 
+                    onClick={handleLoginOkta}
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors duration-200"
+                  >
+                    Login with OKTA
+                  </button>
                 </div>
               )}
             </form>

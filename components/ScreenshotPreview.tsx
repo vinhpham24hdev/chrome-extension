@@ -1,9 +1,10 @@
 // components/ScreenshotPreview.tsx - Enhanced with better full page handling and description/sourceUrl
 import React, { useState, useEffect, useRef } from "react";
+import { toast } from "react-toastify";
 import { isEmpty } from "lodash";
+
 import { s3Service, UploadProgress, UploadResult } from "../services/s3Service";
 import { caseService, CaseItem } from "../services/caseService";
-import { toast } from "react-toastify";
 
 export interface ScreenshotData {
   dataUrl: string;
@@ -34,14 +35,11 @@ interface ScreenshotPreviewProps {
 export default function ScreenshotPreview({
   screenshot,
   onSave,
-  onDownload,
-  onRetake,
   onClose,
-  isUploading = false,
 }: ScreenshotPreviewProps) {
   const [formData, setFormData] = useState({
     name: screenshot.filename.replace(/\.[^/.]+$/, ""),
-    description: "", 
+    description: "",
     url: screenshot.sourceUrl || "",
     selectedCase: screenshot.caseId,
   });
@@ -82,7 +80,6 @@ export default function ScreenshotPreview({
     try {
       setLoadingCases(true);
       setCasesError(null);
-      console.log("📁 Loading cases from backend for screenshot preview...");
 
       const fetchedCases = await caseService.getCases({
         limit: 100,
@@ -90,10 +87,6 @@ export default function ScreenshotPreview({
       });
 
       setCases(fetchedCases);
-      console.log(
-        "✅ Cases loaded for screenshot preview:",
-        fetchedCases.length
-      );
 
       if (
         fetchedCases.length > 0 &&
@@ -284,164 +277,83 @@ export default function ScreenshotPreview({
         return toast.error("Failed to get screenshot blob");
       }
 
-      console.log("📸 Preparing to upload screenshot...", blob, screenshot);
-      const isCustomerTestMode =
-        import.meta.env.VITE_CUSTOMER_TEST_MODE === "true";
-      const customerBucket = import.meta.env.VITE_CUSTOMER_S3_BUCKET || "";
+      console.log("🚀 Using backend S3 service...", {
+        filename: screenshot.filename,
+        caseId: formData.selectedCase,
+        size: blob.size,
+        screenshotType: screenshot.type,
+      });
 
-      if (isCustomerTestMode) {
-        console.log("🧪 Using customer bucket for upload...", {
-          bucket: customerBucket,
-          filename: screenshot.filename,
-          caseId: formData.selectedCase,
-          size: blob.size,
-        });
-
-        const { customerS3Service } = await import(
-          "../services/customerS3Service"
-        );
-
-        const result = await customerS3Service.uploadFile(
-          blob,
-          screenshot.filename,
-          formData.selectedCase,
-          "screenshot",
-          {
-            onProgress: (progress) => {
-              console.log(
-                `📤 Customer upload progress: ${progress.percentage}%`
-              );
-              setUploadState((prev) => ({ ...prev, progress }));
-            },
-            onSuccess: (result) => {
-              console.log("✅ Customer upload successful:", result);
-              setUploadState((prev) => ({
-                ...prev,
-                isUploading: false,
-                result,
-              }));
-            },
-            onError: (error) => {
-              console.error("❌ Customer upload failed:", error);
-              setUploadState((prev) => ({
-                ...prev,
-                isUploading: false,
-                error,
-              }));
-            },
-            metadata: {
-              capturedAt: screenshot.timestamp,
-              originalFilename: screenshot.filename,
-              description: formData.description,
-              sourceUrl: formData.url,
-              captureType: screenshot.type,
-              caseName: formData.name,
-              imageDimensions: imageDimensions,
-              isFullPage: isFullPage,
-              testMode: "customer-bucket",
-              pageTitle: screenshot.metadata?.pageTitle,
-              viewportSize: screenshot.metadata?.viewportSize,
-            },
-            description: formData.description.trim() || undefined,
-            sourceUrl: formData.url.trim() || undefined,
-          }
-        );
-
-        if (result.success) {
-          console.log(
-            "🎉 Screenshot uploaded to customer bucket successfully!"
-          );
-          toast.success(`✅ Customer Bucket Test Successful!\n\n`)
-          onSave();
-        } else {
-          throw new Error(result.error || "Customer bucket upload failed");
+      // ✅ UPDATED: Backend S3 upload with description and sourceUrl
+      const result = await s3Service.uploadFile(
+        blob,
+        screenshot.filename,
+        formData.selectedCase,
+        "screenshot",
+        {
+          onProgress: (progress) => {
+            console.log(`📤 Backend upload progress: ${progress.percentage}%`);
+            setUploadState((prev) => ({ ...prev, progress }));
+          },
+          onSuccess: (result) => {
+            console.log("✅ Backend upload successful:", result);
+            setUploadState((prev) => ({
+              ...prev,
+              isUploading: false,
+              result,
+            }));
+          },
+          onError: (error) => {
+            console.error("❌ Backend upload failed:", error);
+            setUploadState((prev) => ({
+              ...prev,
+              isUploading: false,
+              error,
+            }));
+          },
+          tags: ["screenshot", "capture", formData.name],
+          metadata: {
+            capturedAt: screenshot.timestamp,
+            originalFilename: screenshot.filename,
+            description: formData.description,
+            sourceUrl: formData.url,
+            captureType: screenshot.type,
+            caseName: formData.name,
+            imageDimensions: imageDimensions,
+            isFullPage: isFullPage,
+            pageTitle: screenshot.metadata?.pageTitle,
+            viewportSize: screenshot.metadata?.viewportSize,
+          },
+          description: formData.description.trim() || undefined,
+          sourceUrl: formData.url.trim() || undefined,
         }
+      );
+
+      if (result.success) {
+        // Update case metadata via real backend API
+        try {
+          const caseData = await caseService.getCaseById(formData.selectedCase);
+          if (caseData && caseData.metadata) {
+            await caseService.updateCaseMetadata(formData.selectedCase, {
+              totalScreenshots: (caseData.metadata.totalScreenshots || 0) + 1,
+              totalFileSize: (caseData.metadata.totalFileSize || 0) + blob.size,
+              lastActivity: new Date().toISOString(),
+            });
+            console.log("✅ Case metadata updated successfully");
+          }
+        } catch (metadataError) {
+          console.error("❌ Failed to update case metadata:", metadataError);
+        }
+
+        // Show success message
+        const selectedCaseName =
+          cases.find((c) => c.id === formData.selectedCase)?.title ||
+          formData.selectedCase;
+        toast.success(`Screenshot added to case "${selectedCaseName || ""}" successfully!`);
+
+        onSave();
       } else {
-        console.log("🚀 Using backend S3 service...", {
-          filename: screenshot.filename,
-          caseId: formData.selectedCase,
-          size: blob.size,
-          screenshotType: screenshot.type,
-        });
-
-        // ✅ UPDATED: Backend S3 upload with description and sourceUrl
-        const result = await s3Service.uploadFile(
-          blob,
-          screenshot.filename,
-          formData.selectedCase,
-          "screenshot",
-          {
-            onProgress: (progress) => {
-              console.log(
-                `📤 Backend upload progress: ${progress.percentage}%`
-              );
-              setUploadState((prev) => ({ ...prev, progress }));
-            },
-            onSuccess: (result) => {
-              console.log("✅ Backend upload successful:", result);
-              setUploadState((prev) => ({
-                ...prev,
-                isUploading: false,
-                result,
-              }));
-            },
-            onError: (error) => {
-              console.error("❌ Backend upload failed:", error);
-              setUploadState((prev) => ({
-                ...prev,
-                isUploading: false,
-                error,
-              }));
-            },
-            tags: ["screenshot", "capture", formData.name],
-            metadata: {
-              capturedAt: screenshot.timestamp,
-              originalFilename: screenshot.filename,
-              description: formData.description,
-              sourceUrl: formData.url,
-              captureType: screenshot.type,
-              caseName: formData.name,
-              imageDimensions: imageDimensions,
-              isFullPage: isFullPage,
-              pageTitle: screenshot.metadata?.pageTitle,
-              viewportSize: screenshot.metadata?.viewportSize,
-            },
-            description: formData.description.trim() || undefined,
-            sourceUrl: formData.url.trim() || undefined,
-          }
-        );
-
-        if (result.success) {
-          console.log("🎉 Screenshot uploaded to backend S3 successfully!");
-
-          // Update case metadata via real backend API
-          try {
-            const caseData = await caseService.getCaseById(
-              formData.selectedCase
-            );
-            if (caseData && caseData.metadata) {
-              await caseService.updateCaseMetadata(formData.selectedCase, {
-                totalScreenshots: (caseData.metadata.totalScreenshots || 0) + 1,
-                totalFileSize:
-                  (caseData.metadata.totalFileSize || 0) + blob.size,
-                lastActivity: new Date().toISOString(),
-              });
-              console.log("✅ Case metadata updated successfully");
-            }
-          } catch (metadataError) {
-            console.error("❌ Failed to update case metadata:", metadataError);
-          }
-
-          // Show success message
-          const selectedCaseName =
-            cases.find((c) => c.id === formData.selectedCase)?.title ||
-            formData.selectedCase;
-          toast.success(`Screenshot added to case successfully!`);
-
-          onSave();
-        } else {
-          throw new Error(result.error || "Backend upload failed");
-        }
+        throw new Error(result.error || "Backend upload failed");
       }
     } catch (error) {
       console.error("❌ Upload process failed:", error);
@@ -473,10 +385,6 @@ export default function ScreenshotPreview({
 
   const handleCaseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setFormData((prev) => ({ ...prev, selectedCase: e.target.value }));
-  };
-
-  const handleViewModeChange = (mode: "fit" | "actual" | "scroll") => {
-    setViewMode(mode);
   };
 
   // Get image style based on view mode
@@ -551,7 +459,9 @@ export default function ScreenshotPreview({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center space-x-4">
-            <h2 className="text-lg font-medium text-gray-900 mr-2">{snapshotId}</h2>
+            <h2 className="text-lg font-medium text-gray-900 mr-2">
+              {snapshotId}
+            </h2>
 
             {/* Image Type Badge */}
             {isFullPage && (

@@ -1,4 +1,4 @@
-// services/caseService.ts - Real Case Management Service
+// services/caseService.ts - Clean Case Management Service (No Mock)
 
 interface FileItem {
   fileName: string
@@ -159,7 +159,6 @@ class CaseService {
     try {
       console.log("📁 Getting cases with filters:", filters);
 
-
       if(token){
         this.authToken = token
       }
@@ -189,30 +188,6 @@ class CaseService {
       return result.cases;
     } catch (error) {
       console.error("❌ Failed to get cases:", error);
-      const mockCases: CaseItem[] = [
-        {
-          id: "Case-120320240830",
-          title: "Website Bug Investigation",
-          status: "active",
-          priority: "high",
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: "Case-120320240829",
-          title: "Performance Issue Analysis",
-          status: "pending",
-          priority: "medium",
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: "Case-120320240828",
-          title: "User Experience Review",
-          status: "active",
-          priority: "low",
-          createdAt: new Date().toISOString(),
-        },
-      ];
-      return mockCases; // Return mock data for testing
       throw error;
     }
   }

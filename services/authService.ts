@@ -1,4 +1,4 @@
-// services/authService.ts - Fixed Authentication Service
+// services/authService.ts - Clean Authentication Service (No Mock)
 import { User, LoginRequest, LoginResponse, LogoutResponse } from '../types/auth';
 
 interface AuthState {
@@ -20,17 +20,6 @@ interface AuthenticatedResponse<T = any> {
   data?: T;
   error?: string;
 }
-
-const MOCK_USER: User = {
-  id: "demo-user-001",
-  username: "demo",
-  email: "demo.user@cellebrite.com",
-  firstName: "Demo",
-  lastName: "User",
-  role: "analyst",
-  permissions: ["screenshot", "video", "case_management"],
-  lastLogin: new Date().toISOString(),
-};
 
 class AuthService {
   private apiBaseUrl: string;
@@ -223,43 +212,7 @@ class AuthService {
     await this.saveToStorage(authState);
   }
 
-  // Perform mock login
-  private async performMockLogin(credentials: LoginRequest): Promise<LoginResponse> {
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Check mock credentials
-    if (
-      (credentials.username === "demo" || credentials.username === "admin") &&
-      credentials.password === "password"
-    ) {
-      const mockToken = `mock_token_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      // Set instance state
-      this.currentUser = MOCK_USER;
-      this.currentToken = mockToken;
-      this.isLoggedIn = true;
-
-      // Save to storage
-      await this.saveAuthState();
-
-      console.log('✅ Mock login successful');
-
-      return {
-        success: true,
-        token: mockToken,
-        user: MOCK_USER,
-        expiresIn: '24h'
-      };
-    }
-
-    return {
-      success: false,
-      error: "Invalid credentials. Use demo/password or admin/password",
-    };
-  }
-
-  // Login user
+  // Login user (Only real backend)
   public async login(credentials: LoginRequest): Promise<LoginResponse> {
     try {
       console.log('🔐 Attempting login for:', credentials.username);
@@ -267,12 +220,6 @@ class AuthService {
       // Ensure auth service is initialized
       if (!this.isInitialized) {
         await this.initializeAuth();
-      }
-
-      const enableMockMode = import.meta.env.VITE_ENABLE_MOCK_MODE === 'true';
-      
-      if (enableMockMode) {
-        return this.performMockLogin(credentials);
       }
 
       const response = await this.apiRequest('/auth/login', {
