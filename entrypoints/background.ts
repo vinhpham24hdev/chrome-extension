@@ -1,9 +1,95 @@
-// entrypoints/background.ts - FIXED coordinate calculation
+// entrypoints/background.ts - UPDATED with recording indicator and click handling
+import { badgeService } from '../services/badgeService';
+
 export default defineBackground(() => {
   console.log("🚀 Background script started:", { id: browser.runtime.id });
 
+  // Track recording state
+  let currentRecordingState: {
+    isRecording: boolean;
+    recordingType: 'video' | 'screen' | null;
+    recordingWindowId?: number;
+    recordingTabId?: number;
+    startTime?: number;
+  } = {
+    isRecording: false,
+    recordingType: null
+  };
+
   // Store for video results that couldn't be delivered immediately
   const pendingVideoResults = new Map<string, any>();
+
+  // 🔥 UPDATED: Handle extension icon click when recording
+  chrome.action.onClicked.addListener(async (tab) => {
+    console.log('🖱️ Extension icon clicked', { 
+      isRecording: currentRecordingState.isRecording,
+      recordingType: currentRecordingState.recordingType 
+    });
+
+    if (currentRecordingState.isRecording) {
+      // If recording, stop the recording
+      console.log('🛑 Stopping recording via icon click');
+      await handleStopRecordingFromIcon();
+    } else {
+      // If not recording, open popup manually
+      console.log('📱 Opening popup (not recording)');
+      try {
+        const popupUrl = chrome.runtime.getURL('popup.html');
+        await chrome.action.setPopup({ popup: popupUrl });
+        
+        // Simulate popup opening
+        const window = await chrome.windows.create({
+          url: popupUrl,
+          type: 'popup',
+          width: 420,
+          height: 600,
+          focused: true
+        });
+        
+        console.log('✅ Popup opened manually:', window.id);
+      } catch (error) {
+        console.error('❌ Failed to open popup manually:', error);
+      }
+    }
+  });
+
+  // 🔥 NEW: Stop recording when icon is clicked
+  async function handleStopRecordingFromIcon() {
+    try {
+      // Send stop message to recorder window/tab
+      if (currentRecordingState.recordingTabId) {
+        try {
+          await chrome.tabs.sendMessage(currentRecordingState.recordingTabId, {
+            type: 'STOP_RECORDING_FROM_ICON'
+          });
+        } catch (error) {
+          console.warn('⚠️ Failed to send stop message to tab:', error);
+        }
+      }
+
+      // Send global message to any listening components
+      chrome.runtime.sendMessage({
+        type: 'STOP_RECORDING_REQUEST',
+        source: 'icon_click',
+        timestamp: Date.now()
+      }).catch(() => {
+        // Ignore if no listeners
+      });
+
+      // Update state and hide indicator
+      currentRecordingState = {
+        isRecording: false,
+        recordingType: null
+      };
+
+      badgeService.hideRecordingIndicator();
+      console.log('✅ Recording stopped via icon click');
+
+    } catch (error) {
+      console.error('❌ Error stopping recording via icon:', error);
+      badgeService.showErrorIndicator();
+    }
+  }
 
   // Handle messages from different parts of the extension
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -16,6 +102,22 @@ export default defineBackground(() => {
 
     try {
       switch (message.type) {
+        // 🔥 NEW: Handle recording state changes
+        case "RECORDING_STARTED":
+          handleRecordingStarted(message, sender);
+          sendResponse({ success: true });
+          break;
+
+        case "RECORDING_STOPPED":
+          handleRecordingStopped(message, sender);
+          sendResponse({ success: true });
+          break;
+
+        case "RECORDING_ERROR":
+          handleRecordingError(message, sender);
+          sendResponse({ success: true });
+          break;
+
         case "START_REGION_CAPTURE":
           console.log("🎯 Handling START_REGION_CAPTURE");
           handleRegionCaptureStart(message, sender)
@@ -60,6 +162,15 @@ export default defineBackground(() => {
                 });
               }, 200);
             });
+          sendResponse({ success: true });
+          break;
+
+        // 🔥 NEW: Get current recording state
+        case "GET_RECORDING_STATE":
+          sendResponse({ 
+            success: true, 
+            state: currentRecordingState 
+          });
           break;
 
         default:
@@ -74,6 +185,87 @@ export default defineBackground(() => {
       });
     }
   });
+
+  // 🔥 NEW: Handle recording started
+  function handleRecordingStarted(message: any, sender: chrome.runtime.MessageSender) {
+    console.log('🎬 Recording started:', message);
+    
+    currentRecordingState = {
+      isRecording: true,
+      recordingType: message.recordingType || 'video',
+      recordingWindowId: sender.tab?.windowId,
+      recordingTabId: sender.tab?.id,
+      startTime: Date.now()
+    };
+
+    // Show recording indicator
+    badgeService.showRecordingIndicator();
+    badgeService.startRecordingAnimation();
+    
+    console.log('🔴 Recording indicator activated');
+  }
+
+  // 🔥 NEW: Handle recording stopped
+  function handleRecordingStopped(message: any, sender: chrome.runtime.MessageSender) {
+    console.log('🛑 Recording stopped:', message);
+    
+    currentRecordingState = {
+      isRecording: false,
+      recordingType: null
+    };
+
+    // Hide recording indicator
+    badgeService.hideRecordingIndicator();
+    
+    // Show success indicator briefly
+    if (message.success !== false) {
+      badgeService.showSuccessIndicator();
+    }
+    
+    console.log('⚪ Recording indicator deactivated');
+  }
+
+  // 🔥 NEW: Handle recording error
+  function handleRecordingError(message: any, sender: chrome.runtime.MessageSender) {
+    console.log('❌ Recording error:', message);
+    
+    currentRecordingState = {
+      isRecording: false,
+      recordingType: null
+    };
+
+    // Hide recording indicator and show error
+    badgeService.hideRecordingIndicator();
+    badgeService.showErrorIndicator();
+    
+    console.log('⚠️ Recording error indicator shown');
+  }
+
+  // 🔥 NEW: Listen for tab/window close events to clean up recording state
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    if (currentRecordingState.recordingTabId === tabId) {
+      console.log('📄 Recording tab closed, cleaning up state');
+      currentRecordingState = {
+        isRecording: false,
+        recordingType: null
+      };
+      badgeService.hideRecordingIndicator();
+    }
+  });
+
+  chrome.windows.onRemoved.addListener((windowId) => {
+    if (currentRecordingState.recordingWindowId === windowId) {
+      console.log('🪟 Recording window closed, cleaning up state');
+      currentRecordingState = {
+        isRecording: false,
+        recordingType: null
+      };
+      badgeService.hideRecordingIndicator();
+    }
+  });
+
+  // ... [Keep all existing functions: handleRegionCaptureStart, handleRegionSelected, etc.]
+  // ... [The rest of your original background script code remains the same]
 
   async function handleRegionCaptureStart(
     message: any,
@@ -135,7 +327,7 @@ export default defineBackground(() => {
     }
   }
 
-  // 🔥 FIXED: Handle region selection with accurate coordinate transformation
+  // Handle region selection with accurate coordinate transformation
   async function handleRegionSelected(
     message: any,
     sender: chrome.runtime.MessageSender
@@ -168,12 +360,11 @@ export default defineBackground(() => {
         caseId: sessionData.caseId,
       });
 
-      // 🔥 FIXED: Accurate coordinate transformation and cropping
+      // Execute accurate cropping with device pixel ratio consideration
       if (!sender.tab?.id) {
         throw new Error("No sender tab ID available for image processing");
       }
 
-      // Execute accurate cropping with device pixel ratio consideration
       const cropResults = await chrome.scripting.executeScript({
         target: { tabId: sender.tab.id },
         func: cropImageWithAccurateCoordinates,
@@ -215,7 +406,7 @@ export default defineBackground(() => {
 
       console.log("🪟 Opening preview window immediately...");
 
-      // 🔥 FIXED: Open preview window immediately
+      // Open preview window immediately
       try {
         const previewHtmlUrl = chrome.runtime.getURL("screenshot-preview.html");
         const previewId = `preview_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -320,7 +511,7 @@ export default defineBackground(() => {
     }
   }
 
-  // 🔥 FIXED: Accurate image cropping with device pixel ratio and zoom consideration
+  // Accurate image cropping with device pixel ratio and zoom consideration
   function cropImageWithAccurateCoordinates(
     dataUrl: string,
     region: { x: number; y: number; width: number; height: number },
@@ -359,7 +550,7 @@ export default defineBackground(() => {
               captureInfo: captureInfo,
             });
 
-            // 🔥 FIXED: Calculate accurate scaling factors
+            // Calculate accurate scaling factors
             const devicePixelRatio = captureInfo?.devicePixelRatio || window.devicePixelRatio || 1;
             const zoomLevel = captureInfo?.zoomLevel || 1;
 
@@ -369,8 +560,7 @@ export default defineBackground(() => {
               combinedScale: devicePixelRatio * zoomLevel,
             });
 
-            // 🔥 FIXED: Apply accurate coordinate transformation
-            // The captured image is at device pixel ratio, but coordinates are in CSS pixels
+            // Apply accurate coordinate transformation
             const scale = devicePixelRatio * zoomLevel;
             
             let scaledRegion = {
@@ -416,7 +606,7 @@ export default defineBackground(() => {
             ctx.fillStyle = "#ffffff";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // 🔥 FIXED: Draw the scaled region back to CSS pixel size
+            // Draw the scaled region back to CSS pixel size
             ctx.drawImage(
               img,
               scaledRegion.x,           // Source X (device pixels)
@@ -475,7 +665,7 @@ export default defineBackground(() => {
     });
   }
 
-  // 🔥 FIXED: Region Selector with accurate coordinate tracking and capture info
+  // Region Selector with accurate coordinate tracking and capture info
   function initializeFixedRegionSelector(sessionId: string) {
     console.log("🎯 Initializing FIXED region selector for session:", sessionId);
 
@@ -486,7 +676,7 @@ export default defineBackground(() => {
       console.log("🧹 Removed existing region selector");
     }
 
-    // 🔥 FIXED: Collect accurate capture information
+    // Collect accurate capture information
     const captureInfo = {
       devicePixelRatio: window.devicePixelRatio,
       zoomLevel: window.outerWidth / window.innerWidth,
@@ -586,7 +776,7 @@ export default defineBackground(() => {
 
     console.log("🎨 Fixed region selector UI created");
 
-    // 🔥 FIXED: Precise coordinate tracking with scroll consideration
+    // Precise coordinate tracking with scroll consideration
     let isSelecting = false;
     let startX = 0, startY = 0;
 
@@ -658,7 +848,7 @@ export default defineBackground(() => {
       const left = Math.min(startX, currentX);
       const top = Math.min(startY, currentY);
 
-      // 🔥 FIXED: These are CSS pixel coordinates - don't add scroll offset for viewport-based capture
+      // These are CSS pixel coordinates
       const cssRegion = {
         x: left,
         y: top,

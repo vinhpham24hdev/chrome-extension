@@ -290,7 +290,7 @@ function VideoRecorderWindow() {
       .mr-3 { margin-right: 0.75rem !important; }
       .ml-2 { margin-left: 0.5rem !important; }
       .mt-3 { margin-top: 0.75rem !important; }
-      
+      .mx-auto { margin-left: auto !important; margin-right: auto !important; }
       /* Sizing */
       .w-3 { width: 0.75rem !important; }
       .w-6 { width: 1.5rem !important; }

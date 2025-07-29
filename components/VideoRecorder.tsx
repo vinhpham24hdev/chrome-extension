@@ -1,4 +1,4 @@
-// components/VideoRecorder.tsx - Simple & clean like Loom
+// components/VideoRecorder.tsx - UPDATED with icon stop handling
 import React, { useState, useEffect, useRef } from "react";
 import { FaPlay, FaPause, FaStop, FaTimes, FaCircle } from "react-icons/fa";
 import { toast } from "react-toastify";
@@ -44,7 +44,7 @@ export default function VideoRecorder({
   const [isSupported, setIsSupported] = useState(true);
   const [isInitializing, setIsInitializing] = useState(false);
 
-  // ✅ ADDED: S3 Upload State (minimal addition)
+  // S3 Upload State
   const [uploadState, setUploadState] = useState<{
     isUploading: boolean;
     progress: UploadProgress | null;
@@ -64,6 +64,52 @@ export default function VideoRecorder({
   });
   const [videoResult, setVideoResult] = useState<VideoResult | null>(null);
   const hasAutoStarted = useRef(false);
+
+  // 🔥 NEW: Handle stop recording from extension icon
+  useEffect(() => {
+    const handleIconStopMessage = (
+      message: any, 
+      sender: chrome.runtime.MessageSender, 
+      sendResponse: (response?: any) => void
+    ) => {
+      console.log('📨 VideoRecorder received message:', message.type);
+
+      if (message.type === 'STOP_RECORDING_FROM_ICON') {
+        console.log('🛑 Received stop recording request from icon');
+        
+        if (recordingControls && recordingState.isRecording) {
+          handleStopRecording();
+          sendResponse({ success: true, stopped: true });
+        } else {
+          console.warn('⚠️ No active recording to stop');
+          sendResponse({ success: false, error: 'No active recording' });
+        }
+      }
+
+      if (message.type === 'STOP_RECORDING_REQUEST') {
+        console.log('🛑 Received global stop recording request');
+        
+        if (recordingControls && recordingState.isRecording) {
+          handleStopRecording();
+          sendResponse({ success: true, stopped: true });
+        } else {
+          sendResponse({ success: false, error: 'No active recording' });
+        }
+      }
+    };
+
+    // Add message listener for stop requests from icon
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.onMessage.addListener(handleIconStopMessage);
+    }
+
+    return () => {
+      // Remove message listener
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        chrome.runtime.onMessage.removeListener(handleIconStopMessage);
+      }
+    };
+  }, [recordingControls, recordingState.isRecording]);
 
   const handleFormChange = (field: keyof typeof videoForm, value: string) => {
     setVideoForm((prev) => ({
@@ -128,15 +174,20 @@ export default function VideoRecorder({
     if (!recordingControls) return;
 
     try {
+      console.log('🛑 Stopping recording...');
       const result = await recordingControls.stop();
+      
       if (result.success) {
+        console.log('✅ Recording stopped successfully');
         // Show result in same tab instead of opening preview window
         setVideoResult(result);
       } else {
+        console.error('❌ Recording stop failed:', result.error);
         setError(result.error || "Recording failed");
       }
       setRecordingControls(null);
     } catch (error) {
+      console.error('❌ Error stopping recording:', error);
       setError(
         error instanceof Error ? error.message : "Failed to stop recording"
       );
@@ -151,7 +202,7 @@ export default function VideoRecorder({
     recordingControls?.resume();
   };
 
-  // ✅ UPDATED: Enhanced save video with S3 upload (keeping original logic)
+  // Enhanced save video with S3 upload
   const handleSaveVideo = async () => {
     if (!videoResult || !videoForm.name.trim()) {
       toast.error("Please enter a name for this video");
@@ -175,13 +226,7 @@ export default function VideoRecorder({
         url: videoForm.url,
       });
 
-      console.log("🚀 Using backend S3 service for video...", {
-        filename: videoResult.filename,
-        caseId: caseId,
-        size: videoResult.size,
-      });
-
-      // ✅ Backend S3 upload with description and sourceUrl
+      // Backend S3 upload with description and sourceUrl
       const result = await s3Service.uploadFile(
         videoResult.blob!,
         videoResult.filename!,
@@ -346,6 +391,25 @@ export default function VideoRecorder({
   if (recordingState.isRecording) {
     return (
       <div className="min-h-screen p-6 bg-gray-50 relative flex-col items-center justify-center">
+        {/* 🔥 NEW: Enhanced status message with icon info */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-red-100 rounded-full mb-6">
+            <FaCircle className="w-10 h-10 text-red-500 animate-pulse" />
+          </div>
+          <h2 className="text-2xl font-semibold text-gray-800 mb-2">
+            {recordingState.isPaused ? "Recording Paused" : "Recording..."}
+          </h2>
+          <p className="text-gray-500 text-sm mb-2">
+            {videoService.formatFileSize(recordingState.size)} • Duration: {videoService.formatDuration(recordingState.duration)}
+          </p>
+          {/* 🔥 NEW: Icon click instruction */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 max-w-md mx-auto">
+            <p className="text-blue-800 text-sm font-medium">
+              💡 Quick tip: Click the extension icon 🔴 to stop recording
+            </p>
+          </div>
+        </div>
+
         {/* Floating Control Bar */}
         <div className="flex justify-center left-1/2 transform -translate-x-1/2 z-50 animate-fade-in">
           <div className="bg-white backdrop-blur-sm border border-gray-200 rounded-full px-4 py-2 shadow-xl flex items-center space-x-3 transition-all duration-300 ease-in-out">
@@ -395,20 +459,6 @@ export default function VideoRecorder({
             </div>
           </div>
         </div>
-
-        {/* Centered Content */}
-        <div className="text-center p-6">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-red-100 rounded-full mb-6">
-            <FaCircle className="w-10 h-10 text-red-500 animate-pulse" />
-          </div>
-          <h2 className="text-2xl font-semibold text-gray-800 mb-2">
-            {recordingState.isPaused ? "Recording Paused" : "Recording..."}
-          </h2>
-          <p className="text-gray-500 text-sm">
-            {videoService.formatFileSize(recordingState.size)} • Use controls
-            above to manage recording
-          </p>
-        </div>
       </div>
     );
   }
@@ -424,7 +474,7 @@ export default function VideoRecorder({
           <FaTimes className="w-4 h-4" />
         </button>
 
-        {/* ✅ ADDED: Upload Progress Overlay (minimal addition) */}
+        {/* Upload Progress Overlay */}
         {uploadState.isUploading && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
@@ -459,7 +509,7 @@ export default function VideoRecorder({
           </div>
         )}
 
-        {/* ✅ ADDED: Upload Error Modal */}
+        {/* Upload Error Modal */}
         {uploadState.error && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
@@ -522,7 +572,7 @@ export default function VideoRecorder({
             </div>
           </div>
 
-          {/* Right Side: Details form (ORIGINAL LAYOUT) */}
+          {/* Right Side: Details form */}
           <div className="w-80 p-6 flex flex-col">
             <h3 className="text-lg font-medium text-gray-900 mb-6">Details</h3>
             <input

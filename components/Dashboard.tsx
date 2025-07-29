@@ -1,4 +1,4 @@
-// components/Dashboard.tsx - Updated with Real Backend Services
+// components/Dashboard.tsx - Complete with all features and recording indicator
 import { useState, useEffect, useRef } from "react";
 
 import { useAuth } from "../contexts/AuthContext";
@@ -8,6 +8,7 @@ import { screenshotWindowService } from "../services/screenshotWindowService";
 import { videoWindowService } from "../services/videoWindowService";
 import { videoRecorderWindowService } from "../services/videoRecorderWindowService";
 import { caseService, CaseItem } from "../services/caseService";
+import { badgeService } from "../services/badgeService";
 
 import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 
@@ -137,11 +138,123 @@ export default function Dashboard() {
   // Connection status
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
 
+  // Recording state tracking
+  const [recordingState, setRecordingState] = useState<{
+    isRecording: boolean;
+    recordingType: 'video' | 'screen' | null;
+    duration?: number;
+    startTime?: number;
+  }>({
+    isRecording: false,
+    recordingType: null
+  });
+
   // Load cases on component mount
   useEffect(() => {
     loadCases();
     checkBackendConnection();
+    checkRecordingState();
   }, []);
+
+  // Check if there's an active recording
+  const checkRecordingState = async () => {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        const response = await chrome.runtime.sendMessage({
+          type: 'GET_RECORDING_STATE'
+        });
+
+        if (response && response.success && response.state) {
+          setRecordingState({
+            isRecording: response.state.isRecording || false,
+            recordingType: response.state.recordingType || null,
+            startTime: response.state.startTime
+          });
+
+          // Update badge based on current state
+          if (response.state.isRecording) {
+            console.log('🔴 Found active recording, updating badge');
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Could not check recording state:', error);
+    }
+  };
+
+  // Listen for recording state changes
+  useEffect(() => {
+    const handleRecordingStateMessage = (
+      message: any,
+      sender: chrome.runtime.MessageSender,
+      sendResponse: (response?: any) => void
+    ) => {
+      if (message.type === 'RECORDING_STARTED') {
+        console.log('📹 Dashboard: Recording started notification');
+        setRecordingState({
+          isRecording: true,
+          recordingType: message.recordingType || 'video',
+          startTime: Date.now()
+        });
+        sendResponse({ received: true });
+      }
+
+      if (message.type === 'RECORDING_STOPPED') {
+        console.log('⏹️ Dashboard: Recording stopped notification');
+        setRecordingState({
+          isRecording: false,
+          recordingType: null
+        });
+        
+        // Show success notification if recording was successful
+        if (message.success !== false) {
+          badgeService.showSuccessIndicator(2000);
+        }
+        sendResponse({ received: true });
+      }
+
+      if (message.type === 'RECORDING_ERROR') {
+        console.log('❌ Dashboard: Recording error notification');
+        setRecordingState({
+          isRecording: false,
+          recordingType: null
+        });
+        sendResponse({ received: true });
+      }
+    };
+
+    // Add message listener
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.onMessage.addListener(handleRecordingStateMessage);
+    }
+
+    return () => {
+      // Remove message listener
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        chrome.runtime.onMessage.removeListener(handleRecordingStateMessage);
+      }
+    };
+  }, []);
+
+  // Update recording duration
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    
+    if (recordingState.isRecording && recordingState.startTime) {
+      interval = setInterval(() => {
+        setRecordingState(prev => ({
+          ...prev,
+          duration: Math.floor((Date.now() - (prev.startTime || 0)) / 1000)
+        }));
+      }, 1000);
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [recordingState.isRecording, recordingState.startTime]);
 
   // Load cases from real backend
   const loadCases = async () => {
@@ -372,6 +485,10 @@ export default function Dashboard() {
     videoRecorderWindowService.addListener("recording_window_closed", () => {
       console.log("Video recorder window closed");
       setCaptureMode(null);
+      setRecordingState({
+        isRecording: false,
+        recordingType: null
+      });
     });
 
     videoRecorderWindowService.addListener(
@@ -435,12 +552,20 @@ export default function Dashboard() {
         }
 
         setCaptureMode(null);
+        setRecordingState({
+          isRecording: false,
+          recordingType: null
+        });
       }
     );
 
     videoRecorderWindowService.addListener("recording_cancelled", () => {
       console.log("Video recording cancelled");
       setCaptureMode(null);
+      setRecordingState({
+        isRecording: false,
+        recordingType: null
+      });
     });
 
     return () => {
@@ -559,6 +684,19 @@ export default function Dashboard() {
           "Check if backend server is running",
           "Verify API configuration",
           "Try refreshing the extension",
+        ]
+      );
+      return;
+    }
+
+    // Check if recording is active
+    if (recordingState.isRecording) {
+      showError(
+        "Recording in Progress",
+        "Cannot take screenshots while video recording is active.",
+        [
+          "Stop the current recording first",
+          "Click the red dot (🔴) on the extension icon to stop recording"
         ]
       );
       return;
@@ -821,12 +959,15 @@ export default function Dashboard() {
       return;
     }
 
-    if (type === "r-video") {
-      //not supported yet
+    // Check if already recording
+    if (recordingState.isRecording) {
       showError(
-        "Region Video Capture Not Supported",
-        "Region video capture is not yet implemented.",
-        ["Please use full video capture for now"]
+        "Recording Already in Progress",
+        "A video recording is already active. Please stop the current recording before starting a new one.",
+        [
+          "Click the red dot (🔴) on the extension icon to stop current recording",
+          "Or go to the recording tab and stop it manually"
+        ]
       );
       return;
     }
@@ -874,6 +1015,14 @@ export default function Dashboard() {
           "✅ Video recorder opened with auto-start:",
           result.tabId || result.windowId
         );
+        
+        // Update local recording state (will be confirmed by background script)
+        setRecordingState({
+          isRecording: true,
+          recordingType: 'video',
+          startTime: Date.now()
+        });
+        
         // Keep capture mode set - will be cleared when recorder closes or completes
       } else {
         console.error("❌ Failed to open video recorder:", result.error);
@@ -959,6 +1108,15 @@ export default function Dashboard() {
     setCaptureMode(null);
   };
 
+  // Format duration for display
+  const formatDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
+  };
+
   return (
     <div className={`w-[402px] bg-white flex flex-col relative ${errorModal.isOpen ? 'min-h-[470px]' : 'min-h-[380px]'}`}>
       {/* Enhanced Error Modal */}
@@ -970,8 +1128,17 @@ export default function Dashboard() {
         suggestions={errorModal.suggestions}
       />
 
+      {/* Recording status overlay */}
+      {recordingState.isRecording && (
+        <div className="absolute top-0 left-0 right-0 bg-red-500 text-white text-center py-1 z-20">
+          <p className="text-xs font-medium">
+            🔴 Recording {recordingState.duration ? formatDuration(recordingState.duration) : ''} - Click extension icon to stop
+          </p>
+        </div>
+      )}
+
       {/* Header with Cellebrite Logo */}
-      <div className="bg-white p-4 flex items-start justify-between">
+      <div className={`bg-white p-4 flex items-start justify-between ${recordingState.isRecording ? 'pt-8' : ''}`}>
         <div className="flex justify-center items-center flex-1">
           <div className="flex flex-col items-center">
             {logo && <img src={logo} alt="Cellebrite Logo" className="w-2/3" />}
@@ -983,9 +1150,13 @@ export default function Dashboard() {
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={handleUserAvatarClick}
-            className="w-8 h-8 bg-blue-600 border-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            className="w-8 h-8 bg-blue-600 border-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 relative"
           >
             {state.user?.username?.substring(0, 2).toUpperCase() || "JD"}
+            {/* Recording indicator on avatar */}
+            {recordingState.isRecording && (
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse border border-white"></div>
+            )}
           </button>
 
           {/* Dropdown Menu */}
@@ -1018,6 +1189,24 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Recording Status */}
+              {recordingState.isRecording && (
+                <div className="px-4 py-2 border-b border-gray-100 bg-red-50">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+                    <span className="text-xs text-red-700 font-medium">
+                      Recording Active
+                    </span>
+                  </div>
+                  <p className="text-xs text-red-600 mt-1">
+                    {recordingState.duration ? formatDuration(recordingState.duration) : '00:00'}
+                  </p>
+                  <p className="text-xs text-red-600">
+                    Click extension icon to stop
+                  </p>
+                </div>
+              )}
+
               <button
                 onClick={handleLogout}
                 className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-800 transition-colors duration-200"
@@ -1043,7 +1232,12 @@ export default function Dashboard() {
 
       {/* Case Selector */}
       <div className="p-6">
-        <CaseSelector selectedCase={selectedCase} cases={cases}  onCaseSelected={setSelectedCase} />
+        <CaseSelector 
+          selectedCase={selectedCase} 
+          cases={cases}  
+          onCaseSelected={setSelectedCase}
+          disabled={loadingCases || recordingState.isRecording}
+        />
       </div>
 
       {/* Enhanced Capture Tools Grid */}
@@ -1052,9 +1246,9 @@ export default function Dashboard() {
           {/* Screen Capture */}
           <button
             onClick={() => handleScreenshot("screen")}
-            disabled={isCapturing || !selectedCase || backendConnected === false}
+            disabled={isCapturing || !selectedCase || backendConnected === false || recordingState.isRecording}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            title="Capture only visible area (what you see now)"
+            title={recordingState.isRecording ? "Cannot capture while recording" : "Capture only visible area (what you see now)"}
           >
             <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center relative">
               <div className="w-4 h-3 bg-gray-600 rounded-xs"></div>
@@ -1067,9 +1261,9 @@ export default function Dashboard() {
           {/* Full Page Capture */}
           <button
             onClick={() => handleScreenshot("full")}
-            disabled={isCapturing || !selectedCase || backendConnected === false}
+            disabled={isCapturing || !selectedCase || backendConnected === false || recordingState.isRecording}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            title="Capture entire page including content below the fold"
+            title={recordingState.isRecording ? "Cannot capture while recording" : "Capture entire page including content below the fold"}
           >
             <div className="w-8 h-6 border-2 border-gray-600 rounded-sm relative">
               <div className="w-6 h-4 bg-gray-600 rounded-xs absolute top-0.5 left-0.5"></div>
@@ -1083,9 +1277,9 @@ export default function Dashboard() {
           {/* Accurate Region Capture */}
           <button
             onClick={() => handleScreenshot("region")}
-            disabled={isCapturing || !selectedCase || backendConnected === false}
+            disabled={isCapturing || !selectedCase || backendConnected === false || recordingState.isRecording}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
-            title="Select custom area to capture - pixel-perfect with DPR support"
+            title={recordingState.isRecording ? "Cannot capture while recording" : "Select custom area to capture - pixel-perfect with DPR support"}
           >
             <div className="w-8 h-6 border-2 border-gray-600 border-dashed rounded-sm relative">
               {/* Add selection crosshair icon */}
@@ -1101,11 +1295,13 @@ export default function Dashboard() {
             <span className="text-xs text-gray-700">Region</span>
 
             {/* Enhanced tooltip for region */}
-            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-              🎯 Pixel-perfect region capture
-              <br />
-              <span className="text-gray-300">✓ High DPI ✓ Zoom support</span>
-            </div>
+            {!recordingState.isRecording && (
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                🎯 Pixel-perfect region capture
+                <br />
+                <span className="text-gray-300">✓ High DPI ✓ Zoom support</span>
+              </div>
+            )}
           </button>
 
           {/* Divider */}
@@ -1116,14 +1312,16 @@ export default function Dashboard() {
             onClick={() => handleVideoCapture("video")}
             disabled={isCapturing || !selectedCase || backendConnected === false}
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
-            title="Record screen - choose what to share"
+            title={recordingState.isRecording ? "Recording already in progress - click extension icon to stop" : "Record screen - choose what to share"}
           >
             <div className="w-8 h-6 border-2 border-gray-600 rounded-sm flex items-center justify-center">
-              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+              <div className={`w-3 h-3 rounded-full ${recordingState.isRecording ? 'bg-red-500 animate-pulse' : 'bg-gray-400'}`}></div>
             </div>
             <span className="text-xs text-gray-700">Video</span>
-            {/* Loom-style indicator */}
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            {/* Recording indicator */}
+            {recordingState.isRecording && (
+              <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+            )}
           </button>
 
           {/* Region Video - Disabled */}
@@ -1144,6 +1342,7 @@ export default function Dashboard() {
             className="flex flex-col items-center space-y-1 p-2 rounded hover:bg-gray-100 transition-colors"
             onClick={checkBackendConnection}
             title="Refresh connection status"
+            disabled={recordingState.isRecording}
           >
             <div className="w-4 h-6 flex flex-col justify-center items-center space-y-0.5">
               <div className="w-1 h-1 bg-gray-600 rounded-full"></div>
@@ -1167,7 +1366,7 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Enhanced status indicator with region-specific messages */}
+      {/* Enhanced status indicator with recording-specific messages */}
       {isCapturing && (
         <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
           <div className="bg-white rounded-lg p-6 flex flex-col items-center">

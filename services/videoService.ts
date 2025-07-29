@@ -217,6 +217,14 @@ export class VideoService {
         size: 0,
       });
 
+      // 🔥 NEW: Notify background script that recording started
+      this.notifyRecordingState('started', {
+        recordingType: options.type,
+        quality: options.quality,
+        format: options.format,
+        includeAudio: options.includeAudio
+      });
+
       // Start progress tracking
       this.startProgressTracking();
 
@@ -231,6 +239,12 @@ export class VideoService {
       };
     } catch (error) {
       this.updateState({ status: "error" });
+      
+      // 🔥 NEW: Notify background script about error
+      this.notifyRecordingState('error', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+
       throw new Error(
         `Failed to start recording: ${
           error instanceof Error ? error.message : "Unknown error"
@@ -240,7 +254,7 @@ export class VideoService {
   }
 
   /**
-   * ✅ ENHANCED: Stop recording and return result with metadata
+   * Stop recording and return result with metadata
    */
   private async stopRecording(): Promise<VideoResult> {
     return new Promise(async (resolve) => {
@@ -263,10 +277,15 @@ export class VideoService {
       // Setup one-time event listener for dataavailable
       const handleFinalData = () => {
         if (this.recordedChunks.length === 0) {
-          resolve({
+          const errorResult = {
             success: false,
             error: "No recorded data available",
-          });
+          };
+
+          // 🔥 NEW: Notify background script about stop (with error)
+          this.notifyRecordingState('stopped', { success: false });
+
+          resolve(errorResult);
           return;
         }
 
@@ -293,8 +312,7 @@ export class VideoService {
             size: blob.size,
           });
 
-          // ✅ ENHANCED: Add metadata to result
-          resolve({
+          const result: VideoResult = {
             success: true,
             blob,
             dataUrl,
@@ -308,16 +326,34 @@ export class VideoService {
               sourceUrl: tabInfo.url || undefined,
               pageTitle: tabInfo.title || undefined,
             }
+          };
+
+          // 🔥 NEW: Notify background script about successful stop
+          this.notifyRecordingState('stopped', { 
+            success: true,
+            duration: Math.round(finalDuration),
+            size: blob.size,
+            filename: filename
           });
+
+          resolve(result);
         } catch (error) {
           this.cleanup();
           this.updateState({ status: "error" });
-          resolve({
+          
+          const errorResult = {
             success: false,
             error: `Failed to process recording: ${
               error instanceof Error ? error.message : "Unknown error"
             }`,
+          };
+
+          // 🔥 NEW: Notify background script about error
+          this.notifyRecordingState('error', {
+            error: error instanceof Error ? error.message : 'Processing failed'
           });
+
+          resolve(errorResult);
         }
       };
 
@@ -327,6 +363,20 @@ export class VideoService {
       });
       this.mediaRecorder.stop();
     });
+  }
+  /**
+   * 🔥 NEW: Handle stop recording request from extension icon
+   */
+  public handleStopFromIcon(): void {
+    console.log('🛑 Received stop request from extension icon');
+    
+    if (this.currentState.isRecording) {
+      this.stopRecording().then((result) => {
+        console.log('📹 Recording stopped via icon:', result.success);
+      }).catch((error) => {
+        console.error('❌ Error stopping recording via icon:', error);
+      });
+    }
   }
 
   /**
@@ -395,6 +445,12 @@ export class VideoService {
       status: "idle",
       duration: 0,
       size: 0,
+    });
+
+    // 🔥 NEW: Notify background script about cancellation
+    this.notifyRecordingState('stopped', { 
+      success: false,
+      cancelled: true 
     });
   }
 
@@ -571,6 +627,11 @@ export class VideoService {
       this.stopProgressTracking();
       this.cleanup();
       this.updateState({ status: "error" });
+      
+      // 🔥 NEW: Notify background script about MediaRecorder error
+      this.notifyRecordingState('error', {
+        error: 'MediaRecorder error occurred'
+      });
     });
 
     // Auto-stop if max duration reached
@@ -715,6 +776,28 @@ export class VideoService {
     for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
 
     return new Blob([bytes], { type: mime });
+  }
+
+  private notifyRecordingState(state: 'started' | 'stopped' | 'error', data?: any): void {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        const message = {
+          type: state === 'started' ? 'RECORDING_STARTED' : 
+                state === 'stopped' ? 'RECORDING_STOPPED' : 'RECORDING_ERROR',
+          recordingType: 'video',
+          timestamp: Date.now(),
+          ...data
+        };
+
+        chrome.runtime.sendMessage(message).catch((error) => {
+          console.warn('⚠️ Failed to notify background about recording state:', error);
+        });
+
+        console.log(`📤 Recording state notification sent: ${state}`);
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to send recording state notification:', error);
+    }
   }
 
   /**

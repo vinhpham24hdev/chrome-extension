@@ -1,4 +1,4 @@
-// wxt.config.ts - Fixed configuration to suppress MUI warnings
+// wxt.config.ts - UPDATED to handle conditional popup behavior
 import { defineConfig } from "wxt";
 
 export default defineConfig({
@@ -37,11 +37,17 @@ export default defineConfig({
         suggested_key: { default: "Ctrl+Shift+F", mac: "Command+Shift+F" },
         description: "Take full page screenshot",
       },
+      // 🔥 NEW: Stop recording hotkey
+      "stop-recording": {
+        suggested_key: { default: "Ctrl+Shift+Q", mac: "Command+Shift+Q" },
+        description: "Stop video recording",
+      },
     },
 
+    // 🔥 UPDATED: Remove default_popup to handle conditionally via background script
     action: { 
-      default_title: "Cellebrite Capture Tool",
-      default_popup: "popup.html"
+      default_title: "Cellebrite Capture Tool"
+      // Note: No default_popup - will be handled programmatically in background script
     },
 
     content_security_policy: {
@@ -82,7 +88,7 @@ export default defineConfig({
     ],
   },
 
-  // 🔥 FIX: Build configuration to handle MUI warnings
+  // Build configuration to handle MUI warnings
   vite: () => ({
     // Suppress "use client" directive warnings
     build: {
