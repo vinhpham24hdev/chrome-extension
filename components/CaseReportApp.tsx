@@ -1,17 +1,18 @@
+// components/CaseReportApp.tsx - ENHANCED với private S3 image support
 import { CaseItem, caseService } from '@/services/caseService';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import ReactQuill, { Quill } from 'react-quill-new';
 import { Button } from '@mui/material';
 import ImageResize from 'quill-image-resize-module-react';
 import { produce } from 'immer';
-import { Download } from 'lucide-react';
+import { Download, RefreshCw } from 'lucide-react';
 import { ToastContainer } from './ToastContainer';
 import { toast } from 'react-toastify';
 import { CustomVideoBlot } from './CustomVideoBlot';
+import { reportImageService } from '@/services/reportImageService';
 
 Quill.register('modules/imageResize', ImageResize);
-
 Quill.register('formats/video', CustomVideoBlot);
 
 type CaseData = {
@@ -24,6 +25,8 @@ export default function CaseReportApp() {
     caseInfo: null,
     caseFiles: [],
   });
+  const [isLoadingImages, setIsLoadingImages] = useState(false);
+  const [imageUrls, setImageUrls] = useState<Map<string, string>>(new Map());
   const quillRef = useRef<ReactQuill>(null);
   const [dropHandlerBound, setDropHandlerBound] = useState(false);
 
@@ -31,17 +34,107 @@ export default function CaseReportApp() {
   const caseId = urlParams.get('case_id');
   const reportHtml = caseData?.caseInfo?.metadata?.reportHtml || '';
 
+  // 🔥 NEW: Load case data và prepare images
   const loadCaseData = async (caseId: string) => {
     try {
+      setIsLoadingImages(true);
+      
       const [currentCase, files] = await Promise.all([
         caseService.getCaseById(caseId),
         caseService.getCaseFiles(caseId),
       ]);
+      
       setCaseData({ caseInfo: currentCase, caseFiles: files || [] });
+
+      // 🔥 NEW: Prepare image URLs for sidebar files
+      if (files && files.length > 0) {
+        const imageFileKeys = files
+          .filter((f: any) => f.capture_type === 'screenshot' && f.file_key)
+          .map((f: any) => f.file_key);
+
+        if (imageFileKeys.length > 0) {
+          console.log("🖼️ Loading display URLs for", imageFileKeys.length, "images");
+          const urlMap = await reportImageService.batchLoadImages(imageFileKeys);
+          setImageUrls(urlMap);
+        }
+      }
+
+      // 🔥 NEW: Preload images từ report HTML
+      if (currentCase?.metadata?.reportHtml) {
+        await reportImageService.preloadReportImages(currentCase.metadata.reportHtml);
+      }
+
     } catch (error) {
       console.error('❌ Failed to load cases:', error);
+      toast.error('Failed to load case data');
+    } finally {
+      setIsLoadingImages(false);
     }
   };
+
+  // 🔥 NEW: Refresh image URLs khi hết hạn
+  const refreshImageUrls = useCallback(async () => {
+    if (!caseData.caseFiles || caseData.caseFiles.length === 0) return;
+
+    try {
+      setIsLoadingImages(true);
+      toast.info('Refreshing image URLs...');
+
+      const imageFileKeys = caseData.caseFiles
+        .filter((f: any) => f.capture_type === 'screenshot' && f.file_key)
+        .map((f: any) => f.file_key);
+
+      if (imageFileKeys.length > 0) {
+        await reportImageService.refreshImageUrls(imageFileKeys);
+        const urlMap = await reportImageService.batchLoadImages(imageFileKeys);
+        setImageUrls(urlMap);
+      }
+
+      // Refresh images trong report HTML
+      if (reportHtml) {
+        await reportImageService.preloadReportImages(reportHtml);
+      }
+
+      toast.success('Image URLs refreshed!');
+    } catch (error) {
+      console.error('❌ Failed to refresh image URLs:', error);
+      toast.error('Failed to refresh images');
+    } finally {
+      setIsLoadingImages(false);
+    }
+  }, [caseData.caseFiles, reportHtml]);
+
+  // 🔥 NEW: Get display URL cho file
+  const getFileDisplayUrl = useCallback(async (file: any): Promise<string> => {
+    if (file.capture_type === 'video') {
+      // Video files use direct URL (assume they work)
+      return file.file_url;
+    }
+
+    // For images, check if we have a cached display URL
+    const cachedUrl = imageUrls.get(file.file_key);
+    if (cachedUrl) {
+      // Check if URL is still valid
+      const cached = reportImageService.getCachedImageData(file.file_key);
+      if (cached && new Date(cached.expiresAt) > new Date()) {
+        return cachedUrl;
+      }
+    }
+
+    // Generate new display URL
+    try {
+      const displayUrl = await reportImageService.getImageDisplayUrl(file.file_key);
+      
+      // Update state với URL mới
+      setImageUrls(prev => new Map(prev).set(file.file_key, displayUrl));
+      
+      return displayUrl;
+    } catch (error) {
+      console.error('❌ Failed to get display URL for:', file.file_key);
+      // Fallback to proxy URL
+      return reportImageService.getProxyImageUrl(file.file_key);
+    }
+  }, [imageUrls]);
 
   const handleSaveReport = async () => {
     if (!caseId || !caseData?.caseInfo) return;
@@ -49,9 +142,108 @@ export default function CaseReportApp() {
     try {
       await caseService.updateCaseMetadata(caseId, newCaseMetaData);
       await loadCaseData(caseId);
-      toast.success('Report saved !');
+      toast.success('Report saved!');
     } catch (error) {
-      toast.error('Fail to save report');
+      toast.error('Failed to save report');
+    }
+  };
+
+  // 🔥 ENHANCED: Handle drag start với dynamic URL generation
+  const handleImageDragStart = useCallback(async (e: React.DragEvent, file: any) => {
+    try {
+      const displayUrl = await getFileDisplayUrl(file);
+      
+      e.dataTransfer.setData('text/plain', displayUrl);
+      e.dataTransfer.setData('fileName', file.file_name);
+      e.dataTransfer.setData('captureType', file.capture_type);
+      e.dataTransfer.setData('fileKey', file.file_key);
+      
+      console.log('🎯 Drag started with display URL:', displayUrl);
+    } catch (error) {
+      console.error('❌ Failed to prepare drag data:', error);
+      // Fallback to original URL
+      e.dataTransfer.setData('text/plain', file.file_url);
+      e.dataTransfer.setData('fileName', file.file_name);
+      e.dataTransfer.setData('captureType', file.capture_type);
+    }
+  }, [getFileDisplayUrl]);
+
+  // 🔥 ENHANCED: Handle drop với URL validation
+  const handleSelectionChange = () => {
+    if (!dropHandlerBound && quillRef.current) {
+      const editor = quillRef.current.getEditor();
+      const editorRoot = quillRef?.current?.editor?.root;
+      if (editor && editorRoot) {
+        editorRoot.addEventListener('drop', async (e: DragEvent) => {
+          e.preventDefault();
+          
+          const url = e.dataTransfer?.getData('text/plain');
+          const fileType = e.dataTransfer?.getData('captureType');
+          const fileKey = e.dataTransfer?.getData('fileKey');
+          
+          if (url) {
+            console.log('🎯 Dropped URL:', url, 'Type:', fileType);
+            
+            // 🔥 NEW: Validate/refresh URL trước khi insert
+            let finalUrl = url;
+            if (fileKey && fileType === 'screenshot') {
+              try {
+                // Check if URL is still valid
+                if (reportImageService.isImageUrlExpired(fileKey)) {
+                  console.log('🔄 URL expired, generating new one...');
+                  finalUrl = await reportImageService.getImageDisplayUrl(fileKey);
+                  toast.info('Image URL refreshed');
+                }
+              } catch (error) {
+                console.warn('⚠️ Failed to validate URL, using original');
+              }
+            }
+
+            const isVideo = fileType?.includes('video');
+            const embedType = isVideo ? 'video' : 'image';
+            const range = editor.getSelection(true);
+            
+            editor.insertEmbed(range.index, embedType, finalUrl);
+            editor.setSelection(range.index + 1);
+
+            setTimeout(() => {
+              if (embedType === 'image') {
+                const img = document.querySelector(
+                  `img[src="${finalUrl}"]`
+                ) as HTMLImageElement;
+                if (img) {
+                  img.style.maxWidth = '800px';
+                  img.style.width = '100%';
+                  
+                  // 🔥 NEW: Add error handler to refresh URL if image fails to load
+                  img.onerror = async () => {
+                    if (fileKey) {
+                      try {
+                        console.log('🔄 Image failed to load, refreshing URL...');
+                        const newUrl = await reportImageService.getImageDisplayUrl(fileKey);
+                        img.src = newUrl;
+                        toast.info('Image URL refreshed automatically');
+                      } catch (error) {
+                        console.error('❌ Failed to refresh failed image URL:', error);
+                        toast.error('Image failed to load');
+                      }
+                    }
+                  };
+                }
+              } else if (embedType === 'video') {
+                const iframe = document.querySelector(
+                  `iframe[src="${finalUrl}"]`
+                ) as HTMLIFrameElement;
+                if (iframe) {
+                  iframe.style.maxWidth = '800px';
+                  iframe.style.width = '100%';
+                }
+              }
+            }, 100);
+          }
+        });
+        setDropHandlerBound(true);
+      }
     }
   };
 
@@ -80,49 +272,18 @@ export default function CaseReportApp() {
     if (caseId) loadCaseData(caseId);
   }, [caseId]);
 
-  const handleSelectionChange = () => {
-    if (!dropHandlerBound && quillRef.current) {
-      const editor = quillRef.current.getEditor();
-      const editorRoot = quillRef?.current?.editor?.root;
-      if (editor && editorRoot) {
-        editorRoot.addEventListener('drop', (e: DragEvent) => {
-          e.preventDefault();
-          const url = e.dataTransfer?.getData('text/plain');
-          const fileType = e.dataTransfer?.getData('captureType');
-          if (url) {
-            const isVideo = fileType?.includes('video');
-            const embedType = isVideo ? 'video' : 'image';
-            const range = editor.getSelection(true);
-            editor.insertEmbed(range.index, embedType, url);
-            editor.setSelection(range.index + 1);
+  // 🔥 NEW: Auto-refresh URLs every 30 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      console.log('🕐 Auto-refreshing image URLs...');
+      refreshImageUrls();
+    }, 30 * 60 * 1000); // 30 minutes
 
-            setTimeout(() => {
-              if (embedType === 'image') {
-                const img = document.querySelector(
-                  `img[src="${url}"]`
-                ) as HTMLImageElement;
-                if (img) {
-                  img.style.maxWidth = '800px';
-                  img.style.width = '100%';
-                }
-              } else if (embedType === 'video') {
-                const iframe = document.querySelector(
-                  `iframe[src="${url}"]`
-                ) as HTMLIFrameElement;
-                if (iframe) {
-                  iframe.style.maxWidth = '800px';
-                  iframe.style.width = '100%';
-                }
-              }
-            }, 100);
-          }
-        });
-        setDropHandlerBound(true);
-      }
-    }
-  };
+    return () => clearInterval(interval);
+  }, [refreshImageUrls]);
 
   if (!caseData?.caseInfo) return <div className="p-4">Loading...</div>;
+
   return (
     <div>
       <div
@@ -146,6 +307,18 @@ export default function CaseReportApp() {
             gap: '12px',
           }}
         >
+          {/* 🔥 NEW: Refresh button cho images */}
+          <Button
+            sx={{ color: 'white', fontSize: '12px' }}
+            size="small"
+            variant="outlined"
+            onClick={refreshImageUrls}
+            disabled={isLoadingImages}
+            startIcon={<RefreshCw className={isLoadingImages ? 'animate-spin' : ''} />}
+          >
+            {isLoadingImages ? 'Refreshing...' : 'Refresh Images'}
+          </Button>
+          
           <Button
             sx={{ color: 'white', fontSize: '12px' }}
             size="small"
@@ -205,6 +378,9 @@ export default function CaseReportApp() {
             style={{ direction: 'ltr' }}
           >
             Captured by: <span className="font-light">All</span>
+            {isLoadingImages && (
+              <span className="ml-2 text-yellow-300">🔄 Loading images...</span>
+            )}
           </div>
           <div
             style={{
@@ -233,10 +409,7 @@ export default function CaseReportApp() {
                       height="240"
                       controls
                       draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('text/plain', f.file_url);
-                        e.dataTransfer.setData('captureType', f.capture_type);
-                      }}
+                      onDragStart={(e) => handleImageDragStart(e, f)}
                     >
                       <source src={f.file_url} type="video/mp4" />
                       Your browser does not support the video tag.
@@ -245,17 +418,33 @@ export default function CaseReportApp() {
                 ) : (
                   <img
                     draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData('text/plain', f.file_url);
-                      e.dataTransfer.setData('fileName', f.file_name);
-                      e.dataTransfer.setData('captureType', f.capture_type);
-                    }}
-                    src={f.file_url}
+                    onDragStart={(e) => handleImageDragStart(e, f)}
+                    src={imageUrls.get(f.file_key) || reportImageService.getProxyImageUrl(f.file_key)}
                     alt={f.file_name}
                     style={{
                       width: '100%',
                       objectFit: 'cover',
                       borderRadius: '4px',
+                    }}
+                    onError={async (e) => {
+                      // 🔥 NEW: Auto-retry với fresh URL khi ảnh fail
+                      const img = e.target as HTMLImageElement;
+                      if (f.file_key && !img.dataset.retried) {
+                        img.dataset.retried = 'true';
+                        try {
+                          console.log('🔄 Image failed, getting fresh URL for:', f.file_key);
+                          const freshUrl = await reportImageService.getImageDisplayUrl(f.file_key);
+                          img.src = freshUrl;
+                          setImageUrls(prev => new Map(prev).set(f.file_key, freshUrl));
+                        } catch (error) {
+                          console.error('❌ Failed to refresh image URL:', error);
+                        }
+                      }
+                    }}
+                    onLoad={() => {
+                      // Remove retry flag on successful load
+                      const img = document.querySelector(`img[src*="${f.file_key}"]`) as HTMLImageElement;
+                      if (img) delete img.dataset.retried;
                     }}
                   />
                 )}
@@ -272,6 +461,12 @@ export default function CaseReportApp() {
                   }}
                 >
                   {f.file_name}
+                  {/* 🔥 NEW: Show URL expiry status */}
+                  {f.capture_type === 'screenshot' && f.file_key && (
+                    <span style={{ fontSize: '10px', marginLeft: '4px' }}>
+                      {reportImageService.isImageUrlExpired(f.file_key) ? '⚠️' : '✅'}
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
