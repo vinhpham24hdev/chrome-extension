@@ -15,19 +15,21 @@ import ScreenshotPreview, { ScreenshotData } from "./ScreenshotPreview";
 import logo from "@/assets/logo.png";
 import CaseSelector from "./CaseSelector";
 
-// Error Modal Component for better UX
+// Error Modal Component with custom actions support
 const ErrorModal = ({
   isOpen,
   onClose,
   title,
   message,
   suggestions = [],
+  customActions = null,
 }: {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   message: string;
   suggestions?: string[];
+  customActions?: React.ReactNode;
 }) => {
   if (!isOpen) return null;
 
@@ -85,12 +87,14 @@ const ErrorModal = ({
 
         {/* Footer */}
         <div className="px-6 py-4 border-t bg-gray-50 rounded-b-lg">
-          <button
-            onClick={onClose}
-            className="w-full bg-blue-600 border-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
-          >
-            Got it
-          </button>
+          {customActions || (
+            <button
+              onClick={onClose}
+              className="w-full bg-blue-600 border-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+            >
+              Got it
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -153,32 +157,83 @@ export default function Dashboard() {
   useEffect(() => {
     loadCases();
     checkBackendConnection();
-    checkRecordingState();
   }, []);
 
-  // Check if there's an active recording
-  const checkRecordingState = async () => {
-    try {
-      if (typeof chrome !== 'undefined' && chrome.runtime) {
-        const response = await chrome.runtime.sendMessage({
-          type: 'GET_RECORDING_STATE'
-        });
-
-        if (response && response.success && response.state) {
-          setRecordingState({
-            isRecording: response.state.isRecording || false,
-            recordingType: response.state.recordingType || null,
-            startTime: response.state.startTime
+  // 🔥 NEW: Check and handle recording state when popup opens
+  useEffect(() => {
+    const handleRecordingOnPopupOpen = async () => {
+      try {
+        // Check if recording is active when popup opens
+        if (typeof chrome !== 'undefined' && chrome.runtime) {
+          const response = await chrome.runtime.sendMessage({
+            type: 'GET_RECORDING_STATE'
           });
 
-          // Update badge based on current state
-          if (response.state.isRecording) {
-            console.log('🔴 Found active recording, updating badge');
+          if (response && response.success && response.state && response.state.isRecording) {
+            console.log('🛑 Popup opened during recording - offering to stop');
+            
+            // Show immediate stop dialog
+            setErrorModal({
+              isOpen: true,
+              title: "Recording in Progress",
+              message: "A video recording is currently active. Would you like to stop it?",
+              suggestions: [
+                "Click 'Stop Recording' below to end the current recording",
+                "Or close this popup to continue recording"
+              ]
+            });
+
+            // Set custom close handler for this modal
+            setShowStopRecordingModal(true);
           }
         }
+      } catch (error) {
+        console.warn('⚠️ Could not check recording state on popup open:', error);
       }
+    };
+
+    handleRecordingOnPopupOpen();
+  }, []);
+
+  // State for stop recording modal
+  const [showStopRecordingModal, setShowStopRecordingModal] = useState(false);
+
+  // Handle stop recording from popup
+  const handleStopRecordingFromPopup = async () => {
+    try {
+      console.log('🛑 Stopping recording from popup...');
+      
+      // Send stop message to background
+      await chrome.runtime.sendMessage({
+        type: 'STOP_RECORDING_REQUEST',
+        source: 'popup',
+        timestamp: Date.now()
+      });
+
+      // Close the modal
+      setShowStopRecordingModal(false);
+      setErrorModal(prev => ({ ...prev, isOpen: false }));
+
+      // Show success message
+      setTimeout(() => {
+        setErrorModal({
+          isOpen: true,
+          title: "Recording Stopped",
+          message: "The video recording has been stopped successfully.",
+          suggestions: ["You can now start a new recording if needed"]
+        });
+        setShowStopRecordingModal(false);
+      }, 500);
+
     } catch (error) {
-      console.warn('⚠️ Could not check recording state:', error);
+      console.error('❌ Error stopping recording from popup:', error);
+      setErrorModal({
+        isOpen: true,
+        title: "Error Stopping Recording",
+        message: "Failed to stop the recording. Please try again.",
+        suggestions: ["Close this popup and try clicking the extension icon again"]
+      });
+      setShowStopRecordingModal(false);
     }
   };
 
@@ -1119,13 +1174,35 @@ export default function Dashboard() {
 
   return (
     <div className={`w-[402px] bg-white flex flex-col relative ${errorModal.isOpen ? 'min-h-[470px]' : 'min-h-[380px]'}`}>
-      {/* Enhanced Error Modal */}
+      {/* Enhanced Error Modal with custom actions */}
       <ErrorModal
         isOpen={errorModal.isOpen}
-        onClose={closeError}
+        onClose={() => {
+          setShowStopRecordingModal(false);
+          closeError();
+        }}
         title={errorModal.title}
         message={errorModal.message}
         suggestions={errorModal.suggestions}
+        customActions={showStopRecordingModal ? (
+          <div className="flex space-x-3">
+            <button
+              onClick={() => {
+                setShowStopRecordingModal(false);
+                setErrorModal(prev => ({ ...prev, isOpen: false }));
+              }}
+              className="flex-1 bg-gray-200 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-300 transition-colors font-medium"
+            >
+              Continue Recording
+            </button>
+            <button
+              onClick={handleStopRecordingFromPopup}
+              className="flex-1 bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 transition-colors font-medium"
+            >
+              Stop Recording
+            </button>
+          </div>
+        ) : null}
       />
 
       {/* Recording status overlay */}
@@ -1227,6 +1304,17 @@ export default function Dashboard() {
           <p className="text-xs text-red-600 mt-1">
             ⚠️ Backend disconnected
           </p>
+        )}
+        {/* Recording status indicator */}
+        {recordingState.isRecording && (
+          <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-2">
+            <p className="text-xs text-red-700 font-medium">
+              🔴 Recording in progress: {recordingState.duration ? formatDuration(recordingState.duration) : '00:00'}
+            </p>
+            <p className="text-xs text-red-600">
+              Click the extension icon to stop recording
+            </p>
+          </div>
         )}
       </div>
 

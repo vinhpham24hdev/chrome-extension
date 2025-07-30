@@ -44,10 +44,9 @@ export default defineConfig({
       },
     },
 
-    // 🔥 UPDATED: Remove default_popup to handle conditionally via background script
     action: { 
-      default_title: "Cellebrite Capture Tool"
-      // Note: No default_popup - will be handled programmatically in background script
+      default_title: "Cellebrite Capture Tool",
+      default_popup: "popup.html"  // 🔥 KEEP: Normal popup behavior
     },
 
     content_security_policy: {
