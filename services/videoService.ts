@@ -1,4 +1,4 @@
-// services/videoService.ts - Enhanced with S3 save integration
+// services/videoService.ts - ENHANCED: Auto focus support for icon stop
 export interface VideoOptions {
   type: "tab" | "desktop" | "window";
   format: "webm" | "mp4";
@@ -21,6 +21,7 @@ export interface VideoResult {
     quality?: string;
     sourceUrl?: string;
     pageTitle?: string;
+    stoppedViaIcon?: boolean; // 🎯 NEW: Track if stopped via icon for auto-focus
   };
 }
 
@@ -41,7 +42,7 @@ export interface RecordingState {
 
 export interface RecordingControls {
   start: () => Promise<void>;
-  stop: () => Promise<VideoResult>;
+  stop: (options?: { stoppedViaIcon?: boolean }) => Promise<VideoResult>; // 🎯 NEW: Track stop source
   pause: () => void;
   resume: () => void;
   cancel: () => void;
@@ -58,6 +59,9 @@ export class VideoService {
   private totalPausedDuration: number = 0;
   private pauseStartTime: number = 0;
   private progressInterval: NodeJS.Timeout | null = null;
+
+  // 🎯 NEW: Track stop source for auto-focus behavior
+  private stopSource: 'button' | 'icon' | 'auto' = 'button';
 
   private onStateChange?: (state: RecordingState) => void;
   private onProgress?: (progress: { duration: number; size: number }) => void;
@@ -88,68 +92,6 @@ export class VideoService {
       typeof MediaRecorder !== "undefined" &&
       navigator.mediaDevices
     );
-  }
-
-  /**
-   * Get available video recording options
-   */
-  getSupportedFormats(): string[] {
-    const formats = ["webm"];
-
-    // Check MP4 support
-    if (MediaRecorder.isTypeSupported("video/mp4")) {
-      formats.push("mp4");
-    }
-
-    return formats;
-  }
-
-  /**
-   * ✅ ENHANCED: Get current tab URL and metadata safely
-   */
-  private async getCurrentTabInfo(): Promise<{
-    url: string | null;
-    title: string | null;
-    isRestricted: boolean;
-  }> {
-    try {
-      if (typeof chrome === 'undefined' || !chrome.tabs) {
-        return { url: null, title: null, isRestricted: false };
-      }
-
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
-      if (!tab?.url) {
-        return { url: null, title: null, isRestricted: false };
-      }
-
-      // Filter out restricted URLs
-      const restrictedPatterns = [
-        /^chrome:\/\//,
-        /^chrome-extension:\/\//,
-        /^moz-extension:\/\//,
-        /^about:/,
-        /^edge:\/\//,
-        /^file:\/\//,
-        /^data:/
-      ];
-
-      const isRestricted = restrictedPatterns.some(pattern => pattern.test(tab.url!));
-      
-      if (isRestricted) {
-        console.log('Current tab URL is restricted, not capturing URL');
-        return { url: null, title: null, isRestricted: true };
-      }
-
-      return { 
-        url: tab.url, 
-        title: tab.title || null, 
-        isRestricted: false 
-      };
-    } catch (error) {
-      console.warn('Could not get current tab info:', error);
-      return { url: null, title: null, isRestricted: false };
-    }
   }
 
   /**
@@ -202,6 +144,7 @@ export class VideoService {
       this.recordingStartTime = Date.now();
       this.totalPausedDuration = 0;
       this.pauseStartTime = 0;
+      this.stopSource = 'button'; // 🎯 NEW: Reset stop source
 
       // Setup event handlers with enhanced metadata
       this.setupMediaRecorderEvents(options);
@@ -232,7 +175,11 @@ export class VideoService {
         start: async () => {
           // Already started
         },
-        stop: () => this.stopRecording(),
+        stop: (stopOptions?: { stoppedViaIcon?: boolean }) => {
+          // 🎯 NEW: Track stop source
+          this.stopSource = stopOptions?.stoppedViaIcon ? 'icon' : 'button';
+          return this.stopRecording();
+        },
         pause: () => this.pauseRecording(),
         resume: () => this.resumeRecording(),
         cancel: () => this.cancelRecording(),
@@ -254,7 +201,7 @@ export class VideoService {
   }
 
   /**
-   * Stop recording and return result with metadata
+   * 🎯 ENHANCED: Stop recording with auto-focus metadata
    */
   private async stopRecording(): Promise<VideoResult> {
     return new Promise(async (resolve) => {
@@ -312,6 +259,7 @@ export class VideoService {
             size: blob.size,
           });
 
+          // 🎯 NEW: Include stop source in metadata for auto-focus behavior
           const result: VideoResult = {
             success: true,
             blob,
@@ -325,6 +273,7 @@ export class VideoService {
               quality: 'medium', // or from options
               sourceUrl: tabInfo.url || undefined,
               pageTitle: tabInfo.title || undefined,
+              stoppedViaIcon: this.stopSource === 'icon', // 🎯 NEW: Track stop source
             }
           };
 
@@ -333,7 +282,8 @@ export class VideoService {
             success: true,
             duration: Math.round(finalDuration),
             size: blob.size,
-            filename: filename
+            filename: filename,
+            stoppedViaIcon: this.stopSource === 'icon' // 🎯 NEW: Include stop source
           });
 
           resolve(result);
@@ -364,15 +314,24 @@ export class VideoService {
       this.mediaRecorder.stop();
     });
   }
+
   /**
-   * 🔥 NEW: Handle stop recording request from extension icon
+   * 🔥 ENHANCED: Handle stop recording request from extension icon with auto-focus
    */
   public handleStopFromIcon(): void {
     console.log('🛑 Received stop request from extension icon');
     
     if (this.currentState.isRecording) {
+      // 🎯 NEW: Mark as stopped via icon for auto-focus
+      this.stopSource = 'icon';
+      
       this.stopRecording().then((result) => {
         console.log('📹 Recording stopped via icon:', result.success);
+        
+        // 🎯 NEW: Auto-focus will be handled by the component via metadata
+        if (result.success && result.metadata?.stoppedViaIcon) {
+          console.log('🎯 Recording stopped via icon - preview should auto-focus');
+        }
       }).catch((error) => {
         console.error('❌ Error stopping recording via icon:', error);
       });
@@ -638,9 +597,58 @@ export class VideoService {
     if (options.maxDuration) {
       setTimeout(() => {
         if (this.currentState.isRecording) {
+          this.stopSource = 'auto';
           this.stopRecording();
         }
       }, options.maxDuration * 1000);
+    }
+  }
+
+  /**
+   * ✅ ENHANCED: Get current tab URL and metadata safely
+   */
+  private async getCurrentTabInfo(): Promise<{
+    url: string | null;
+    title: string | null;
+    isRestricted: boolean;
+  }> {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.tabs) {
+        return { url: null, title: null, isRestricted: false };
+      }
+
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab?.url) {
+        return { url: null, title: null, isRestricted: false };
+      }
+
+      // Filter out restricted URLs
+      const restrictedPatterns = [
+        /^chrome:\/\//,
+        /^chrome-extension:\/\//,
+        /^moz-extension:\/\//,
+        /^about:/,
+        /^edge:\/\//,
+        /^file:\/\//,
+        /^data:/
+      ];
+
+      const isRestricted = restrictedPatterns.some(pattern => pattern.test(tab.url!));
+      
+      if (isRestricted) {
+        console.log('Current tab URL is restricted, not capturing URL');
+        return { url: null, title: null, isRestricted: true };
+      }
+
+      return { 
+        url: tab.url, 
+        title: tab.title || null, 
+        isRestricted: false 
+      };
+    } catch (error) {
+      console.warn('Could not get current tab info:', error);
+      return { url: null, title: null, isRestricted: false };
     }
   }
 
@@ -715,6 +723,7 @@ export class VideoService {
     this.recordingStartTime = 0;
     this.totalPausedDuration = 0;
     this.pauseStartTime = 0;
+    this.stopSource = 'button'; // Reset stop source
   }
 
   /**
@@ -801,17 +810,32 @@ export class VideoService {
   }
 
   /**
-   * Download video file
+   * Get current recording state
    */
-  downloadVideo(blob: Blob, filename: string): void {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  getCurrentState(): RecordingState {
+    return { ...this.currentState };
+  }
+
+  /**
+   * Format duration for display
+   */
+  formatDuration(seconds: number): string {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
+  }
+
+  /**
+   * Format file size for display
+   */
+  formatFileSize(bytes: number): string {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
   }
 
   /**
@@ -832,7 +856,8 @@ export class VideoService {
         size: result.blob.size,
         duration: result.duration,
         caseId,
-        sourceUrl: options?.customSourceUrl || result.metadata?.sourceUrl
+        sourceUrl: options?.customSourceUrl || result.metadata?.sourceUrl,
+        stoppedViaIcon: result.metadata?.stoppedViaIcon // 🎯 NEW: Include stop source
       });
 
       // ✅ Import S3 service dynamically to avoid circular dependency
@@ -857,6 +882,7 @@ export class VideoService {
             timestamp: new Date().toISOString(),
             duration: result.duration,
             videoSize: result.size,
+            stoppedViaIcon: result.metadata?.stoppedViaIcon, // 🎯 NEW: Track stop method
           },
           description: options?.description,           // ✅ NEW: Pass description
           sourceUrl: options?.customSourceUrl || result.metadata?.sourceUrl  // ✅ NEW: Pass source URL
@@ -971,32 +997,17 @@ export class VideoService {
   }
 
   /**
-   * Get current recording state
+   * Download video file
    */
-  getCurrentState(): RecordingState {
-    return { ...this.currentState };
-  }
-
-  /**
-   * Format duration for display
-   */
-  formatDuration(seconds: number): string {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs
-      .toString()
-      .padStart(2, "0")}`;
-  }
-
-  /**
-   * Format file size for display
-   */
-  formatFileSize(bytes: number): string {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+  downloadVideo(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 }
 

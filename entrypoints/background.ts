@@ -29,13 +29,18 @@ export default defineBackground(() => {
     }
 
     try {
-      // Send stop message to recorder window/tab
+      // 🎯 NEW: Store current tab for focus after preview opens
+      const currentActiveTab = tab;
+
+      // Send stop message to recorder window/tab and wait for video result
       if (currentRecordingState.recordingTabId) {
         try {
           await chrome.tabs.sendMessage(currentRecordingState.recordingTabId, {
-            type: 'STOP_RECORDING_FROM_ICON'
+            type: 'STOP_RECORDING_FROM_ICON',
+            focusPreview: true,  // 🎯 NEW: Signal to focus preview
+            requestedBy: 'icon_click'
           });
-          console.log('📤 Stop message sent to recording tab');
+          console.log('📤 Stop message sent to recording tab with focus preview request');
         } catch (error) {
           console.warn('⚠️ Failed to send stop message to tab:', error);
         }
@@ -45,23 +50,15 @@ export default defineBackground(() => {
       chrome.runtime.sendMessage({
         type: 'STOP_RECORDING_REQUEST',
         source: 'icon_click',
+        focusPreview: true,  // 🎯 NEW: Include focus request
         timestamp: Date.now()
       }).catch(() => {
         console.warn('⚠️ No listeners for global stop message');
       });
 
-      // Try to close the recording tab after a delay
-      if (currentRecordingState.recordingTabId) {
-        setTimeout(async () => {
-          try {
-            await chrome.tabs.remove(currentRecordingState.recordingTabId!);
-            console.log('✅ Recording tab closed via icon click');
-          } catch (error) {
-            console.warn('⚠️ Could not close recording tab:', error);
-          }
-        }, 1000);
-      }
-
+      // 🎯 NEW: Don't close the recording tab immediately - let it handle the stop and preview
+      // The recording tab will transform into preview mode or open a new preview window
+      
       // Update state and hide indicator
       currentRecordingState = {
         isRecording: false,
@@ -82,7 +79,7 @@ export default defineBackground(() => {
       // 🔥 CRITICAL: Re-enable popup and remove onClicked listener
       await restorePopupBehavior();
       
-      console.log('✅ Recording stopped via icon click, popup behavior restored');
+      console.log('✅ Recording stopped via icon click, preview will be focused');
 
     } catch (error) {
       console.error('❌ Error stopping recording via icon:', error);

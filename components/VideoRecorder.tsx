@@ -1,4 +1,4 @@
-// components/VideoRecorder.tsx - UPDATED with icon stop handling
+// VideoRecorder.tsx - UPDATED: Auto focus preview when stopped via icon
 import React, { useState, useEffect, useRef } from "react";
 import { FaPlay, FaPause, FaStop, FaTimes, FaCircle } from "react-icons/fa";
 import { toast } from "react-toastify";
@@ -65,7 +65,10 @@ export default function VideoRecorder({
   const [videoResult, setVideoResult] = useState<VideoResult | null>(null);
   const hasAutoStarted = useRef(false);
 
-  // 🔥 NEW: Handle stop recording from extension icon
+  // 🎯 NEW: Track if stopped via icon for auto-focus behavior
+  const [stoppedViaIcon, setStoppedViaIcon] = useState(false);
+
+  // 🔥 ENHANCED: Handle stop recording from extension icon with auto-focus
   useEffect(() => {
     const handleIconStopMessage = (
       message: any, 
@@ -77,9 +80,18 @@ export default function VideoRecorder({
       if (message.type === 'STOP_RECORDING_FROM_ICON') {
         console.log('🛑 Received stop recording request from icon');
         
+        // 🎯 NEW: Check if focus preview was requested
+        const shouldFocusPreview = message.focusPreview === true;
+        
         if (recordingControls && recordingState.isRecording) {
+          // 🎯 NEW: Set flag for auto-focus behavior
+          if (shouldFocusPreview) {
+            setStoppedViaIcon(true);
+            console.log('🎯 Will auto-focus preview when recording completes');
+          }
+          
           handleStopRecording();
-          sendResponse({ success: true, stopped: true });
+          sendResponse({ success: true, stopped: true, willFocusPreview: shouldFocusPreview });
         } else {
           console.warn('⚠️ No active recording to stop');
           sendResponse({ success: false, error: 'No active recording' });
@@ -89,9 +101,16 @@ export default function VideoRecorder({
       if (message.type === 'STOP_RECORDING_REQUEST') {
         console.log('🛑 Received global stop recording request');
         
+        // 🎯 NEW: Check for focus preview request
+        const shouldFocusPreview = message.focusPreview === true;
+        
         if (recordingControls && recordingState.isRecording) {
+          if (shouldFocusPreview) {
+            setStoppedViaIcon(true);
+          }
+          
           handleStopRecording();
-          sendResponse({ success: true, stopped: true });
+          sendResponse({ success: true, stopped: true, willFocusPreview: shouldFocusPreview });
         } else {
           sendResponse({ success: false, error: 'No active recording' });
         }
@@ -110,6 +129,41 @@ export default function VideoRecorder({
       }
     };
   }, [recordingControls, recordingState.isRecording]);
+
+  // 🎯 NEW: Auto-focus preview when video result is available and stopped via icon
+  useEffect(() => {
+    if (videoResult && videoResult.success && stoppedViaIcon) {
+      console.log('🎯 Auto-focusing preview window since stopped via icon');
+      
+      // Focus this tab/window to bring preview to front
+      setTimeout(() => {
+        if (typeof chrome !== 'undefined' && chrome.tabs) {
+          chrome.tabs.getCurrent((currentTab) => {
+            if (currentTab && currentTab.id) {
+              chrome.tabs.update(currentTab.id, { active: true }).then(() => {
+                console.log('✅ Preview tab focused automatically');
+                
+                // Also focus the window containing this tab
+                if (currentTab.windowId) {
+                  chrome.windows.update(currentTab.windowId, { focused: true }).catch(() => {
+                    console.warn('⚠️ Could not focus preview window');
+                  });
+                }
+              }).catch(() => {
+                console.warn('⚠️ Could not focus preview tab');
+              });
+            }
+          });
+        } else {
+          // Fallback for non-extension context
+          window.focus();
+        }
+      }, 500); // Small delay to ensure UI is ready
+
+      // Reset flag after use
+      setStoppedViaIcon(false);
+    }
+  }, [videoResult, stoppedViaIcon]);
 
   const handleFormChange = (field: keyof typeof videoForm, value: string) => {
     setVideoForm((prev) => ({
@@ -391,7 +445,7 @@ export default function VideoRecorder({
   if (recordingState.isRecording) {
     return (
       <div className="min-h-screen p-6 bg-gray-50 relative flex-col items-center justify-center">
-        {/* 🔥 NEW: Enhanced status message with icon info */}
+        {/* 🔥 ENHANCED: Status message with icon info and auto-focus info */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-20 h-20 bg-red-100 rounded-full mb-6">
             <FaCircle className="w-10 h-10 text-red-500 animate-pulse" />
@@ -402,10 +456,13 @@ export default function VideoRecorder({
           <p className="text-gray-500 text-sm mb-2">
             {videoService.formatFileSize(recordingState.size)} • Duration: {videoService.formatDuration(recordingState.duration)}
           </p>
-          {/* 🔥 NEW: Icon click instruction */}
+          {/* 🎯 ENHANCED: Icon click instruction with auto-focus info */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 max-w-md mx-auto">
             <p className="text-blue-800 text-sm font-medium">
               💡 Quick tip: Click the extension icon 🔴 to stop recording
+            </p>
+            <p className="text-blue-600 text-xs mt-1">
+              Preview will automatically open and focus for you to save
             </p>
           </div>
         </div>
@@ -463,7 +520,7 @@ export default function VideoRecorder({
     );
   }
 
-  // Video Preview State - Show result in same tab (ORIGINAL DESIGN)
+  // Video Preview State - Show result in same tab with auto-focus indicator
   if (videoResult && videoResult.success && videoResult.dataUrl) {
     return (
       <div className="relative items-center justify-center z-50">
@@ -473,6 +530,15 @@ export default function VideoRecorder({
         >
           <FaTimes className="w-4 h-4" />
         </button>
+
+        {/* 🎯 NEW: Auto-focus indicator */}
+        {stoppedViaIcon && (
+          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-green-100 border border-green-300 rounded-lg px-4 py-2 z-50">
+            <p className="text-green-800 text-sm font-medium">
+              🎯 Preview auto-focused - stopped via extension icon
+            </p>
+          </div>
+        )}
 
         {/* Upload Progress Overlay */}
         {uploadState.isUploading && (
