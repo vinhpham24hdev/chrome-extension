@@ -14,13 +14,6 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { CaseItem, caseService } from '@/services/caseService';
 import { addRecentCase, getRecentCases } from '@/utils/caseSelector';
 
-const recentCases = [
-  'Case 11220240320',
-  'Case 78932227344',
-  'Case 78333872256',
-  'Case 34789372224',
-];
-
 async function searchCasesFromAPI(search: string) {
   try {
     const fetchedCase = await caseService.getCases({
@@ -45,6 +38,7 @@ type CaseSelectorProps = {
 export default function CaseSelector({
   selectedCase,
   disabled,
+  cases,
   onCaseSelected,
 }: CaseSelectorProps) {
   const [loading, setLoading] = useState(false);
@@ -67,6 +61,16 @@ export default function CaseSelector({
     onCaseSelected(caseId);
     await addRecentCase(caseId);
     setSearchTerm('');
+    handleClose();
+
+    const currentCase = cases.find((caseItem) => caseItem.id === caseId);
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      await chrome.storage.local.set({
+        selectedCase: currentCase,
+      });
+    } else {
+      localStorage.setItem('selectedCase', JSON.stringify(currentCase));
+    }
   };
 
   useEffect(() => {
@@ -179,8 +183,8 @@ export default function CaseSelector({
                 <ListItem
                   key={i}
                   onClick={() => {
-                    handleCaseSelect(caseId)
-                    handleClose()
+                    handleCaseSelect(caseId);
+                    handleClose();
                   }}
                   className="hover:bg-gray-100 rounded-md px-2 py-1"
                 >

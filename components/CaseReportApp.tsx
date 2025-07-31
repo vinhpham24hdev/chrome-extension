@@ -207,8 +207,8 @@ export default function CaseReportApp() {
                   `img[src="${finalUrl}"]`
                 ) as HTMLImageElement;
                 if (img) {
-                  img.style.maxWidth = '800px';
-                  img.style.width = '100%';
+                  // img.style.maxWidth = '800px';
+                  // img.style.width = '100%';
                   
                   // 🔥 NEW: Add error handler to refresh URL if media fails to load
                   img.onerror = async () => {

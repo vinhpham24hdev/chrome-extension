@@ -324,10 +324,18 @@ export default function Dashboard() {
       
       setCases(fetchedCases);
       
-      // Auto-select first case if none selected
-      if (fetchedCases.length > 0 && !selectedCase) {
-        setSelectedCase(fetchedCases[0].id);
+      const selectedCaseFromStorage = await chrome.storage.local.get(['selectedCase'])      
+      if(selectedCaseFromStorage?.selectedCase?.id) {        
+        setSelectedCase(selectedCaseFromStorage.selectedCase.id)
       }
+      else {
+        // Auto-select first case if none selected        
+        if (fetchedCases.length > 0 && !selectedCase) {
+          setSelectedCase(fetchedCases[0].id);
+          chrome.storage.local.set({selectedCase: fetchedCases[0]})
+        }
+      }
+     
       
       console.log('✅ Cases loaded:', fetchedCases.length);
     } catch (error) {
