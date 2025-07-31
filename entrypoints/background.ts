@@ -1,4 +1,4 @@
-// entrypoints/background.ts - UPDATED with recording indicator and click handling
+// entrypoints/background.ts - FIXED: Stop recording via icon click
 import { badgeService } from '../services/badgeService';
 
 export default defineBackground(() => {
@@ -19,14 +19,16 @@ export default defineBackground(() => {
   // Store for video results that couldn't be delivered immediately
   const pendingVideoResults = new Map<string, any>();
 
-  // 🔥 REMOVED: No more onClicked listener - let popup handle everything
-  // chrome.action.onClicked.addListener(...) - REMOVED
+  // 🔥 NEW: onClicked handler for stop recording (only active during recording)
+  const handleStopRecordingFromIcon = async (tab: chrome.tabs.Tab) => {
+    console.log('🛑 Extension icon clicked during recording - stopping...');
+    
+    if (!currentRecordingState.isRecording) {
+      console.warn('⚠️ Icon clicked but no recording active');
+      return;
+    }
 
-  // 🔥 ENHANCED: Stop recording when icon is clicked
-  async function handleStopRecordingFromIcon() {
     try {
-      console.log('🛑 Attempting to stop recording via icon click');
-
       // Send stop message to recorder window/tab
       if (currentRecordingState.recordingTabId) {
         try {
@@ -39,7 +41,7 @@ export default defineBackground(() => {
         }
       }
 
-      // Send global message to any listening components
+      // Send global stop message
       chrome.runtime.sendMessage({
         type: 'STOP_RECORDING_REQUEST',
         source: 'icon_click',
@@ -48,26 +50,16 @@ export default defineBackground(() => {
         console.warn('⚠️ No listeners for global stop message');
       });
 
-      // Try to close the recording tab if it exists
+      // Try to close the recording tab after a delay
       if (currentRecordingState.recordingTabId) {
-        try {
-          // First try to send a close message
-          await chrome.tabs.sendMessage(currentRecordingState.recordingTabId, {
-            type: 'CLOSE_RECORDER_REQUEST'
-          });
-          
-          // Then close the tab after a delay
-          setTimeout(async () => {
-            try {
-              await chrome.tabs.remove(currentRecordingState.recordingTabId!);
-              console.log('✅ Recording tab closed');
-            } catch (error) {
-              console.warn('⚠️ Could not close recording tab:', error);
-            }
-          }, 500);
-        } catch (error) {
-          console.warn('⚠️ Error closing recording tab:', error);
-        }
+        setTimeout(async () => {
+          try {
+            await chrome.tabs.remove(currentRecordingState.recordingTabId!);
+            console.log('✅ Recording tab closed via icon click');
+          } catch (error) {
+            console.warn('⚠️ Could not close recording tab:', error);
+          }
+        }, 1000);
       }
 
       // Update state and hide indicator
@@ -76,22 +68,67 @@ export default defineBackground(() => {
         recordingType: null
       };
 
+      // Clean up storage
+      chrome.storage.local.remove([
+        'ongoing_recording', 
+        'recording_tab_id', 
+        'recording_start_time'
+      ]).catch(() => {
+        console.warn('⚠️ Could not clean recording state from storage');
+      });
+
       badgeService.hideRecordingIndicator();
       
-      // 🔥 NEW: Restore popup functionality when recording stops
-      setTimeout(() => {
-        chrome.action.setPopup({ popup: '' }).catch(() => {
-          console.warn('⚠️ Could not clear popup for next click');
-        });
-      }, 100);
+      // 🔥 CRITICAL: Re-enable popup and remove onClicked listener
+      await restorePopupBehavior();
       
-      console.log('✅ Recording stopped via icon click, popup restored');
+      console.log('✅ Recording stopped via icon click, popup behavior restored');
 
     } catch (error) {
       console.error('❌ Error stopping recording via icon:', error);
       badgeService.showErrorIndicator();
     }
-  }
+  };
+
+  // 🔥 NEW: Disable popup and enable onClicked for recording
+  const enableRecordingMode = async () => {
+    try {
+      // Disable popup
+      await chrome.action.setPopup({ popup: '' });
+      
+      // Add onClicked listener for stop recording
+      chrome.action.onClicked.addListener(handleStopRecordingFromIcon);
+      
+      // Update title to indicate recording mode
+      await chrome.action.setTitle({ 
+        title: '🔴 Click to stop recording' 
+      });
+      
+      console.log('🔴 Recording mode enabled - popup disabled, onClicked active');
+    } catch (error) {
+      console.error('❌ Failed to enable recording mode:', error);
+    }
+  };
+
+  // 🔥 NEW: Restore normal popup behavior
+  const restorePopupBehavior = async () => {
+    try {
+      // Remove onClicked listener
+      chrome.action.onClicked.removeListener(handleStopRecordingFromIcon);
+      
+      // Re-enable popup
+      await chrome.action.setPopup({ popup: 'popup.html' });
+      
+      // Restore normal title
+      await chrome.action.setTitle({ 
+        title: 'Cellebrite Capture Tool' 
+      });
+      
+      console.log('⚪ Normal popup behavior restored');
+    } catch (error) {
+      console.error('❌ Failed to restore popup behavior:', error);
+    }
+  };
 
   // Handle messages from different parts of the extension
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -104,7 +141,7 @@ export default defineBackground(() => {
 
     try {
       switch (message.type) {
-        // 🔥 NEW: Handle recording state changes
+        // 🔥 UPDATED: Handle recording state changes with popup management
         case "RECORDING_STARTED":
           handleRecordingStarted(message, sender);
           sendResponse({ success: true });
@@ -201,8 +238,8 @@ export default defineBackground(() => {
     }
   });
 
-  // 🔥 UPDATED: Handle recording started with storage
-  function handleRecordingStarted(message: any, sender: chrome.runtime.MessageSender) {
+  // 🔥 UPDATED: Handle recording started with popup management
+  async function handleRecordingStarted(message: any, sender: chrome.runtime.MessageSender) {
     console.log('🎬 Recording started:', message);
     
     currentRecordingState = {
@@ -213,7 +250,7 @@ export default defineBackground(() => {
       startTime: Date.now()
     };
 
-    // 🔥 NEW: Mark recording in storage for persistence
+    // 🔥 NEW: Save recording state to storage for persistence
     chrome.storage.local.set({
       ongoing_recording: true,
       recording_tab_id: sender.tab?.id,
@@ -226,16 +263,14 @@ export default defineBackground(() => {
     badgeService.showRecordingIndicator();
     badgeService.startRecordingAnimation();
     
-    // Clear popup when recording starts
-    chrome.action.setPopup({ popup: '' }).catch(() => {
-      console.warn('⚠️ Could not clear popup');
-    });
+    // 🔥 NEW: Enable recording mode (disable popup, enable onClicked)
+    await enableRecordingMode();
     
-    console.log('🔴 Recording indicator activated, popup cleared, state saved');
+    console.log('🔴 Recording indicator activated, recording mode enabled');
   }
 
-  // 🔥 UPDATED: Handle recording stopped with storage cleanup
-  function handleRecordingStopped(message: any, sender: chrome.runtime.MessageSender) {
+  // 🔥 UPDATED: Handle recording stopped with popup restoration
+  async function handleRecordingStopped(message: any, sender: chrome.runtime.MessageSender) {
     console.log('🛑 Recording stopped:', message);
     
     currentRecordingState = {
@@ -260,16 +295,14 @@ export default defineBackground(() => {
       badgeService.showSuccessIndicator();
     }
     
-    // 🔥 NEW: Ensure popup is cleared (will be handled on next click)
-    chrome.action.setPopup({ popup: '' }).catch(() => {
-      console.warn('⚠️ Could not clear popup after recording stopped');
-    });
+    // 🔥 NEW: Restore normal popup behavior
+    await restorePopupBehavior();
     
-    console.log('⚪ Recording indicator deactivated, storage cleaned');
+    console.log('⚪ Recording indicator deactivated, popup behavior restored');
   }
 
-  // 🔥 NEW: Handle recording error
-  function handleRecordingError(message: any, sender: chrome.runtime.MessageSender) {
+  // 🔥 UPDATED: Handle recording error with popup restoration
+  async function handleRecordingError(message: any, sender: chrome.runtime.MessageSender) {
     console.log('❌ Recording error:', message);
     
     currentRecordingState = {
@@ -281,11 +314,14 @@ export default defineBackground(() => {
     badgeService.hideRecordingIndicator();
     badgeService.showErrorIndicator();
     
-    console.log('⚠️ Recording error indicator shown');
+    // 🔥 NEW: Restore popup behavior after error
+    await restorePopupBehavior();
+    
+    console.log('⚠️ Recording error, popup behavior restored');
   }
 
   // 🔥 NEW: Listen for tab/window close events to clean up recording state
-  chrome.tabs.onRemoved.addListener((tabId) => {
+  chrome.tabs.onRemoved.addListener(async (tabId) => {
     if (currentRecordingState.recordingTabId === tabId) {
       console.log('📄 Recording tab closed, cleaning up state');
       currentRecordingState = {
@@ -293,10 +329,11 @@ export default defineBackground(() => {
         recordingType: null
       };
       badgeService.hideRecordingIndicator();
+      await restorePopupBehavior();
     }
   });
 
-  chrome.windows.onRemoved.addListener((windowId) => {
+  chrome.windows.onRemoved.addListener(async (windowId) => {
     if (currentRecordingState.recordingWindowId === windowId) {
       console.log('🪟 Recording window closed, cleaning up state');
       currentRecordingState = {
@@ -304,12 +341,124 @@ export default defineBackground(() => {
         recordingType: null
       };
       badgeService.hideRecordingIndicator();
+      await restorePopupBehavior();
     }
   });
 
-  // ... [Keep all existing functions: handleRegionCaptureStart, handleRegionSelected, etc.]
-  // ... [The rest of your original background script code remains the same]
+  // 🔥 NEW: Check for ongoing recording on startup and restore state
+  const checkOngoingRecording = async () => {
+    try {
+      // Check storage for any ongoing recording markers
+      const storage = await chrome.storage.local.get([
+        'ongoing_recording',
+        'recording_tab_id'
+      ]);
+      
+      if (storage.ongoing_recording) {
+        console.log('🔍 Found ongoing recording marker, checking validity...');
+        
+        // Verify if the recording tab still exists
+        if (storage.recording_tab_id) {
+          try {
+            const tab = await chrome.tabs.get(storage.recording_tab_id);
+            if (tab) {
+              console.log('🎬 Ongoing recording tab found, restoring state');
+              currentRecordingState = {
+                isRecording: true,
+                recordingType: 'video',
+                recordingTabId: storage.recording_tab_id,
+                startTime: storage.recording_start_time || Date.now()
+              };
+              
+              badgeService.showRecordingIndicator();
+              badgeService.startRecordingAnimation();
+              await enableRecordingMode();
+            }
+          } catch (error) {
+            console.log('🧹 Recording tab no longer exists, cleaning up');
+            await chrome.storage.local.remove(['ongoing_recording', 'recording_tab_id', 'recording_start_time']);
+            await restorePopupBehavior();
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Error checking ongoing recording:', error);
+    }
+  };
 
+  // 🔥 NEW: Initialize on startup
+  checkOngoingRecording();
+
+  // Stop recording request from popup
+  async function handleStopRecordingFromPopup(
+    message: any,
+    sender: chrome.runtime.MessageSender
+  ) {
+    try {
+      console.log('🛑 Stopping recording requested from popup');
+
+      // Send stop message to recorder window/tab
+      if (currentRecordingState.recordingTabId) {
+        try {
+          await chrome.tabs.sendMessage(currentRecordingState.recordingTabId, {
+            type: 'STOP_RECORDING_FROM_ICON'
+          });
+          console.log('📤 Stop message sent to recording tab');
+        } catch (error) {
+          console.warn('⚠️ Failed to send stop message to tab:', error);
+        }
+      }
+
+      // Try to close the recording tab if it exists
+      if (currentRecordingState.recordingTabId) {
+        try {
+          setTimeout(async () => {
+            try {
+              await chrome.tabs.remove(currentRecordingState.recordingTabId!);
+              console.log('✅ Recording tab closed');
+            } catch (error) {
+              console.warn('⚠️ Could not close recording tab:', error);
+            }
+          }, 1000);
+        } catch (error) {
+          console.warn('⚠️ Error closing recording tab:', error);
+        }
+      }
+
+      // Update state and hide indicator
+      currentRecordingState = {
+        isRecording: false,
+        recordingType: null
+      };
+
+      // Clean up storage
+      chrome.storage.local.remove([
+        'ongoing_recording', 
+        'recording_tab_id', 
+        'recording_start_time'
+      ]).catch(() => {
+        console.warn('⚠️ Could not clean recording state from storage');
+      });
+
+      badgeService.hideRecordingIndicator();
+      await restorePopupBehavior();
+      
+      console.log('✅ Recording stopped from popup');
+
+      return {
+        success: true,
+        message: 'Recording stopped successfully'
+      };
+
+    } catch (error) {
+      console.error('❌ Error stopping recording from popup:', error);
+      badgeService.showErrorIndicator();
+      await restorePopupBehavior();
+      throw error;
+    }
+  };
+
+  // ... [Keep all existing region capture functions unchanged]
   async function handleRegionCaptureStart(
     message: any,
     sender: chrome.runtime.MessageSender
@@ -1053,110 +1202,4 @@ export default defineBackground(() => {
 
     console.log("✅ Fixed region selector initialization complete");
   }
-
-  // 🔥 NEW: Check for ongoing recording on startup
-  const checkOngoingRecording = async () => {
-    try {
-      // Check storage for any ongoing recording markers
-      const storage = await chrome.storage.local.get([
-        'ongoing_recording',
-        'recording_tab_id'
-      ]);
-      
-      if (storage.ongoing_recording) {
-        console.log('🔍 Found ongoing recording marker, checking validity...');
-        
-        // Verify if the recording tab still exists
-        if (storage.recording_tab_id) {
-          try {
-            const tab = await chrome.tabs.get(storage.recording_tab_id);
-            if (tab) {
-              console.log('🎬 Ongoing recording tab found, restoring state');
-              currentRecordingState = {
-                isRecording: true,
-                recordingType: 'video',
-                recordingTabId: storage.recording_tab_id,
-                startTime: storage.recording_start_time || Date.now()
-              };
-              
-              badgeService.showRecordingIndicator();
-              badgeService.startRecordingAnimation();
-            }
-          } catch (error) {
-            console.log('🧹 Recording tab no longer exists, cleaning up');
-            await chrome.storage.local.remove(['ongoing_recording', 'recording_tab_id', 'recording_start_time']);
-          }
-        }
-      }
-    } catch (error) {
-      console.warn('⚠️ Error checking ongoing recording:', error);
-    }
-  };
-
-  // 🔥 NEW: Stop recording request from popup
-  async function handleStopRecordingFromPopup(
-    message: any,
-    sender: chrome.runtime.MessageSender
-  ) {
-    try {
-      console.log('🛑 Stopping recording requested from popup');
-
-      // Send stop message to recorder window/tab
-      if (currentRecordingState.recordingTabId) {
-        try {
-          await chrome.tabs.sendMessage(currentRecordingState.recordingTabId, {
-            type: 'STOP_RECORDING_FROM_ICON'
-          });
-          console.log('📤 Stop message sent to recording tab');
-        } catch (error) {
-          console.warn('⚠️ Failed to send stop message to tab:', error);
-        }
-      }
-
-      // Try to close the recording tab if it exists
-      if (currentRecordingState.recordingTabId) {
-        try {
-          setTimeout(async () => {
-            try {
-              await chrome.tabs.remove(currentRecordingState.recordingTabId!);
-              console.log('✅ Recording tab closed');
-            } catch (error) {
-              console.warn('⚠️ Could not close recording tab:', error);
-            }
-          }, 1000);
-        } catch (error) {
-          console.warn('⚠️ Error closing recording tab:', error);
-        }
-      }
-
-      // Update state and hide indicator
-      currentRecordingState = {
-        isRecording: false,
-        recordingType: null
-      };
-
-      // Clean up storage
-      chrome.storage.local.remove([
-        'ongoing_recording', 
-        'recording_tab_id', 
-        'recording_start_time'
-      ]).catch(() => {
-        console.warn('⚠️ Could not clean recording state from storage');
-      });
-
-      badgeService.hideRecordingIndicator();
-      
-      console.log('✅ Recording stopped from popup');
-
-      return {
-        success: true,
-        message: 'Recording stopped successfully'
-      };
-
-    } catch (error) {
-      console.error('❌ Error stopping recording from popup:', error);
-      badgeService.showErrorIndicator();
-      throw error;
-    }
-  };
 });
